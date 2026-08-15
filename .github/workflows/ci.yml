@@ -1,0 +1,42 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect Python project
+        id: proj
+        run: |
+          if [ -f pyproject.toml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Bootstrap mode: no pyproject.toml yet (pre-P0-4)."
+          fi
+
+      - uses: astral-sh/setup-uv@v5
+        if: steps.proj.outputs.present == 'true'
+
+      - name: Sync
+        if: steps.proj.outputs.present == 'true'
+        run: uv sync --dev
+
+      - name: Lint
+        if: steps.proj.outputs.present == 'true'
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check
+        if: steps.proj.outputs.present == 'true'
+        run: uv run ty check
+
+      - name: Tests (mock-only; hardware tests are Pi-side via P3-3)
+        if: steps.proj.outputs.present == 'true'
+        run: uv run pytest -m "not hardware"
