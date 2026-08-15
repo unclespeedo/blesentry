@@ -671,5 +671,55 @@ day one, exactly when it costs nothing and preserves the most optionality.
 
 ## Appendix: Issue Map
 
-*To be filled by the issue-seeding agent via PR: one row per issue
-(P0-1 … P4-9), mapping to GitHub issue number, status, and board column.*
+Seeded 2026-08-15 by the issue-seeding agent. Board column = planned
+"blesentry v1" project column (Backlog / Ready); project creation is pending
+token scope grant (`gh auth refresh -s read:project,project`).
+
+| ID | Issue | Milestone | Status |
+|---|---|---|---|
+| P0-1 | #1 | Phase 0 — Provisioning & Gates | Open (Backlog) |
+| P0-2 | #2 | Phase 0 — Provisioning & Gates | Open (Backlog) |
+| P0-3 | #3 | Phase 0 — Provisioning & Gates | Open (Ready) |
+| P0-4 | #4 | Phase 0 — Provisioning & Gates | Open (Ready) |
+| P0-5 | #5 | Phase 0 — Provisioning & Gates | Open (Backlog) |
+| P0-6 | #6 | Phase 0 — Provisioning & Gates | Open (Backlog) |
+| P0-4a | #7 | Phase 0 — Provisioning & Gates | Open (Backlog) |
+| P0-7 | #8 | Leave-Site Gate | Open (Backlog) |
+| P0-8 | #9 | Leave-Site Gate | Open (Backlog) |
+| P0-9 | #10 | Phase 0 — Provisioning & Gates | Open (Backlog) |
+| P0-10 | #11 | Leave-Site Gate | Open (Backlog) |
+| P0-11 | #16 | Leave-Site Gate | Open (Backlog) |
+| P1-1 | #12 | Phase 1 — Core Skeleton | Open (Backlog) |
+| P1-2 | #13 | Phase 1 — Core Skeleton | Open (Backlog) |
+| P1-3 | #14 | Phase 1 — Core Skeleton | Open (Backlog) |
+| P1-4 | #15 | Phase 1 — Core Skeleton | Open (Backlog) |
+| P1-5 | #17 | Phase 1 — Core Skeleton | Open (Backlog) |
+| P1-6 | #18 | Phase 1 — Core Skeleton | Open (Backlog) |
+| P1-7 | #19 | Phase 1 — Core Skeleton | Open (Backlog) |
+| P1-8 | #20 | Phase 1 — Core Skeleton | Open (Backlog) |
+| P1-9 | #21 | Phase 1 — Core Skeleton | Open (Backlog) |
+| P2-1 | #22 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
+| P2-2 | #23 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
+| P2-3 | #24 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
+| P2-4 | #26 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
+| P2-5 | #25 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
+| P2-6 | #27 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
+| P2-7 | #28 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
+| P2-8 | #29 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
+| P2-9 | #30 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
+| P3-0 | #31 | Leave-Site Gate | Open (Backlog) |
+| P3-1 | #32 | Phase 3 — Pi Deployment | Open (Backlog) |
+| P3-2 | #33 | Phase 3 — Pi Deployment | Open (Backlog) |
+| P3-3 | #34 | Phase 3 — Pi Deployment | Open (Backlog) |
+| P3-4 | #35 | Phase 3 — Pi Deployment | Open (Backlog) |
+| P3-5 | #36 | Phase 3 — Pi Deployment | Open (Backlog) |
+| P3-6 | #37 | Phase 3 — Pi Deployment | Open (Backlog) |
+| P4-1 | #38 | Phase 4 — Hardening | Open (Backlog) |
+| P4-2 | #39 | Phase 4 — Hardening | Open (Backlog) |
+| P4-3 | #40 | Phase 4 — Hardening | Open (Backlog) |
+| P4-4 | #41 | Phase 4 — Hardening | Open (Backlog) |
+| P4-5 | #42 | Phase 4 — Hardening | Open (Backlog) |
+| P4-6 | #43 | Phase 4 — Hardening | Open (Backlog) |
+| P4-7 | #44 | Phase 4 — Hardening | Open (Backlog) |
+| P4-8 | #45 | Phase 4 — Hardening | Open (Backlog) |
+| P4-9 | #46 | Phase 4 — Hardening | Open (Backlog) |
