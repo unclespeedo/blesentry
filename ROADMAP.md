@@ -671,9 +671,9 @@ day one, exactly when it costs nothing and preserves the most optionality.
 
 ## Appendix: Issue Map
 
-Seeded 2026-08-15 by the issue-seeding agent. Board column = planned
-"blesentry v1" project column (Backlog / Ready); project creation is pending
-token scope grant (`gh auth refresh -s read:project,project`).
+Seeded 2026-08-15 by the issue-seeding agent. Status = issue state plus
+"blesentry v1" project column (Backlog / Ready); all 46 issues are linked
+to the project.
 
 | ID | Issue | Milestone | Status |
 |---|---|---|---|
@@ -681,12 +681,12 @@ token scope grant (`gh auth refresh -s read:project,project`).
 | P0-2 | #2 | Phase 0 — Provisioning & Gates | Open (Backlog) |
 | P0-3 | #3 | Phase 0 — Provisioning & Gates | Open (Ready) |
 | P0-4 | #4 | Phase 0 — Provisioning & Gates | Open (Ready) |
+| P0-4a | #7 | Phase 0 — Provisioning & Gates | Open (Backlog) |
 | P0-5 | #5 | Phase 0 — Provisioning & Gates | Open (Backlog) |
 | P0-6 | #6 | Phase 0 — Provisioning & Gates | Open (Backlog) |
-| P0-4a | #7 | Phase 0 — Provisioning & Gates | Open (Backlog) |
 | P0-7 | #8 | Leave-Site Gate | Open (Backlog) |
 | P0-8 | #9 | Leave-Site Gate | Open (Backlog) |
-| P0-9 | #10 | Phase 0 — Provisioning & Gates | Open (Backlog) |
+| P0-9 | #10 | Leave-Site Gate | Open (Backlog) |
 | P0-10 | #11 | Leave-Site Gate | Open (Backlog) |
 | P0-11 | #16 | Leave-Site Gate | Open (Backlog) |
 | P1-1 | #12 | Phase 1 — Core Skeleton | Open (Backlog) |
