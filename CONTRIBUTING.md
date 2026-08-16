@@ -6,7 +6,8 @@
 - Out-of-tree plugins (custom Scanner/Notifier implementations against our
   protocols) may use ANY license — that boundary is intentional (ADR-0002,
   ADR-0004).
-- Every new source file carries this header:
+- Every new source file carries this header (template wired at repo root
+  in `mpl-header.txt`):
 
     # This Source Code Form is subject to the terms of the Mozilla Public
     # License, v. 2.0. If a copy of the MPL was not distributed with this
