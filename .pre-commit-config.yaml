@@ -1,0 +1,31 @@
+# Pre-commit gate: the local arbiter of done for PRs (CI runs on main only).
+# Mirrors .github/workflows/ci.yml so "pre-commit" locally == CI on Linux.
+# Requires uv on PATH (uses the project lockfile, not ad-hoc tool versions).
+# In bootstrap mode (no pyproject.toml yet, pre-P0-4) hooks no-op, matching
+# the CI workflow's `if: steps.proj.outputs.present == 'true'` guards.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: "bash -c 'if [ -f pyproject.toml ]; then uv run ruff check .; else echo \"bootstrap: skipping ruff check\"; fi'"
+        language: system
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format --check
+        entry: "bash -c 'if [ -f pyproject.toml ]; then uv run ruff format --check .; else echo \"bootstrap: skipping ruff format\"; fi'"
+        language: system
+        pass_filenames: false
+
+      - id: ty-check
+        name: ty check
+        entry: "bash -c 'if [ -f pyproject.toml ]; then uv run ty check; else echo \"bootstrap: skipping ty check\"; fi'"
+        language: system
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest (mock-only, no hardware)
+        entry: "bash -c 'if [ -f pyproject.toml ]; then uv run pytest -m \"not hardware\"; else echo \"bootstrap: skipping pytest\"; fi'"
+        language: system
+        pass_filenames: false
