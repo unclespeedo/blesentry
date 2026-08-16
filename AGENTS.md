@@ -43,8 +43,10 @@ safety net only.
 
 ## Autonomy Level (human-adjusted; current: LEVEL 1)
 - LEVEL 1: agent opens PR; human reviews and merges every PR.
-- LEVEL 2: agent merges S-size PRs on green CI; human reviews M/L.
-- LEVEL 3: agent merges all sizes on green CI; human audits weekly.
+- LEVEL 2: agent merges S-size PRs on a passing local pre-commit gate;
+  human reviews M/L.
+- LEVEL 3: agent merges all sizes on a passing local pre-commit gate;
+  human audits weekly.
 Releases at every level: agent may PREPARE a release PR (changelog, version
 bump); a human tags.
 
