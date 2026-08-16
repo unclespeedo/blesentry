@@ -60,7 +60,9 @@ async def apply_migrations(
     Returns the list of newly applied migration filenames. Idempotent:
     versions recorded in ``schema_migrations`` are skipped. A recorded
     version whose file checksum no longer matches raises MigrationError.
-    Each migration runs inside a transaction and rolls back atomically.
+    Each migration and its bookkeeping row are written in a single
+    transaction and roll back atomically, so the schema can never be
+    applied without a corresponding ``schema_migrations`` entry.
     """
     await conn.executescript(_BOOTSTRAP)
 
@@ -81,16 +83,18 @@ async def apply_migrations(
                 )
             continue
         sql = script.read_text(encoding="utf-8")
+        version_sql = version.replace("'", "''")
         try:
-            await conn.executescript(f"BEGIN;\n{sql}\nCOMMIT;")
+            await conn.executescript(
+                "BEGIN;\n"
+                f"{sql}\n"
+                "INSERT INTO schema_migrations (version, checksum) "
+                f"VALUES ('{version_sql}', '{checksum}');\n"
+                "COMMIT;"
+            )
         except aiosqlite.Error as exc:
             await conn.rollback()
             raise MigrationError(f"migration {version} failed: {exc}") from exc
-        await conn.execute(
-            "INSERT INTO schema_migrations (version, checksum) VALUES (?, ?)",
-            (version, checksum),
-        )
-        await conn.commit()
         applied.append(version)
     return applied
 

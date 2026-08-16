@@ -182,6 +182,38 @@ async def test_failed_migration_rolls_back_atomically(
         await db.close()
 
 
+async def test_failed_migration_writes_no_bookkeeping_row(
+    tmp_path: Path,
+) -> None:
+    broken = _write_migration(
+        tmp_path,
+        "0001_partial.sql",
+        "CREATE TABLE partial (id INTEGER PRIMARY KEY);\n"
+        "THIS IS NOT SQL;",
+    )
+    db = await connect(tmp_path / "test.db")
+    try:
+        with pytest.raises(MigrationError):
+            await apply_migrations(db, migrations_dir=tmp_path)
+        assert "partial" not in await _tables(db)
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = ?",
+            ("0001_partial.sql",),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        assert row is not None
+        assert row[0] == 0
+        broken.write_text(
+            "CREATE TABLE partial (id INTEGER PRIMARY KEY);",
+            encoding="utf-8",
+        )
+        applied = await apply_migrations(db, migrations_dir=tmp_path)
+        assert "0001_partial.sql" in applied
+    finally:
+        await db.close()
+
+
 async def test_mutated_migration_is_detected(tmp_path: Path) -> None:
     script = _write_migration(
         tmp_path,
