@@ -1,0 +1,171 @@
+[
+  {
+    "mac": "0FC1AA81-CEE9-EE1E-4050-A06F282E72D6",
+    "rssi": -62,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "090813b7c0a880051b5816080054b2e0b0e27ed9"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860106.518728,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "2AD49FD4-8F5A-5E80-C3BD-F302BE7D1EA1",
+    "rssi": -63,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "130702ac8f027afae2"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860108.3058188,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "A4409D0A-6164-9927-B52E-735526E33D07",
+    "rssi": -49,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "13084a171bcd14ae1700"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860117.297031,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "004BD720-E9CB-0194-F84B-67BA7ED4E53A",
+    "rssi": -49,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "09081302c0a880101b58160800e3048dacc89eb0"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860120.621512,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "117AEFEB-C586-CFB2-2D99-C4A7AB7929B6",
+    "rssi": -54,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "090813f7c0a8801a1b580a04125d55cc"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860359.537719,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "4C9B46ED-08CD-1D4A-76F2-7D1434A59785",
+    "rssi": -51,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "100501149734f3"
+    },
+    "service_data": {},
+    "tx_power": 12,
+    "timestamp": 1786860785.918842,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "2878F678-7009-EAE1-E965-BFD6489C6103",
+    "rssi": -56,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "13084aab71bc41c73500"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860789.542138,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "0B9B9545-F47E-E0CB-5D4F-978364947025",
+    "rssi": -62,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "130702bd86e58f8281"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860790.723593,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "4C1F7698-5B12-32D9-F68D-7E21992A6ACD",
+    "rssi": -70,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "0f059000790b0710020d04"
+    },
+    "service_data": {},
+    "tx_power": 12,
+    "timestamp": 1786860791.027827,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "D8518746-9EB8-DEC6-42E9-53B153412E49",
+    "rssi": -51,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "090813f8c0a8801a1b580a0412aa6943"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860791.3198788,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "EBE1CAF1-778D-4A4A-8F2C-E54DEADFABFA",
+    "rssi": -66,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "090813b8c0a880051b58160800bc1dbb531b4447"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860791.320779,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "8A330082-894F-4934-7A2F-F069E0A04DC0",
+    "rssi": -56,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "0f0590001df56410022b04"
+    },
+    "service_data": {},
+    "tx_power": 0,
+    "timestamp": 1786860791.32636,
+    "adapter_id": "macos-corebluetooth"
+  },
+  {
+    "mac": "279B4E75-232C-CC38-E96A-3C5328164F94",
+    "rssi": -56,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {
+      "76": "09081303c0a880101b58160800f4e71dd8177fd7"
+    },
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1786860791.3443341,
+    "adapter_id": "macos-corebluetooth"
+  }
+]
