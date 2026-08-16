@@ -1,0 +1,104 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+"""SQLite connection bootstrap and ordered-SQL-file migration runner."""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+import aiosqlite
+
+DEFAULT_MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
+
+_BOOTSTRAP = """
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    checksum TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+        DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+"""
+
+_CONNECT_PRAGMAS = (
+    "PRAGMA journal_mode=WAL",
+    "PRAGMA synchronous=NORMAL",
+    "PRAGMA busy_timeout=5000",
+    "PRAGMA foreign_keys=ON",
+)
+
+
+class MigrationError(RuntimeError):
+    """Raised when a migration is mutated, or cannot be applied."""
+
+
+async def connect(path: str | Path) -> aiosqlite.Connection:
+    """Open a SQLite database with connection-level pragmas applied.
+
+    ``journal_mode=WAL`` persists in the database file; the remaining
+    pragmas are per-connection and must be reapplied on every open.
+    """
+    conn = await aiosqlite.connect(path)
+    try:
+        for pragma in _CONNECT_PRAGMAS:
+            await conn.execute(pragma)
+    except aiosqlite.Error:
+        await conn.close()
+        raise
+    return conn
+
+
+async def apply_migrations(
+    conn: aiosqlite.Connection,
+    *,
+    migrations_dir: str | Path = DEFAULT_MIGRATIONS_DIR,
+) -> list[str]:
+    """Apply pending migrations in filename order.
+
+    Returns the list of newly applied migration filenames. Idempotent:
+    versions recorded in ``schema_migrations`` are skipped. A recorded
+    version whose file checksum no longer matches raises MigrationError.
+    Each migration and its bookkeeping row are written in a single
+    transaction and roll back atomically, so the schema can never be
+    applied without a corresponding ``schema_migrations`` entry.
+    """
+    await conn.executescript(_BOOTSTRAP)
+
+    cur = await conn.execute("SELECT version, checksum FROM schema_migrations")
+    rows = await cur.fetchall()
+    await cur.close()
+    recorded = {version: checksum for version, checksum in rows}
+
+    applied: list[str] = []
+    directory = Path(migrations_dir)
+    for script in sorted(directory.glob("*.sql")):
+        version = script.name
+        checksum = _checksum(script)
+        if version in recorded:
+            if recorded[version] != checksum:
+                raise MigrationError(
+                    f"migration {version} changed after it was applied"
+                )
+            continue
+        sql = script.read_text(encoding="utf-8")
+        version_sql = version.replace("'", "''")
+        try:
+            await conn.executescript(
+                "BEGIN;\n"
+                f"{sql}\n"
+                "INSERT INTO schema_migrations (version, checksum) "
+                f"VALUES ('{version_sql}', '{checksum}');\n"
+                "COMMIT;"
+            )
+        except aiosqlite.Error as exc:
+            await conn.rollback()
+            raise MigrationError(f"migration {version} failed: {exc}") from exc
+        applied.append(version)
+    return applied
+
+
+def _checksum(path: Path) -> str:
+    """Return a sha256 hex digest of the migration file contents."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
