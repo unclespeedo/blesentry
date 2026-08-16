@@ -34,10 +34,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 import time
 from typing import Any
 
 from bleak import BleakScanner
+
+
+def _default_adapter_id() -> str:
+    """Platform-correct adapter label so captures are never mislabeled."""
+    return "macos-corebluetooth" if sys.platform == "darwin" else "bluez-linux"
 
 
 def _hex(value: bytes) -> str:
@@ -87,9 +93,9 @@ async def main() -> int:
     )
     parser.add_argument(
         "--adapter",
-        default="macos-corebluetooth",
+        default=_default_adapter_id(),
         help="adapter label recorded on every record "
-        "(default: macos-corebluetooth)",
+        f"(default: {_default_adapter_id()})",
     )
     args = parser.parse_args()
 
