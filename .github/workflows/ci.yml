@@ -2,7 +2,9 @@ name: ci
 on:
   push:
     branches: [main]
-  pull_request:
+# CI is the post-merge safety net only (catches Linux/3.13 drift cheaply).
+# PRs are gated locally by pre-commit (.pre-commit-config.yaml) so rapid
+# buildout is never blocked waiting on Actions minutes.
 
 jobs:
   checks:
