@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 from pydantic import ValidationError
@@ -63,7 +64,7 @@ def test_no_manufacturer_data_defaults_to_empty() -> None:
     """An advertisement without manufacturer data or service UUIDs parses."""
     adv = _sample_ad(manufacturer_data={}, service_uuids=[])
     assert adv.manufacturer_data == {}
-    assert adv.service_uuids == []
+    assert adv.service_uuids == ()
     assert adv.service_data == {}
     assert adv.tx_power is None
 
@@ -77,7 +78,7 @@ def test_missing_optional_fields_default() -> None:
         adapter_id="bluez-linux",
     )
     assert adv.local_name is None
-    assert adv.service_uuids == []
+    assert adv.service_uuids == ()
     assert adv.manufacturer_data == {}
     assert adv.service_data == {}
     assert adv.tx_power is None
@@ -102,6 +103,17 @@ def test_extra_fields_rejected() -> None:
     }
     with pytest.raises(ValidationError):
         Advertisement.model_validate(record)
+
+
+def test_advertisement_is_immutable() -> None:
+    """Frozen is real: containers are immutable, assignment is rejected."""
+    adv = _sample_ad()
+    assert isinstance(adv.service_uuids, tuple)
+    assert isinstance(adv.manufacturer_data, MappingProxyType)
+    assert isinstance(adv.service_data, MappingProxyType)
+    attr: str = "rssi"
+    with pytest.raises(ValidationError):
+        setattr(adv, attr, -40)
 
 
 def test_fingerprint_derived_from_advertisement() -> None:

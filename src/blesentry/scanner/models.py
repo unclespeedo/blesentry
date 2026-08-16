@@ -10,6 +10,9 @@ Schema is the normalized record shape documented in
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -18,6 +21,9 @@ class Advertisement(BaseModel):
 
     Frozen and closed: an observation is an immutable fact, and new fields
     must land in the capture script and corpus before they appear here.
+    Container fields are converted to ``tuple`` / ``MappingProxyType`` at
+    construction so in-place mutation is impossible and a derived
+    ``Fingerprint`` can never diverge from its source.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -25,12 +31,24 @@ class Advertisement(BaseModel):
     mac: str = Field(min_length=1)
     rssi: int
     local_name: str | None = None
-    service_uuids: list[str] = Field(default_factory=list)
-    manufacturer_data: dict[str, str] = Field(default_factory=dict)
-    service_data: dict[str, str] = Field(default_factory=dict)
+    service_uuids: Sequence[str] = Field(default_factory=tuple)
+    manufacturer_data: Mapping[str, str] = Field(default_factory=dict)
+    service_data: Mapping[str, str] = Field(default_factory=dict)
     tx_power: int | None = None
     timestamp: float
     adapter_id: str = Field(min_length=1)
+
+    def model_post_init(self, __context: object, /) -> None:
+        """Replace mutable containers with immutable equivalents."""
+        object.__setattr__(self, "service_uuids", tuple(self.service_uuids))
+        object.__setattr__(
+            self,
+            "manufacturer_data",
+            MappingProxyType(dict(self.manufacturer_data)),
+        )
+        object.__setattr__(
+            self, "service_data", MappingProxyType(dict(self.service_data))
+        )
 
 
 class Fingerprint(BaseModel):
