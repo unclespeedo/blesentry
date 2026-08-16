@@ -671,9 +671,9 @@ day one, exactly when it costs nothing and preserves the most optionality.
 
 ## Appendix: Issue Map
 
-Seeded 2026-08-15 by the issue-seeding agent. Status = issue state plus the
-planned "blesentry v1" project column (Backlog / Ready). The project has not
-yet been created, so these column values are not live.
+Seeded 2026-08-15 by the issue-seeding agent. Status = issue state plus
+"blesentry v1" project column (Backlog / Ready); all 46 issues are linked
+to the project.
 
 | ID | Issue | Milestone | Status |
 |---|---|---|---|
