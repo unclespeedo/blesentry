@@ -4,14 +4,9 @@
 Local-first BLE presence sentinel. Read before any work: ROADMAP.md,
 docs/adr/*, CONTRIBUTING.md. Conventions: Python 3 + uv, ruff (line 79), ty,
 pytest (TDD — test first), Pydantic V2 ConfigDict, MPL-2.0 headers on every
-new file, DCO sign-off on every commit. CI (mock-only) is the arbiter of done.
-
-## Bootstrap State Note
-Until P0-4 merges, pyproject.toml does not exist and CI runs in bootstrap
-mode (docs/config checks only). The FIRST implementation issue must therefore
-be P0-4 regardless of the selection algorithm. After P0-4, the standard loop
-applies. If you are reading this and pyproject.toml exists, ignore this
-section.
+new file, DCO sign-off on every commit. The local pre-commit gate (ruff, ty,
+pytest via uv) is the arbiter of done on PRs; CI on main is a post-merge
+safety net only.
 
 ## The Loop: "tackle the next priority"
 1. SELECT: from issues labeled `agent:eligible` AND NOT `blocked` AND NOT
@@ -30,7 +25,8 @@ section.
 5. PR: one issue per PR. Template: DoD checklist with EVIDENCE per checkbox
    (test names, command output). Checkboxes annotated "HUMAN VERIFY" are left
    unchecked with a note. Link `Closes #N`.
-6. MERGE: only after CI green AND per current autonomy level (see below).
+6. MERGE: only after the local pre-commit gate passes AND per current
+   autonomy level (see below).
    Never force-push. Never merge with unchecked non-HUMAN-VERIFY boxes.
 7. CLOSE OUT: remove `in-progress`; remove `blocked` from issues this
    unblocked and move them to Ready; move card to Done or Human Verify.
