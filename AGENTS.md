@@ -4,9 +4,9 @@
 Local-first BLE presence sentinel. Read before any work: ROADMAP.md,
 docs/adr/*, CONTRIBUTING.md. Conventions: Python 3 + uv, ruff (line 79), ty,
 pytest (TDD — test first), Pydantic V2 ConfigDict, MPL-2.0 headers on every
-new file, DCO sign-off on every commit. The local pre-commit gate (ruff, ty,
-pytest via uv) is the arbiter of done on PRs; CI on main is a post-merge
-safety net only.
+new file, DCO sign-off on every commit. The local pre-commit gate is the
+fast feedback loop; CI enforces the same checks on every PR (branch
+protection requires the `checks` and `dco` jobs) and on main.
 
 ## The Loop: "tackle the next priority"
 0. HEALTH CHECK: if CI on main is red, fixing it IS the next priority —
