@@ -5,10 +5,17 @@
 """Scanner seam: BLE advertisement value objects and identity keys.
 
 P1-1 ships the ``Advertisement`` and ``Fingerprint`` models consumed by the
-rest of the system; the ``Scanner`` protocol and its implementations land in
-P1-2/P1-3 on the same seam.
+rest of the system; the ``Scanner`` protocol and ``MockScanner`` fixture
+replay land in P1-2, with the real ``BleakScanner`` adapter following in P1-3.
 """
 
+from blesentry.scanner.mock import MockScanner
 from blesentry.scanner.models import Advertisement, Fingerprint
+from blesentry.scanner.protocol import Scanner
 
-__all__ = ["Advertisement", "Fingerprint"]
+__all__ = [
+    "Advertisement",
+    "Fingerprint",
+    "MockScanner",
+    "Scanner",
+]
