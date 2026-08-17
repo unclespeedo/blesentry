@@ -79,7 +79,7 @@ BlueZ versions shipped:
 | Ubuntu 20.04 (current) | 5.53 | Baseline on this hardware |
 | Bookworm (Debian) | 5.66 | Security-patched (5.66-1+deb12u2) |
 | Bookworm (RPi patched) | 5.82 | RPi Foundation patches (5.82-1.1+rpt1) |
-| Trixie (RPi patched) | 5.82+ | Latest Trixie release (2026-06-18) |
+| Trixie (RPi patched) | 5.82+ | RPi OS Trixie image available 2026-06-18 |
 
 BLE scanning uses D-Bus `SetDiscoveryFilter` on the `org.bluez.Adapter1`
 interface. Key parameters:
@@ -88,10 +88,11 @@ interface. Key parameters:
   selects LE *transport*, not passive scanning mode. Bleak defaults to *active*
   scanning on BlueZ; passive mode requires advertisement-monitor patterns
   (see bleak docs).
-- `DuplicateData` — defaults to **false** in BlueZ. Must be explicitly set to
-  `true` to receive `PropertiesChanged` on every advertisement update, including
-  ManufacturerData and ServiceData changes. Essential for real-time RSSI
-  tracking.
+- `DuplicateData` — BlueZ defaults this to true (unfiltered), but Bleak's
+  `BleakScannerBlueZDBus` explicitly sets it to false. To receive continuous
+  advertisement updates including ManufacturerData and ServiceData changes
+  (essential for real-time RSSI tracking), the scanner filter must override
+  this with an explicit `DuplicateData: true`.
 - RSSI threshold filtering available via the `RSSI` filter parameter.
 
 **Known limitation:** BlueZ D-Bus does not expose scan interval/window control.
@@ -151,9 +152,10 @@ bleak or the project's dependencies before the window closes.
 - Trixie is newer (released August 2025) — less community battle-testing than
   Bookworm. If compatibility issues arise, the Bookworm fallback adds a
   re-flash step.
-- `DuplicateData` defaults to false in BlueZ — the project must explicitly set
-  it to true in the scanner filter to receive continuous advertisement updates.
-  Failure to do so will silently drop RSSI changes between scan windows.
+- Bleak's BlueZ backend sets `DuplicateData` to false — the project must
+  override this to true in the scanner filter to receive continuous
+  advertisement updates. Failure to do so will silently drop RSSI changes
+  between scan windows.
 
 **Locked in:**
 - arm64 target for all uv, Python, and binary dependencies going forward.
