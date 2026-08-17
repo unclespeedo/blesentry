@@ -9,12 +9,14 @@ rest of the system; the ``Scanner`` protocol and ``MockScanner`` fixture
 replay land in P1-2, with the real ``BleakScanner`` adapter following in P1-3.
 """
 
+from blesentry.scanner.bleak import BleakScanner
 from blesentry.scanner.mock import MockScanner
 from blesentry.scanner.models import Advertisement, Fingerprint
 from blesentry.scanner.protocol import Scanner
 
 __all__ = [
     "Advertisement",
+    "BleakScanner",
     "Fingerprint",
     "MockScanner",
     "Scanner",
