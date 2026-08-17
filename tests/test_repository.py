@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import aiosqlite
 import pytest
@@ -141,7 +142,7 @@ async def test_upsert_sets_created_and_updated_at(
 
 
 async def test_upsert_in_file_database(
-    tmp_path: aiosqlite.Connection,
+    tmp_path: Path,
 ) -> None:
     conn = await connect(tmp_path / "repo.db")
     try:
@@ -155,6 +156,42 @@ async def test_upsert_in_file_database(
         assert device["fingerprint"] == "fp-file"
     finally:
         await conn.close()
+
+
+async def test_upsert_survives_reopen(tmp_path: Path) -> None:
+    path = tmp_path / "persist.db"
+    conn = await connect(path)
+    try:
+        await apply_migrations(conn)
+        repo = DeviceRepository(conn, SITE)
+        device_id = await repo.upsert(
+            fingerprint="fp-dur", mac="DE:AD:BE:EF:00:01"
+        )
+    finally:
+        await conn.close()
+    conn2 = await connect(path)
+    try:
+        await apply_migrations(conn2)
+        repo2 = DeviceRepository(conn2, SITE)
+        device = await repo2.get(device_id)
+        assert device is not None
+        assert device["fingerprint"] == "fp-dur"
+        assert device["mac"] == "DE:AD:BE:EF:00:01"
+    finally:
+        await conn2.close()
+
+
+async def test_upsert_preserves_mac_on_omission(
+    device_repo: DeviceRepository,
+) -> None:
+    device_id = await device_repo.upsert(
+        fingerprint="fp-mac-persist",
+        mac="AA:BB:CC:DD:EE:FF",
+    )
+    await device_repo.upsert(fingerprint="fp-mac-persist")
+    device = await device_repo.get(device_id)
+    assert device is not None
+    assert device["mac"] == "AA:BB:CC:DD:EE:FF"
 
 
 # -- DeviceRepository: get --
@@ -295,7 +332,7 @@ async def test_append_without_adapter_id(
 
 
 async def test_append_in_file_database(
-    tmp_path: aiosqlite.Connection,
+    tmp_path: Path,
 ) -> None:
     conn = await connect(tmp_path / "obs.db")
     try:
@@ -314,6 +351,39 @@ async def test_append_in_file_database(
         assert obs_id >= 1
     finally:
         await conn.close()
+
+
+async def test_observation_survives_reopen(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "obs-persist.db"
+    conn = await connect(path)
+    try:
+        await apply_migrations(conn)
+        devs = DeviceRepository(conn, SITE)
+        obs = ObservationRepository(conn, SITE)
+        device_id = await devs.upsert(
+            fingerprint="fp-obs-dur",
+            mac="DE:AD:BE:EF:00:01",
+        )
+        obs_id = await obs.append(
+            device_id=device_id,
+            rssi=-55,
+            observed_at=_ts(10, 0),
+            adapter_id="hci0",
+        )
+    finally:
+        await conn.close()
+    conn2 = await connect(path)
+    try:
+        await apply_migrations(conn2)
+        obs2 = ObservationRepository(conn2, SITE)
+        row = await obs2.get(obs_id)
+        assert row is not None
+        assert row["rssi"] == -55
+        assert row["adapter_id"] == "hci0"
+    finally:
+        await conn2.close()
 
 
 # -- ObservationRepository: query_recent_rssi --
