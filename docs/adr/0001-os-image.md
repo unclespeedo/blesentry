@@ -1,3 +1,9 @@
+<!--
+  SPDX-License-Identifier: MPL-2.0
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
 # ADR-0001: OS Image — Raspberry Pi OS Lite Trixie arm64
 
 - **Status:** Proposed
@@ -18,7 +24,7 @@ blesentry's first deployment target is a Raspberry Pi 3 Model A+ (Cortex-A53,
 Two architectures are candidates: **arm64** (64-bit, native to Cortex-A53) and
 **armhf** (32-bit ARMv7 hard-float). Two Debian release tracks are candidates:
 **Bookworm** (Debian 12, current stable) and **Trixie** (Debian 13, released
-2025-06, current stable as of 2026).
+2025-08-09, current stable as of 2026).
 
 ## Decision
 
@@ -40,26 +46,29 @@ uv publishes Tier 2 binaries for both targets:
 | `aarch64-unknown-linux-gnu` | `uv-aarch64-unknown-linux-gnu.tar.gz` | 2.28+ |
 | `armv7-unknown-linux-gnueabihf` | `uv-armv7-unknown-linux-gnueabihf.tar.gz` | 2.17+ |
 
-Bookworm ships glibc 2.36; Trixie ships glibc 2.38+. Both targets satisfy the
-minimum. uv works identically on both — the decision is architecture, not
-toolchain.
+Bookworm ships glibc 2.36; Trixie ships glibc 2.41. Both targets satisfy the
+minimum. Tier 2 means "guaranteed to build" — the uv test suite is not run on
+either target, so runtime stability is not formally guaranteed. The decision is
+architecture, not toolchain; runtime verification is part of this spike (issue
+#1).
 
 ### arm64 vs armhf
 
 The Pi 3 A+ has a 64-bit Cortex-A53 (ARMv8) CPU. Running 32-bit (armhf) on
-64-bit hardware offers zero advantage and several costs:
+64-bit hardware is possible but disfavored for several reasons:
 
-- **No memory savings that matter.** Pointers are 4 bytes instead of 8, saving
-  ~10–20MB in typical Python workloads. On 512MB this is negligible; the
-  trade-off is worse ASLR entropy (32-bit address space = weak exploit
-  mitigation).
-- **Native 64-bit operations are faster** for integer and floating-point
-  arithmetic — relevant for the fingerprint engine and RSSI processing.
-- **The Python ecosystem targets aarch64.** bleak, aiosqlite, Pydantic V2, and
-  uv are all well-tested on aarch64. armhf builds exist but receive less CI
-  attention upstream.
-- **RPi Foundation recommends 64-bit for Pi 3 and later.** The official RPi OS
-  Lite 64-bit image is the primary target for their testing.
+- **Dependency-wheel availability.** aarch64 wheels are the primary CI target
+  for bleak, aiosqlite, Pydantic V2, and uv. armhf wheels exist but receive
+  less upstream testing attention.
+- **Operational consistency.** arm64 is the RPi Foundation's recommended
+  architecture for Pi 3 and later, and the official RPi OS Lite 64-bit image
+  is their primary testing target.
+- **Security posture.** 64-bit ASLR uses the full address space; 32-bit ASLR is
+  weaker. On a remote, internet-facing device, this matters.
+- **Memory trade-off.** 32-bit pointers save ~10–20MB in typical Python
+  workloads (4-byte vs 8-byte pointers). On a device with ~407MiB visible to
+  Linux, this is non-trivial but not decisive — the dependency and consistency
+  factors dominate.
 
 ### BlueZ passive scan (D-Bus)
 
@@ -72,13 +81,17 @@ BlueZ versions shipped:
 | Bookworm (RPi patched) | 5.82 | RPi Foundation patches (5.82-1.1+rpt1) |
 | Trixie (RPi patched) | 5.82+ | Latest Trixie release (2026-06-18) |
 
-Passive BLE scanning works via D-Bus `SetDiscoveryFilter` on the
-`org.bluez.Adapter1` interface. Key parameters:
+BLE scanning uses D-Bus `SetDiscoveryFilter` on the `org.bluez.Adapter1`
+interface. Key parameters:
 
-- `Transport: "le"` — LE-only scan (no BR/EDR inquiry overhead).
-- `DuplicateData: true` (default in code despite outdated docs) — emits
-  `PropertiesChanged` on every advertisement update, including ManufacturerData
-  and ServiceData changes. Essential for real-time RSSI tracking.
+- `Transport: "le"` — LE-only scan (no BR/EDR inquiry overhead). Note: this
+  selects LE *transport*, not passive scanning mode. Bleak defaults to *active*
+  scanning on BlueZ; passive mode requires advertisement-monitor patterns
+  (see bleak docs).
+- `DuplicateData` — defaults to **false** in BlueZ. Must be explicitly set to
+  `true` to receive `PropertiesChanged` on every advertisement update, including
+  ManufacturerData and ServiceData changes. Essential for real-time RSSI
+  tracking.
 - RSSI threshold filtering available via the `RSSI` filter parameter.
 
 **Known limitation:** BlueZ D-Bus does not expose scan interval/window control.
@@ -86,11 +99,12 @@ The `Scanner` seam documents raw HCI (bleson) as the escape hatch for this
 (P0-3 risk notes, P4-3 spike). This limitation exists on all BlueZ versions
 and does not differ between 5.66 and 5.82.
 
-### Memory headroom (512MB)
+### Memory headroom (~407MiB visible)
 
-Measured on current Ubuntu 20.04: 135MB used, 253MB available (407Mi total
-before kernel reservations). RPi OS Lite is lighter — no snapd, no LXD, fewer
-background services.
+The Pi 3 A+ has 512MB physical RAM, but only ~407MiB is visible to Linux after
+GPU/kernel reservations (confirmed on current Ubuntu 20.04: 135MB used, 253MB
+available). RPi OS Lite is lighter — no snapd, no LXD, fewer background
+services.
 
 Estimated breakdown on RPi OS Lite Trixie arm64:
 
@@ -101,10 +115,10 @@ Estimated breakdown on RPi OS Lite Trixie arm64:
 | blesentry daemon (Python 3 + bleak + aiosqlite) | ~50–100MB |
 | tailscaled (optional, access path only) | ~30–50MB |
 | **Total** | **~185–290MB** |
-| **Headroom** | **~220–325MB** |
+| **Headroom on ~407MiB** | **~117–222MiB** |
 
-This is comfortable. The 512MB constraint is real but not binding for this
-workload.
+This is tight but workable. The constraint is real and should be validated by
+measurement on the selected image before committing to the deployment posture.
 
 ### Trixie vs Bookworm
 
@@ -112,32 +126,34 @@ workload.
 |---|---|---|
 | Kernel | 6.1 (RPi: 6.6) | 6.12 (RPi: 6.18) |
 | BlueZ | 5.66 / 5.82 (RPi) | 5.82+ (RPi) |
-| Support until | ~2028 (LTS to 2029) | ~2030 (LTS to 2031) |
-| Security hardening | Passwordless sudo default | Sudo disabled by default |
+| LTS support until | June 2028 | June 2030 |
+| Passwordless sudo | Enabled by default | Enabled by default (RPi OS 6.2+ disables for fresh installs) |
 | Storage required (lite) | ~3.5GB | ~2.8GB |
 
-Trixie is the better choice: longer support window, more modern kernel (better
-BLE/hardware support), smaller footprint, and the sudo security improvement
-aligns with a remote, internet-facing device. Bookworm remains the fallback if
-Trixie introduces unforeseen compatibility issues with bleak or the project's
-dependencies before the window closes.
+Trixie is the better choice: longer support window (LTS through June 2030 vs
+June 2028), more modern kernel (better BLE/hardware support), smaller
+footprint, and RPi OS 6.2 disables passwordless sudo by default for fresh
+installations — aligning with a remote, internet-facing device. Bookworm
+remains the fallback if Trixie introduces unforeseen compatibility issues with
+bleak or the project's dependencies before the window closes.
 
 ## Consequences
 
 **Easier:**
 - Native 64-bit performance for Python, BLE processing, and fingerprint engine.
 - Full uv toolchain support on the recommended target.
-- Longer OS support window (Trixie through ~2030 vs Bookworm ~2028).
-- Smaller attack surface (sudo disabled by default).
+- Longer OS support window (Trixie LTS through June 2030 vs Bookworm June 2028).
+- Smaller attack surface (RPi OS 6.2+ disables passwordless sudo for fresh
+  installs).
 - Smaller disk footprint (~2.8GB vs ~3.5GB).
 
 **Harder / trade-offs:**
-- Trixie is newer (released June 2025) — less community battle-testing than
+- Trixie is newer (released August 2025) — less community battle-testing than
   Bookworm. If compatibility issues arise, the Bookworm fallback adds a
   re-flash step.
-- The `DuplicateData` default (true in code, false in BlueZ docs) requires
-  awareness when integrating bleak — the project must explicitly handle
-  duplicate advertisement callbacks.
+- `DuplicateData` defaults to false in BlueZ — the project must explicitly set
+  it to true in the scanner filter to receive continuous advertisement updates.
+  Failure to do so will silently drop RSSI changes between scan windows.
 
 **Locked in:**
 - arm64 target for all uv, Python, and binary dependencies going forward.
