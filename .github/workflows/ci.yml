@@ -2,9 +2,11 @@ name: ci
 on:
   push:
     branches: [main]
-# CI is the post-merge safety net only (catches Linux/3.13 drift cheaply).
-# PRs are gated locally by pre-commit (.pre-commit-config.yaml) so rapid
-# buildout is never blocked waiting on Actions minutes.
+  pull_request:
+# CI runs on PRs and on main. The local pre-commit gate remains the fast
+# feedback loop; CI is the enforcement layer (branch protection requires
+# the `checks` job) so an unrun or drifted local gate can no longer land
+# red commits on main. Runs take ~1-2 minutes on this repo.
 
 jobs:
   checks:
@@ -42,3 +44,27 @@ jobs:
       - name: Tests (mock-only; hardware tests are Pi-side via P3-3)
         if: steps.proj.outputs.present == 'true'
         run: uv run pytest -m "not hardware"
+
+  dco:
+    # Every commit in a PR must carry a DCO Signed-off-by line
+    # (AGENTS.md contract). Runs only on PRs — push builds on main
+    # check merge commits, which GitHub authors without sign-off.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Signed-off-by on all PR commits
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          missing=0
+          for sha in $(git rev-list --no-merges "$base".."$head"); do
+            if ! git show -s --format=%B "$sha" | grep -q '^Signed-off-by: '; then
+              echo "::error::commit $sha is missing a Signed-off-by line"
+              missing=1
+            fi
+          done
+          exit "$missing"
