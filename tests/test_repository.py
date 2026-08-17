@@ -75,9 +75,7 @@ async def test_upsert_updates_mac_on_fingerprint_match(
     device_id = await device_repo.upsert(
         fingerprint="fp-rot", mac="AA:00:00:00:00:01"
     )
-    await device_repo.upsert(
-        fingerprint="fp-rot", mac="AA:00:00:00:00:02"
-    )
+    await device_repo.upsert(fingerprint="fp-rot", mac="AA:00:00:00:00:02")
     device = await device_repo.get(device_id)
     assert device is not None
     assert device["mac"] == "AA:00:00:00:00:02"
@@ -410,16 +408,22 @@ async def test_query_recent_rssi_returns_in_order(
         fingerprint="fp-order", mac="AA:BB:CC:DD:EE:FF"
     )
     await obs_repo.append(
-        device_id=device_id, rssi=-50,
-        observed_at=_ts(10, 0), adapter_id="hci0",
+        device_id=device_id,
+        rssi=-50,
+        observed_at=_ts(10, 0),
+        adapter_id="hci0",
     )
     await obs_repo.append(
-        device_id=device_id, rssi=-60,
-        observed_at=_ts(10, 1), adapter_id="hci0",
+        device_id=device_id,
+        rssi=-60,
+        observed_at=_ts(10, 1),
+        adapter_id="hci0",
     )
     await obs_repo.append(
-        device_id=device_id, rssi=-70,
-        observed_at=_ts(10, 2), adapter_id="hci0",
+        device_id=device_id,
+        rssi=-70,
+        observed_at=_ts(10, 2),
+        adapter_id="hci0",
     )
     results = await obs_repo.query_recent_rssi(
         device_id=device_id, since=_ts(0, 0)
@@ -438,16 +442,22 @@ async def test_query_recent_rssi_filters_by_since(
         fingerprint="fp-since", mac="AA:BB:CC:DD:EE:FF"
     )
     await obs_repo.append(
-        device_id=device_id, rssi=-50,
-        observed_at=_ts(10, 0), adapter_id="hci0",
+        device_id=device_id,
+        rssi=-50,
+        observed_at=_ts(10, 0),
+        adapter_id="hci0",
     )
     await obs_repo.append(
-        device_id=device_id, rssi=-60,
-        observed_at=_ts(10, 5), adapter_id="hci0",
+        device_id=device_id,
+        rssi=-60,
+        observed_at=_ts(10, 5),
+        adapter_id="hci0",
     )
     await obs_repo.append(
-        device_id=device_id, rssi=-70,
-        observed_at=_ts(10, 10), adapter_id="hci0",
+        device_id=device_id,
+        rssi=-70,
+        observed_at=_ts(10, 10),
+        adapter_id="hci0",
     )
     results = await obs_repo.query_recent_rssi(
         device_id=device_id, since=_ts(10, 5)
@@ -464,16 +474,18 @@ async def test_query_recent_rssi_excludes_other_devices(
     d1 = await device_repo.upsert(fingerprint="fp-d1", mac="AA:00:00:00:00:01")
     d2 = await device_repo.upsert(fingerprint="fp-d2", mac="AA:00:00:00:00:02")
     await obs_repo.append(
-        device_id=d1, rssi=-50,
-        observed_at=_ts(10, 0), adapter_id="hci0",
+        device_id=d1,
+        rssi=-50,
+        observed_at=_ts(10, 0),
+        adapter_id="hci0",
     )
     await obs_repo.append(
-        device_id=d2, rssi=-80,
-        observed_at=_ts(10, 0), adapter_id="hci0",
+        device_id=d2,
+        rssi=-80,
+        observed_at=_ts(10, 0),
+        adapter_id="hci0",
     )
-    results = await obs_repo.query_recent_rssi(
-        device_id=d1, since=_ts(0, 0)
-    )
+    results = await obs_repo.query_recent_rssi(device_id=d1, since=_ts(0, 0))
     assert len(results) == 1
     assert results[0] == (_ts(10, 0), -50)
 
@@ -492,12 +504,16 @@ async def test_query_recent_rssi_excludes_other_sites(
         fingerprint="fp-site", mac="AA:BB:CC:DD:EE:FF"
     )
     await obs_repo.append(
-        device_id=device_id, rssi=-55,
-        observed_at=_ts(10, 0), adapter_id="hci0",
+        device_id=device_id,
+        rssi=-55,
+        observed_at=_ts(10, 0),
+        adapter_id="hci0",
     )
     await other_obs.append(
-        device_id=other_id, rssi=-90,
-        observed_at=_ts(10, 0), adapter_id="hci0",
+        device_id=other_id,
+        rssi=-90,
+        observed_at=_ts(10, 0),
+        adapter_id="hci0",
     )
     results = await obs_repo.query_recent_rssi(
         device_id=device_id, since=_ts(0, 0)
@@ -515,12 +531,16 @@ async def test_query_recent_rssi_handles_duplicate_appends(
     )
     ts = _ts(10, 0)
     await obs_repo.append(
-        device_id=device_id, rssi=-50,
-        observed_at=ts, adapter_id="hci0",
+        device_id=device_id,
+        rssi=-50,
+        observed_at=ts,
+        adapter_id="hci0",
     )
     await obs_repo.append(
-        device_id=device_id, rssi=-60,
-        observed_at=ts, adapter_id="hci0",
+        device_id=device_id,
+        rssi=-60,
+        observed_at=ts,
+        adapter_id="hci0",
     )
     results = await obs_repo.query_recent_rssi(
         device_id=device_id, since=_ts(0, 0)
