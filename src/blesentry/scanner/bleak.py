@@ -5,9 +5,10 @@
 """BleakScanner adapter — real BLE scanning via bleak.
 
 Implements the Scanner protocol using the bleak library. On macOS,
-uses CoreBluetooth (active scanning). On Linux, uses BlueZ via D-Bus
-(passive scanning). Both backends are normalized into Advertisement
-objects.
+uses CoreBluetooth (active scanning only — CoreBluetooth limitation).
+On Linux, uses BlueZ via D-Bus (passive scanning with or_patterns).
+
+Both backends are normalized into Advertisement objects.
 
 Log-and-degrade on D-Bus hiccups: errors are logged and result in
 empty scan results, never exceptions propagate to callers.
@@ -16,10 +17,12 @@ empty scan results, never exceptions propagate to callers.
 from __future__ import annotations
 
 import logging
+import sys
 import time
-from typing import Any
 
 from bleak import BleakScanner as _BleakScanner
+from bleak.backends.device import BLEDevice
+from bleak.backends.scanner import AdvertisementData
 
 from blesentry.scanner.models import Advertisement
 
@@ -31,11 +34,12 @@ class BleakScanner:
 
     Implements the Scanner protocol. On macOS, uses CoreBluetooth
     (which only supports active scanning). On Linux, uses BlueZ
-    via D-Bus for passive scanning.
+    via D-Bus with passive scanning enabled.
 
     Args:
         adapter_id: Identifier for the BLE adapter (e.g., "bluez-linux",
             "corebluetooth-macos"). Used to tag Advertisement objects.
+            On Linux, also selects the physical adapter (e.g., "hci0").
     """
 
     def __init__(self, adapter_id: str) -> None:
@@ -43,6 +47,7 @@ class BleakScanner:
 
         Args:
             adapter_id: Unique identifier for this scanner's BLE adapter.
+                On Linux, this is passed to BlueZ to select the adapter.
         """
         self.adapter_id = adapter_id
 
@@ -52,9 +57,14 @@ class BleakScanner:
     ) -> list[Advertisement]:
         """Run a BLE scan for *duration* seconds.
 
-        Uses bleak's discover method to scan for BLE devices.
-        Converts discovered devices to Advertisement objects.
-        On any error, logs the issue and returns an empty list.
+        Uses bleak's discover method with return_adv=True to get
+        a dict mapping device address to (BLEDevice, AdvertisementData)
+        tuples. Converts to Advertisement objects. On any error, logs
+        the issue and returns an empty list.
+
+        Platform differences:
+        - macOS: active scanning (CoreBluetooth limitation)
+        - Linux: passive scanning with BlueZ
 
         Args:
             duration: How long to scan, in seconds.
@@ -63,68 +73,78 @@ class BleakScanner:
             Advertised BLE devices heard during the window.
         """
         try:
-            scanner = _BleakScanner()
-            devices = await scanner.discover(timeout=duration)
-            
+            scanner = self._create_scanner()
+            devices = await scanner.discover(
+                timeout=duration,
+                return_adv=True,
+            )
+
             advertisements = []
-            for device in devices:
-                ad = self._convert_device(device)
+            for device, adv_data in devices.values():
+                ad = self._convert_device(device, adv_data)
                 if ad is not None:
                     advertisements.append(ad)
-            
+
             return advertisements
         except Exception:
             logger.exception("BLE scan failed, degrading to empty result")
             return []
 
-    def _convert_device(self, device: Any) -> Advertisement | None:
-        """Convert a bleak device to an Advertisement.
+    def _create_scanner(self) -> _BleakScanner:
+        """Create a platform-appropriate BleakScanner.
+
+        On macOS, CoreBluetooth only supports active scanning.
+        On Linux, BlueZ supports passive scanning with or_patterns.
+
+        Returns:
+            Configured BleakScanner instance.
+        """
+        if sys.platform == "darwin":
+            return _BleakScanner(scanning_mode="active")
+        else:
+            return _BleakScanner(
+                scanning_mode="passive",
+                bluez={"adapter": self.adapter_id},
+            )
+
+    def _convert_device(
+        self,
+        device: BLEDevice,
+        adv_data: AdvertisementData,
+    ) -> Advertisement | None:
+        """Convert a bleak device and advertisement data to an Advertisement.
 
         Args:
-            device: A device discovered by bleak.
+            device: The BLEDevice discovered by bleak.
+            adv_data: The AdvertisementData from the discovery.
 
         Returns:
             Advertisement object, or None if conversion fails.
         """
         try:
-            # Extract manufacturer data (bytes -> hex string)
             manufacturer_data: dict[str, str] = {}
-            if hasattr(device, "metadata") and device.metadata:
-                raw_mfr = device.metadata.get("manufacturer_data", {})
-                for key, value in raw_mfr.items():
-                    manufacturer_data[str(key)] = value.hex()
+            for key, value in adv_data.manufacturer_data.items():
+                manufacturer_data[str(key)] = value.hex()
 
-            # Extract service data (bytes -> hex string)
             service_data: dict[str, str] = {}
-            if hasattr(device, "metadata") and device.metadata:
-                raw_svc = device.metadata.get("service_data", {})
-                for key, value in raw_svc.items():
-                    service_data[str(key)] = value.hex()
-
-            # Extract service UUIDs
-            service_uuids: list[str] = []
-            if hasattr(device, "uuids") and device.uuids:
-                service_uuids = list(device.uuids)
-
-            # Extract tx_power
-            tx_power: int | None = None
-            if hasattr(device, "metadata") and device.metadata:
-                tx_power = device.metadata.get("tx_power")
+            for key, value in adv_data.service_data.items():
+                service_data[str(key)] = value.hex()
 
             return Advertisement(
                 mac=device.address,
-                rssi=device.rssi,
-                local_name=device.name,
-                service_uuids=service_uuids,
+                rssi=adv_data.rssi,
+                local_name=adv_data.local_name,
+                service_uuids=adv_data.service_uuids,
                 manufacturer_data=manufacturer_data,
                 service_data=service_data,
-                tx_power=tx_power,
+                tx_power=adv_data.tx_power,
                 timestamp=time.time(),
                 adapter_id=self.adapter_id,
             )
         except (AttributeError, ValueError, TypeError):
             logger.warning(
                 "Failed to convert device %s, skipping",
-                getattr(device, "address", "unknown"),
+                device.address,
+                exc_info=True,
             )
             return None
