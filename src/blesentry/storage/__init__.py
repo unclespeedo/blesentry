@@ -10,10 +10,16 @@ from blesentry.storage.database import (
     apply_migrations,
     connect,
 )
+from blesentry.storage.repository import (
+    DeviceRepository,
+    ObservationRepository,
+)
 
 __all__ = [
     "DEFAULT_MIGRATIONS_DIR",
+    "DeviceRepository",
     "MigrationError",
+    "ObservationRepository",
     "apply_migrations",
     "connect",
 ]
