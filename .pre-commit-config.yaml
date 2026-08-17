@@ -1,5 +1,6 @@
-# Pre-commit gate: the local arbiter of done for PRs (CI runs on main only).
-# Mirrors .github/workflows/ci.yml so "pre-commit" locally == CI on Linux.
+# Pre-commit gate: the fast local feedback loop. CI enforces the same
+# checks on every PR and on main (.github/workflows/ci.yml) — run this
+# before pushing so CI never surprises you.
 # Requires uv on PATH (uses the project lockfile, not ad-hoc tool versions).
 # In bootstrap mode (no pyproject.toml yet, pre-P0-4) hooks no-op, matching
 # the CI workflow's `if: steps.proj.outputs.present == 'true'` guards.
