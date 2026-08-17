@@ -8,11 +8,20 @@ on:
 # the `checks` job) so an unrun or drifted local gate can no longer land
 # red commits on main. Runs take ~1-2 minutes on this repo.
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Detect Python project
         id: proj
@@ -24,7 +33,7 @@ jobs:
             echo "Bootstrap mode: no pyproject.toml yet (pre-P0-4)."
           fi
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         if: steps.proj.outputs.present == 'true'
 
       - name: Sync
@@ -47,21 +56,32 @@ jobs:
 
   dco:
     # Every commit in a PR must carry a DCO Signed-off-by line
-    # (AGENTS.md contract). Runs only on PRs — push builds on main
-    # check merge commits, which GitHub authors without sign-off.
+    # (AGENTS.md contract). PR-only: push events have no PR base/head
+    # range to enumerate. Merge commits are skipped (--no-merges) —
+    # GitHub authors them without sign-off. Known limit: commits pulled
+    # in by merging main into the branch fall inside base..head and get
+    # checked too; on this repo main commits carry sign-offs, so that
+    # is acceptable.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check Signed-off-by on all PR commits
         run: |
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
+          # Fail closed: an unreachable ref must fail the check, not
+          # produce an empty list that passes vacuously.
+          shas=$(git rev-list --no-merges "$base".."$head") || {
+            echo "::error::git rev-list $base..$head failed"
+            exit 1
+          }
           missing=0
-          for sha in $(git rev-list --no-merges "$base".."$head"); do
+          for sha in $shas; do
             if ! git show -s --format=%B "$sha" | grep -q '^Signed-off-by: '; then
               echo "::error::commit $sha is missing a Signed-off-by line"
               missing=1

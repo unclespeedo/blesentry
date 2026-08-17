@@ -27,6 +27,8 @@
   new issue instead.
 - Branches: feat/<ID>-<slug>, fix/…, docs/…, ops/…. Conventional commits.
 - CI must be green; PR template's DoD evidence table must be complete.
+- Branch protection on `main` requires the `checks` and `dco` CI jobs to
+  pass on every PR. `dco` fails any commit without a DCO sign-off.
 - Agents: AGENTS.md is your operating contract and overrides ambiguity here.
 
 ## Humans vs agents
