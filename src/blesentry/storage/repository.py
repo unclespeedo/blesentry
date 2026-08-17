@@ -42,12 +42,18 @@ class DeviceRepository:
         Returns the device ``id`` (new or existing).
         """
         cur = await self._conn.execute(
-            "INSERT INTO devices (site_id, fingerprint, mac, label, "
-            "description) VALUES (?, ?, ?, ?, ?) "
+            "INSERT INTO devices "
+            "(site_id, fingerprint, mac, label, description) "
+            "VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT (site_id, fingerprint) DO UPDATE SET "
-            "mac = excluded.mac, label = excluded.label, "
-            "description = excluded.description, "
-            "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+            "mac = excluded.mac, "
+            "label = COALESCE(excluded.label, devices.label), "
+            "description = COALESCE("
+            "excluded.description, devices.description"
+            "), "
+            "updated_at = strftime("
+            "'%Y-%m-%dT%H:%M:%fZ', 'now'"
+            ") "
             "RETURNING id",
             (self._site, fingerprint, mac, label, description),
         )
@@ -131,11 +137,25 @@ class ObservationRepository:
     ) -> int:
         """Append one RSSI observation for a device.
 
-        Returns the new observation ``id``.
+        Validates that ``device_id`` belongs to this site before
+        inserting.  Returns the new observation ``id``.
         """
         cur = await self._conn.execute(
+            "SELECT 1 FROM devices "
+            "WHERE id = ? AND site_id = ?",
+            (device_id, self._site),
+        )
+        owns = await cur.fetchone()
+        await cur.close()
+        if owns is None:
+            raise ValueError(
+                f"device {device_id} not found in "
+                f"site {self._site!r}"
+            )
+        cur = await self._conn.execute(
             "INSERT INTO observations "
-            "(site_id, device_id, rssi, observed_at, adapter_id) "
+            "(site_id, device_id, rssi, observed_at, "
+            "adapter_id) "
             "VALUES (?, ?, ?, ?, ?) "
             "RETURNING id",
             (
@@ -172,3 +192,26 @@ class ObservationRepository:
         rows = await cur.fetchall()
         await cur.close()
         return [(r[0], r[1]) for r in rows]
+
+    async def get(
+        self, observation_id: int
+    ) -> dict[str, Any] | None:
+        """Return an observation row as a dict, or ``None``."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, device_id, rssi, "
+            "observed_at, adapter_id "
+            "FROM observations WHERE id = ? AND site_id = ?",
+            (observation_id, self._site),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "site_id": row[1],
+            "device_id": row[2],
+            "rssi": row[3],
+            "observed_at": row[4],
+            "adapter_id": row[5],
+        }

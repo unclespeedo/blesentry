@@ -70,19 +70,16 @@ async def test_upsert_same_fingerprint_returns_same_id(
 
 async def test_upsert_updates_mac_on_fingerprint_match(
     device_repo: DeviceRepository,
-    db: aiosqlite.Connection,
 ) -> None:
     device_id = await device_repo.upsert(
         fingerprint="fp-rot", mac="AA:00:00:00:00:01"
     )
-    await device_repo.upsert(fingerprint="fp-rot", mac="AA:00:00:00:00:02")
-    cur = await db.execute(
-        "SELECT mac FROM devices WHERE id = ?", (device_id,)
+    await device_repo.upsert(
+        fingerprint="fp-rot", mac="AA:00:00:00:00:02"
     )
-    row = await cur.fetchone()
-    await cur.close()
-    assert row is not None
-    assert row[0] == "AA:00:00:00:00:02"
+    device = await device_repo.get(device_id)
+    assert device is not None
+    assert device["mac"] == "AA:00:00:00:00:02"
 
 
 async def test_upsert_stores_label_and_description(
@@ -98,6 +95,26 @@ async def test_upsert_stores_label_and_description(
     assert device is not None
     assert device["label"] == "Ryan's Phone"
     assert device["description"] == "iPhone 15 Pro"
+
+
+async def test_upsert_preserves_metadata_on_partial_update(
+    device_repo: DeviceRepository,
+) -> None:
+    device_id = await device_repo.upsert(
+        fingerprint="fp-persist",
+        mac="AA:BB:CC:DD:EE:FF",
+        label="Keep Me",
+        description="Keep This Too",
+    )
+    await device_repo.upsert(
+        fingerprint="fp-persist",
+        mac="AA:BB:CC:DD:EE:02",
+    )
+    device = await device_repo.get(device_id)
+    assert device is not None
+    assert device["mac"] == "AA:BB:CC:DD:EE:02"
+    assert device["label"] == "Keep Me"
+    assert device["description"] == "Keep This Too"
 
 
 async def test_upsert_sets_site_id(
@@ -241,35 +258,28 @@ async def test_append_returns_unique_ids(
 async def test_append_stores_all_fields(
     obs_repo: ObservationRepository,
     device_repo: DeviceRepository,
-    db: aiosqlite.Connection,
 ) -> None:
     device_id = await device_repo.upsert(
         fingerprint="fp-fields", mac="AA:BB:CC:DD:EE:FF"
     )
-    await obs_repo.append(
+    obs_id = await obs_repo.append(
         device_id=device_id,
         rssi=-42,
         observed_at=_ts(14, 30),
         adapter_id="macos-corebluetooth",
     )
-    cur = await db.execute(
-        "SELECT site_id, device_id, rssi, observed_at, adapter_id "
-        "FROM observations WHERE id = 1"
-    )
-    row = await cur.fetchone()
-    await cur.close()
-    assert row is not None
-    assert row[0] == SITE
-    assert row[1] == device_id
-    assert row[2] == -42
-    assert row[3] == _ts(14, 30)
-    assert row[4] == "macos-corebluetooth"
+    obs = await obs_repo.get(obs_id)
+    assert obs is not None
+    assert obs["site_id"] == SITE
+    assert obs["device_id"] == device_id
+    assert obs["rssi"] == -42
+    assert obs["observed_at"] == _ts(14, 30)
+    assert obs["adapter_id"] == "macos-corebluetooth"
 
 
 async def test_append_without_adapter_id(
     obs_repo: ObservationRepository,
     device_repo: DeviceRepository,
-    db: aiosqlite.Connection,
 ) -> None:
     device_id = await device_repo.upsert(
         fingerprint="fp-no-adapter", mac="AA:BB:CC:DD:EE:FF"
@@ -279,13 +289,9 @@ async def test_append_without_adapter_id(
         rssi=-55,
         observed_at=_ts(12, 0),
     )
-    cur = await db.execute(
-        "SELECT adapter_id FROM observations WHERE id = ?", (obs_id,)
-    )
-    row = await cur.fetchone()
-    await cur.close()
-    assert row is not None
-    assert row[0] is None
+    obs = await obs_repo.get(obs_id)
+    assert obs is not None
+    assert obs["adapter_id"] is None
 
 
 async def test_append_in_file_database(
@@ -450,3 +456,63 @@ async def test_query_recent_rssi_handles_duplicate_appends(
         device_id=device_id, since=_ts(0, 0)
     )
     assert len(results) == 2
+
+
+async def test_append_rejects_cross_site_device(
+    obs_repo: ObservationRepository,
+    device_repo: DeviceRepository,
+    db: aiosqlite.Connection,
+) -> None:
+    other_devs = DeviceRepository(db, "other-site")
+    other_id = await other_devs.upsert(
+        fingerprint="fp-xsite", mac="AA:BB:CC:DD:EE:FF"
+    )
+    with pytest.raises(ValueError, match="not found in site"):
+        await obs_repo.append(
+            device_id=other_id,
+            rssi=-60,
+            observed_at=_ts(10, 0),
+            adapter_id="hci0",
+        )
+
+
+async def test_append_rejects_nonexistent_device(
+    obs_repo: ObservationRepository,
+) -> None:
+    with pytest.raises(ValueError, match="not found in site"):
+        await obs_repo.append(
+            device_id=99999,
+            rssi=-60,
+            observed_at=_ts(10, 0),
+            adapter_id="hci0",
+        )
+
+
+# -- ObservationRepository: get --
+
+
+async def test_obs_get_existing(
+    obs_repo: ObservationRepository,
+    device_repo: DeviceRepository,
+) -> None:
+    device_id = await device_repo.upsert(
+        fingerprint="fp-obs-get", mac="AA:BB:CC:DD:EE:FF"
+    )
+    obs_id = await obs_repo.append(
+        device_id=device_id,
+        rssi=-55,
+        observed_at=_ts(10, 0),
+        adapter_id="hci0",
+    )
+    obs = await obs_repo.get(obs_id)
+    assert obs is not None
+    assert obs["id"] == obs_id
+    assert obs["device_id"] == device_id
+    assert obs["rssi"] == -55
+
+
+async def test_obs_get_nonexistent_returns_none(
+    obs_repo: ObservationRepository,
+) -> None:
+    obs = await obs_repo.get(99999)
+    assert obs is None
