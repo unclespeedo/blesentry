@@ -188,8 +188,7 @@ async def test_failed_migration_writes_no_bookkeeping_row(
     broken = _write_migration(
         tmp_path,
         "0001_partial.sql",
-        "CREATE TABLE partial (id INTEGER PRIMARY KEY);\n"
-        "THIS IS NOT SQL;",
+        "CREATE TABLE partial (id INTEGER PRIMARY KEY);\nTHIS IS NOT SQL;",
     )
     db = await connect(tmp_path / "test.db")
     try:
