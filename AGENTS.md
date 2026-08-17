@@ -9,6 +9,8 @@ pytest via uv) is the arbiter of done on PRs; CI on main is a post-merge
 safety net only.
 
 ## The Loop: "tackle the next priority"
+0. HEALTH CHECK: if CI on main is red, fixing it IS the next priority —
+   nothing else is selectable until main is green.
 1. SELECT: from issues labeled `agent:eligible` AND NOT `blocked` AND NOT
    `in-progress`, pick highest priority (p0>p1>p2), tie-break by lowest
    phase, then smallest size, then lowest ID. Comment your selection
@@ -18,7 +20,8 @@ safety net only.
 3. IMPLEMENT: branch `feat/<ID>-<slug>` (or fix/, docs/, ops/). TDD: failing
    test → implementation → green. Conventional commits, one logical change
    each, `Signed-off-by` on all.
-4. SELF-REVIEW: run `uv run ruff check`, `uv run ty check`, `uv run pytest`.
+4. SELF-REVIEW: run the full local gate — `uvx pre-commit run --all-files`
+   (the single source of truth; never a hand-typed subset of its hooks).
    Re-read the diff as a hostile reviewer. Check: MPL header on new files,
    no secrets, no SQL outside repositories, no code outside the seam
    contracts (ADR-0002).
