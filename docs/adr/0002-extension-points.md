@@ -1,6 +1,6 @@
-# ADR-0002: Extension-Point Architecture (Scanner / Notifier / Storage Seams)
+# ADR-0002: Scanner Seam
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-08-16
 - **Deciders:** Ryan Speed (human sign-off pending)
 

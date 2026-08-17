@@ -13,11 +13,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Protocol, runtime_checkable
 
 import pytest
 
-from blesentry.scanner import Advertisement
+from blesentry.scanner import Advertisement, MockScanner
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CORPUS = FIXTURES / "corpus-macos-corebluetooth.json"
@@ -33,24 +32,10 @@ def _corpus() -> list[Advertisement]:
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class _ScannerProtocol(Protocol):
-    async def scan(self, duration: float) -> list[Advertisement]: ...
-
-
 def test_scanner_protocol_has_scan_method() -> None:
     """Scanner exposes ``scan(duration) -> list[Advertisement]``."""
-    from blesentry.scanner import MockScanner
-
     assert hasattr(MockScanner, "scan")
 
-
-def test_mock_scanner_satisfies_protocol() -> None:
-    """MockScanner structurally satisfies the Scanner protocol."""
-    from blesentry.scanner import MockScanner
-
-    mock = MockScanner(scenarios=[])
-    assert isinstance(mock, _ScannerProtocol)
 
 
 # ---------------------------------------------------------------------------

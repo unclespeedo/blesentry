@@ -15,12 +15,11 @@ ADR-0002 (extension-point architecture) records this seam.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 from blesentry.scanner.models import Advertisement
 
 
-@runtime_checkable
 class Scanner(Protocol):
     """BLE advertisement scanner seam.
 
