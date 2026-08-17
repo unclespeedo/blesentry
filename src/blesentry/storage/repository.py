@@ -46,9 +46,7 @@ class DeviceRepository:
     time so callers never need to remember to filter by site.
     """
 
-    def __init__(
-        self, conn: aiosqlite.Connection, site_id: str
-    ) -> None:
+    def __init__(self, conn: aiosqlite.Connection, site_id: str) -> None:
         """Initialise with an open connection and target site."""
         self._conn = conn
         self._site = site_id
@@ -103,18 +101,14 @@ class DeviceRepository:
             row = await cur.fetchone()
             await cur.close()
             if row is None:
-                raise RuntimeError(
-                    "RETURNING produced no row"
-                )
+                raise RuntimeError("RETURNING produced no row")
             await self._conn.execute("COMMIT")
             return int(row[0])
         except Exception:
             await self._conn.execute("ROLLBACK")
             raise
 
-    async def get(
-        self, device_id: int
-    ) -> DeviceRow | None:
+    async def get(self, device_id: int) -> DeviceRow | None:
         """Return a device row, or ``None`` if not found."""
         cur = await self._conn.execute(
             "SELECT id, site_id, fingerprint, mac, label, "
@@ -170,9 +164,7 @@ class ObservationRepository:
     all queries to a single ``site_id``.
     """
 
-    def __init__(
-        self, conn: aiosqlite.Connection, site_id: str
-    ) -> None:
+    def __init__(self, conn: aiosqlite.Connection, site_id: str) -> None:
         """Initialise with an open connection and target site."""
         self._conn = conn
         self._site = site_id
@@ -194,16 +186,14 @@ class ObservationRepository:
         await self._conn.execute("BEGIN")
         try:
             cur = await self._conn.execute(
-                "SELECT 1 FROM devices "
-                "WHERE id = ? AND site_id = ?",
+                "SELECT 1 FROM devices WHERE id = ? AND site_id = ?",
                 (device_id, self._site),
             )
             owns = await cur.fetchone()
             await cur.close()
             if owns is None:
                 raise ValueError(
-                    f"device {device_id} not found "
-                    f"in site {self._site!r}"
+                    f"device {device_id} not found in site {self._site!r}"
                 )
             cur = await self._conn.execute(
                 "INSERT INTO observations "
@@ -222,9 +212,7 @@ class ObservationRepository:
             row = await cur.fetchone()
             await cur.close()
             if row is None:
-                raise RuntimeError(
-                    "RETURNING produced no row"
-                )
+                raise RuntimeError("RETURNING produced no row")
             await self._conn.execute("COMMIT")
             return int(row[0])
         except Exception:
@@ -254,9 +242,7 @@ class ObservationRepository:
         await cur.close()
         return [(r[0], r[1]) for r in rows]
 
-    async def get(
-        self, observation_id: int
-    ) -> ObservationRow | None:
+    async def get(self, observation_id: int) -> ObservationRow | None:
         """Return an observation row, or ``None``."""
         cur = await self._conn.execute(
             "SELECT id, site_id, device_id, rssi, "

@@ -37,7 +37,6 @@ def test_scanner_protocol_has_scan_method() -> None:
     assert hasattr(MockScanner, "scan")
 
 
-
 # ---------------------------------------------------------------------------
 # Basic scan behaviour
 # ---------------------------------------------------------------------------
@@ -146,9 +145,7 @@ async def test_scenario_multi_device_appear_disappear() -> None:
 
     ads = _corpus()
     a, b, c = ads[0], ads[1], ads[2]
-    scanner = MockScanner(
-        scenarios=[[a, b, c], [a, b], [a]]
-    )
+    scanner = MockScanner(scenarios=[[a, b, c], [a, b], [a]])
     scan1 = await scanner.scan(duration=5.0)
     scan2 = await scanner.scan(duration=5.0)
     scan3 = await scanner.scan(duration=5.0)
