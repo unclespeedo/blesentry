@@ -39,12 +39,21 @@ protection requires the `checks` and `dco` jobs) and on main.
 ## Hard Prohibitions
 - Never claim issues labeled `needs:hardware` or `needs:human-decision`.
 - Never handle, request, or commit secrets (tokens, S3 creds).
-- This repo is PUBLIC. Never post site-identifying operational data to
-  issues, PRs, or commits: WiFi SSIDs, device MAC addresses, household
-  device inventories, IP addresses, clock-time schedules, coordinates.
+- This repo is PUBLIC, and public events are archived by scrapers the
+  moment they land — deletion is damage limitation, not recall. Never
+  post site-identifying operational data to issues, PRs, commits,
+  branch names, or CI logs: WiFi SSIDs, hostnames/usernames, device
+  identifiers (MACs, advertised names), raw advertisement payloads
+  (manufacturer/service data embed IPs, ports, serials, contact-info
+  hashes, keys — hex is not redaction), household device inventories,
+  IP addresses, occupancy/observation schedules, coordinates.
   Evidence uses counts, durations, and redacted identifiers; full
-  fidelity stays local. Scrub mistakes by delete-and-repost, never
-  edit (edit history is public).
+  fidelity stays local. Exception: fixture corpora, committed ONLY
+  after the sanitization protocol in tests/fixtures/README.md.
+  Scrub comment mistakes by delete-and-repost, never edit (edit
+  history is public), and treat the leaked value as burned. A leak
+  in a commit or pushed branch: STOP, label `needs-human` — history
+  rewrite is human-only.
 - Never SSH to or target the Pi. Never create tags or GitHub Releases.
 - Never modify ROADMAP.md, ADRs, or this file without a `needs-human` PR.
 - Never widen an issue's scope. Found adjacent work? Open a new issue,
