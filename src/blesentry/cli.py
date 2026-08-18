@@ -19,6 +19,7 @@ import argparse
 import asyncio
 import json
 import logging
+import signal
 import sys
 
 from bleak.args.bluez import OrPattern
@@ -27,6 +28,7 @@ from bleak.exc import BleakError
 
 from blesentry.scanner.models import Advertisement
 from blesentry.scanner.protocol import Scanner
+from blesentry.storage.database import MigrationError
 
 # Provisional BlueZ passive-scan patterns: common AD FLAGS values
 # (0x01 = flags AD type). Misses flag-less nonconnectable beacons —
@@ -197,7 +199,12 @@ def _build_scanner(args: argparse.Namespace) -> Scanner:
 
 
 async def _run_daemon(args: argparse.Namespace) -> int:
-    """Connect, migrate, and scan-persist until stopped."""
+    """Connect, migrate, and scan-persist until stopped.
+
+    SIGTERM (systemd's stop signal) cancels the task so the loop
+    unwinds through ``finally`` and the connection closes cleanly —
+    the issue #20 graceful-shutdown contract.
+    """
     from blesentry.loop import run_loop
     from blesentry.storage.database import apply_migrations, connect
     from blesentry.storage.repository import (
@@ -205,13 +212,17 @@ async def _run_daemon(args: argparse.Namespace) -> int:
         ObservationRepository,
     )
 
-    conn = await connect(args.db)
+    logger = logging.getLogger(__name__)
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    if task is not None:
+        loop.add_signal_handler(signal.SIGTERM, task.cancel)
+    conn = None
     try:
+        conn = await connect(args.db)
         applied = await apply_migrations(conn)
         if applied:
-            logging.getLogger(__name__).info(
-                "applied migrations: %s", ", ".join(applied)
-            )
+            logger.info("applied migrations: %s", ", ".join(applied))
         cycles = await run_loop(
             _build_scanner(args),
             DeviceRepository(conn, args.site_id),
@@ -220,9 +231,16 @@ async def _run_daemon(args: argparse.Namespace) -> int:
             pause=args.pause,
             max_cycles=args.max_cycles,
         )
-        logging.getLogger(__name__).info("stopped after %d cycles", cycles)
+        logger.info("stopped after %d cycles", cycles)
+    except asyncio.CancelledError:
+        if task is not None:
+            task.uncancel()
+        logger.info("terminated; shutting down cleanly")
     finally:
-        await conn.close()
+        if task is not None:
+            loop.remove_signal_handler(signal.SIGTERM)
+        if conn is not None:
+            await conn.close()
     return 0
 
 
@@ -243,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         # the loop task and closes the connection via finally.
         print("interrupted; shutting down", file=sys.stderr)
         return 0
-    except (ValueError, OSError, BleakError) as exc:
+    except (ValueError, OSError, BleakError, MigrationError) as exc:
         # Fail fast and loud (ADR-0002): a sentinel that cannot scan
         # must say so, with a non-zero exit for scripts.
         print(f"error: {exc}", file=sys.stderr)

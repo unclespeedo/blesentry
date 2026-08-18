@@ -11,6 +11,7 @@ resolver is exact fingerprint identity — #19 replaces it with fusion.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -169,3 +170,25 @@ async def test_loop_runs_max_cycles_and_stops(repos) -> None:
         device_id=rows[0]["id"], since="2025-01-01T00:00:00.000Z"
     )
     assert len(rssi) == 2
+
+
+@pytest.mark.asyncio
+async def test_loop_cancellation_propagates_mid_pause(repos) -> None:
+    """Cancellation (the SIGTERM path) unwinds promptly from the pause."""
+    devices, observations = repos
+    scanner = MockScanner(scenarios=[[_ad()]] * 5)
+    task = asyncio.create_task(
+        run_loop(
+            scanner,
+            devices,
+            observations,
+            duration=0.0,
+            pause=30.0,
+            max_cycles=None,
+        )
+    )
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(await devices.list_devices()) == 1
