@@ -1,0 +1,107 @@
+#!/bin/bash
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# firstrun.sh template for headless Pi provisioning (P0-7, #76).
+# The shebang above MUST stay on line 1 of the filled-in script —
+# systemd executes the file directly off the FAT partition.
+#
+# Raspberry Pi OS Trixie (2026-06-18) does NOT process custom.toml —
+# /usr/lib/raspberrypi-sys-mods/ ships empty — and Raspberry Pi Imager
+# 2.x skips its customisation dialog for "Use custom" images. This
+# script is the working mechanism: it is executed once by systemd via
+# a kernel-command-line hook, configures the system, dumps diagnostics
+# to the FAT partition, removes itself, and reboots.
+#
+# Usage (card mounted on the Mac as /Volumes/bootfs):
+#   1. Fill in every {{PLACEHOLDER}} below; save the result as
+#      /Volumes/bootfs/firstrun.sh
+#      - {{PASSWORD_HASH}}: openssl passwd -6 '<password>'
+#        (single-quote the hash when pasting — it contains $)
+#   2. Append this (ONE line, leading space) to /Volumes/bootfs/cmdline.txt:
+#      systemd.run=/boot/firmware/firstrun.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target
+#   3. Verify per flash-notes.md, eject, boot. Expect two boots.
+set +e
+LOG=/boot/firmware/blesentry-debug.log
+exec >>"$LOG" 2>&1
+echo "=== blesentry firstrun $(date) ==="
+uname -a
+
+# --- hostname -----------------------------------------------------------
+CURRENT_HOSTNAME=$(cat /etc/hostname | tr -d " \t\n\r")
+echo {{HOSTNAME}} >/etc/hostname
+sed -i "s/127.0.1.1.*$CURRENT_HOSTNAME/127.0.1.1\t{{HOSTNAME}}/g" /etc/hosts
+hostname {{HOSTNAME}}
+
+# --- user (userconf-pi if present, manual fallback) ---------------------
+if [ -f /usr/lib/userconf-pi/userconf ]; then
+  /usr/lib/userconf-pi/userconf '{{USERNAME}}' '{{PASSWORD_HASH}}'
+else
+  useradd -m -s /bin/bash {{USERNAME}}
+  echo '{{USERNAME}}:{{PASSWORD_HASH}}' | chpasswd -e
+  usermod -aG sudo {{USERNAME}}
+fi
+
+# --- SSH: key-only ------------------------------------------------------
+install -o {{USERNAME}} -g {{USERNAME}} -m 700 -d /home/{{USERNAME}}/.ssh
+printf '%s\n' '{{SSH_PUBKEY}}' >/home/{{USERNAME}}/.ssh/authorized_keys
+chown {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}/.ssh/authorized_keys
+chmod 600 /home/{{USERNAME}}/.ssh/authorized_keys
+printf 'PasswordAuthentication no\n' >/etc/ssh/sshd_config.d/10-blesentry.conf
+systemctl enable ssh
+
+# --- WiFi: regulatory domain, then a NetworkManager keyfile -------------
+raspi-config nonint do_wifi_country {{WIFI_COUNTRY}} || iw reg set {{WIFI_COUNTRY}}
+rfkill unblock all
+cat >/etc/NetworkManager/system-connections/{{WIFI_SSID}}.nmconnection <<'NMEOF'
+[connection]
+id={{WIFI_SSID}}
+type=wifi
+autoconnect=true
+
+[wifi]
+mode=infrastructure
+ssid={{WIFI_SSID}}
+
+[wifi-security]
+key-mgmt=wpa-psk
+psk={{WIFI_PSK}}
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+NMEOF
+chmod 600 /etc/NetworkManager/system-connections/{{WIFI_SSID}}.nmconnection
+
+# --- timezone -----------------------------------------------------------
+timedatectl set-timezone {{TIMEZONE}} || \
+  ln -sf /usr/share/zoneinfo/{{TIMEZONE}} /etc/localtime
+
+# --- bluetoothd --experimental (REQUIRED for passive BLE scanning) ------
+# BlueZ gates AdvertisementMonitor (the passive-scan D-Bus API) behind
+# the experimental flag; without it every blesentry scan fails at
+# startup (#68). Path verified on Trixie via `systemctl cat bluetooth`.
+mkdir -p /etc/systemd/system/bluetooth.service.d
+printf '[Service]\nExecStart=\nExecStart=/usr/libexec/bluetooth/bluetoothd --experimental\n' \
+  >/etc/systemd/system/bluetooth.service.d/experimental.conf
+
+# --- diagnostics to the FAT partition (readable from any laptop) --------
+echo "--- rfkill ---"; rfkill list
+echo "--- iw dev ---"; iw dev
+systemctl restart NetworkManager
+sleep 25
+echo "--- nmcli dev ---"; nmcli dev
+echo "--- wifi scan ---"; nmcli dev wifi list
+echo "--- NetworkManager journal tail ---"
+journalctl -u NetworkManager --no-pager 2>/dev/null | tail -40
+echo "--- ip addr ---"; ip addr
+echo "=== firstrun complete ==="
+
+# --- self-cleanup -------------------------------------------------------
+rm -f /boot/firmware/firstrun.sh
+sed -i 's| systemd.run.*||g' /boot/firmware/cmdline.txt
+sync
+exit 0
