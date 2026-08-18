@@ -4,11 +4,13 @@
 Local-first BLE presence sentinel. Read before any work: ROADMAP.md,
 docs/adr/*, CONTRIBUTING.md. Conventions: Python 3 + uv, ruff (line 79), ty,
 pytest (TDD — test first), Pydantic V2 ConfigDict, MPL-2.0 headers on every
-new file, DCO sign-off on every commit. The local pre-commit gate (ruff, ty,
-pytest via uv) is the arbiter of done on PRs; CI on main is a post-merge
-safety net only.
+new file, DCO sign-off on every commit. The local pre-commit gate is the
+fast feedback loop; CI enforces the same checks on every PR (branch
+protection requires the `checks` and `dco` jobs) and on main.
 
 ## The Loop: "tackle the next priority"
+0. HEALTH CHECK: if CI on main is red, fixing it IS the next priority —
+   nothing else is selectable until main is green.
 1. SELECT: from issues labeled `agent:eligible` AND NOT `blocked` AND NOT
    `in-progress`, pick highest priority (p0>p1>p2), tie-break by lowest
    phase, then smallest size, then lowest ID. Comment your selection
@@ -18,7 +20,8 @@ safety net only.
 3. IMPLEMENT: branch `feat/<ID>-<slug>` (or fix/, docs/, ops/). TDD: failing
    test → implementation → green. Conventional commits, one logical change
    each, `Signed-off-by` on all.
-4. SELF-REVIEW: run `uv run ruff check`, `uv run ty check`, `uv run pytest`.
+4. SELF-REVIEW: run the full local gate — `uvx pre-commit run --all-files`
+   (the single source of truth; never a hand-typed subset of its hooks).
    Re-read the diff as a hostile reviewer. Check: MPL header on new files,
    no secrets, no SQL outside repositories, no code outside the seam
    contracts (ADR-0002).
