@@ -157,8 +157,10 @@ async def test_rotating_nulls_stay_distinct(devices) -> None:
 
 @pytest.mark.asyncio
 async def test_stable_address_changed_payload_fuses(devices) -> None:
-    """Observed live: same static address, payload changed — one
-    device whose advertisement state ticked, not two devices.
+    """Same stable address with changed payload fuses.
+
+    Observed live: one device whose advertisement state ticked,
+    not two devices.
     """
     resolver = DeviceResolver(devices)
     (id_a,) = await _resolve_cycle(
