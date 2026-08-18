@@ -87,8 +87,11 @@ def test_identical_non_address_signals_score_high() -> None:
 
 
 def test_company_id_alone_scores_below_threshold() -> None:
-    """Same vendor, different payload — the rotation cloud must NOT
-    collapse into one device on company id alone."""
+    """Company id alone must not fuse.
+
+    Same vendor, different payload — the rotation cloud must never
+    collapse into one device per vendor.
+    """
     a = Fingerprint.from_advertisement(
         _ad(address="11:11:11:11:11:11", manufacturer_data={"76": "0102"})
     )
@@ -147,12 +150,8 @@ async def test_rotated_mac_stable_payload_fuses(devices) -> None:
 async def test_rotating_nulls_stay_distinct(devices) -> None:
     """Nulls everywhere: rotation with no signals must NOT fuse."""
     resolver = DeviceResolver(devices)
-    (id_a,) = await _resolve_cycle(
-        resolver, _ad(address="5E:11:11:11:11:11")
-    )
-    (id_b,) = await _resolve_cycle(
-        resolver, _ad(address="43:22:22:22:22:22")
-    )
+    (id_a,) = await _resolve_cycle(resolver, _ad(address="5E:11:11:11:11:11"))
+    (id_b,) = await _resolve_cycle(resolver, _ad(address="43:22:22:22:22:22"))
     assert id_a != id_b
 
 
@@ -205,15 +204,14 @@ async def test_threshold_is_configurable(devices) -> None:
     before = _ad(
         address="5E:11:11:11:11:11",
         local_name="Eve",
-        service_uuids=["180d"],
         manufacturer_data={"76": "aabbcc"},
     )
     after = _ad(
         address="43:22:22:22:22:22",
         local_name="Eve",
-        service_uuids=["180d"],
         manufacturer_data={"76": "aabbcc"},
     )
+    # payload+name = 0.75: fuses at the default threshold, not at 0.99
     (id_a,) = await _resolve_cycle(strict, before)
     (id_b,) = await _resolve_cycle(strict, after)
     assert id_a != id_b
