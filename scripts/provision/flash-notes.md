@@ -104,3 +104,14 @@ Also check: is `firstrun.sh` gone and `cmdline.txt` restored? If
 
 Validated result 2026-08-17: 20 devices heard in a 12 s passive
 window on BlueZ 5.82 with the CLI's default `or_patterns`.
+
+## 8. Collector service (do this once per provisioned card)
+
+`install-service.sh` (this directory) installs the boot-enabled
+collector service via the same one-boot `systemd.run` hook as step 3
+(anchor to `kernel-command-line.target` — the hook does not fire under
+other targets). It enforces the operational invariants: scan on every
+boot with no network dependency, restart on failure, deploy-restart
+authorization, persistent bounded journals. Verify afterwards by
+reading `install-service.log` on the boot partition (the script
+self-removes and reboots into normal operation).
