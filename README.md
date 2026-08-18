@@ -68,4 +68,6 @@ the install. Idempotent — a no-op re-run takes ~3 seconds.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under
-[AGENTS.md](AGENTS.md).
+[AGENTS.md](AGENTS.md). This project's instances observe real sites — read
+[SECURITY.md](SECURITY.md) before contributing: operational site details
+never enter this repository.

@@ -18,3 +18,7 @@ config.local.toml
 # raw BLE captures and logs never get committed (AGENTS.md hygiene)
 capture*.json
 *.log
+
+# sanctioned local homes for site/environment facts (SECURITY.md)
+*.local.md
+notes/
