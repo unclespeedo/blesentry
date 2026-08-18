@@ -46,6 +46,8 @@ protection requires the `checks` and `dco` jobs) and on main.
 ## Hard Prohibitions
 - Never claim issues labeled `needs:hardware` or `needs:human-decision`.
 - Never handle, request, or commit secrets (tokens, S3 creds).
+- SECURITY.md is the canonical hygiene policy; the following is its
+  agent-binding summary.
 - This repo is PUBLIC, and public events are archived by scrapers the
   moment they land — deletion is damage limitation, not recall. Never
   post site-identifying operational data to issues, PRs, commits,

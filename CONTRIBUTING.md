@@ -29,11 +29,15 @@
 - CI must be green; PR template's DoD evidence table must be complete.
 - Branch protection on `main` requires the `checks` and `dco` CI jobs to
   pass on every PR. `dco` fails any commit without a DCO sign-off.
-- This repo is public and the software observes a real site: the
-  AGENTS.md public-repo hygiene rule (no SSIDs, MACs, IPs, device
-  inventories, or occupancy schedules in issues/PRs/commits) binds
-  human contributors too. Fixture corpora follow
-  `tests/fixtures/README.md`.
+- **Read [SECURITY.md](SECURITY.md) before contributing.** This repo
+  is fully public and the software observes real sites: operational
+  environment details (SSIDs, MACs, device inventories, IPs,
+  schedules, raw advertisement payloads) must never appear in
+  issues, PRs, commits, branch names, or CI logs — they are a
+  security exposure AND they mislead end users who read site
+  specifics as product documentation. Keep site facts in gitignored
+  `*.local.md` / `notes/` files; fixture corpora follow
+  `tests/fixtures/README.md`. This binds humans and agents equally.
 - Agents: AGENTS.md is your operating contract and overrides ambiguity here.
 
 ## Humans vs agents
