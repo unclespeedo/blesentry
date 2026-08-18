@@ -51,6 +51,21 @@ MPL-2.0. Use it anywhere, including commercially. If you modify *these files*
 and ship them, publish those modifications. Your own plugins, glue code, and
 out-of-tree Scanner/Notifier backends are yours, under any license.
 
+## Deploying to the Pi
+
+One command from a dev machine to a provisioned node (see
+`scripts/provision/flash-notes.md` for provisioning):
+
+```
+scripts/deploy.sh                 # $USER@blesentry-pi.local
+scripts/deploy.sh pi@other.local  # explicit target
+```
+
+rsyncs the working tree (never git state), runs `uv sync` on the Pi,
+restarts `blesentry.service` when it exists (P3-1), and smoke-checks
+the install. Idempotent — a no-op re-run takes ~3 seconds.
+`BLESENTRY_HOST` / `BLESENTRY_DIR` override the defaults.
+
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under
 [AGENTS.md](AGENTS.md).
