@@ -84,14 +84,14 @@ def test_parse_or_pattern() -> None:
     pattern = parse_or_pattern("0:01:06")
     assert pattern.start_position == 0
     assert pattern.ad_data_type == 0x01
-    assert pattern.content == b"\x06"
+    assert pattern.content_of_pattern == b"\x06"
 
 
 def test_parse_or_pattern_multibyte_content() -> None:
     pattern = parse_or_pattern("2:ff:4c00")
     assert pattern.start_position == 2
     assert pattern.ad_data_type == 0xFF
-    assert pattern.content == b"\x4c\x00"
+    assert pattern.content_of_pattern == b"\x4c\x00"
 
 
 @pytest.mark.parametrize(
