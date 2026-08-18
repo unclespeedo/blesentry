@@ -13,7 +13,19 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+)
+
+# Radio-controlled fields are bounded (#85): the model must not assume
+# the radio is honest. 248 is the GAP device-name maximum; 64 entries
+# is far beyond any legitimate advertisement's container cardinality.
+MAX_NAME_LENGTH = 248
+MAX_CONTAINER_ENTRIES = 64
 
 
 class Advertisement(BaseModel):
@@ -30,13 +42,38 @@ class Advertisement(BaseModel):
 
     mac: str = Field(min_length=1)
     rssi: int
-    local_name: str | None = None
-    service_uuids: Sequence[str] = Field(default_factory=tuple)
+    local_name: str | None = Field(default=None, max_length=MAX_NAME_LENGTH)
+    service_uuids: Sequence[str] = Field(
+        default_factory=tuple, max_length=MAX_CONTAINER_ENTRIES
+    )
     manufacturer_data: Mapping[str, str] = Field(default_factory=dict)
     service_data: Mapping[str, str] = Field(default_factory=dict)
     tx_power: int | None = None
     timestamp: float
     adapter_id: str = Field(min_length=1)
+
+    @field_validator("local_name")
+    @classmethod
+    def _reject_unencodable_name(cls, value: str | None) -> str | None:
+        """Reject lone surrogates and other unencodable text.
+
+        A name that cannot round-trip UTF-8 would crash any future
+        direct text bind (DB, notifier); refuse it at the boundary so
+        the hostile advertisement is skipped-and-logged instead.
+        """
+        if value is not None:
+            value.encode("utf-8")
+        return value
+
+    @field_validator("manufacturer_data", "service_data")
+    @classmethod
+    def _bound_mapping(cls, value: Mapping[str, str]) -> Mapping[str, str]:
+        """Cap mapping cardinality (radio-controlled input)."""
+        if len(value) > MAX_CONTAINER_ENTRIES:
+            raise ValueError(
+                f"mapping exceeds {MAX_CONTAINER_ENTRIES} entries"
+            )
+        return value
 
     def model_post_init(self, __context: object, /) -> None:
         """Replace mutable containers with immutable equivalents."""

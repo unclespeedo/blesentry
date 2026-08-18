@@ -165,17 +165,15 @@ def test_format_table_handles_no_results() -> None:
 
 
 def test_format_table_strips_terminal_escapes() -> None:
-    out = format_table(
-        [_ad(local_name="\x1b]0;pwned\x07\x1b[2Jbad")]
-    )
+    out = format_table([_ad(local_name="\x1b]0;pwned\x07\x1b[2Jbad")])
     assert "\x1b" not in out
     assert "\x07" not in out
     assert "bad" in out
 
 
 def test_format_table_strips_bidi_overrides() -> None:
-    out = format_table([_ad(local_name="ab‮cd")])
-    assert "‮" not in out
+    out = format_table([_ad(local_name="ab\u202ecd")])
+    assert "\u202e" not in out
     assert "ab" in out and "cd" in out
 
 

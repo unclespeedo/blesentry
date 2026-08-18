@@ -167,6 +167,18 @@ def format_json(advertisements: list[Advertisement]) -> str:
     )
 
 
+def _display_text(value: str) -> str:
+    """Sanitize untrusted text for terminal display (#85).
+
+    Device names are radio-controlled: ANSI/OSC escapes and bidi
+    control characters are replaced so a crafted name cannot inject
+    terminal sequences or visually reorder the line. isprintable()
+    is False for both C0/C1 controls and Unicode format characters
+    (Cf), which covers ESC/BEL and the bidi overrides.
+    """
+    return "".join(ch if ch.isprintable() else "�" for ch in value)
+
+
 def format_table(advertisements: list[Advertisement]) -> str:
     """Render a human-readable table, strongest signal first."""
     lines = [
@@ -175,8 +187,8 @@ def format_table(advertisements: list[Advertisement]) -> str:
     if advertisements:
         lines.append(f"{'ADDRESS':<40} {'RSSI':>5}  NAME")
         for ad in sorted(advertisements, key=lambda a: -a.rssi):
-            name = ad.local_name or "-"
-            lines.append(f"{ad.mac:<40} {ad.rssi:>5}  {name}")
+            name = _display_text(ad.local_name or "-")
+            lines.append(f"{_display_text(ad.mac):<40} {ad.rssi:>5}  {name}")
     return "\n".join(lines)
 
 

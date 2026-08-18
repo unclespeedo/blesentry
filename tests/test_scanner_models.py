@@ -232,9 +232,7 @@ def test_service_uuid_cardinality_bounded() -> None:
 
 def test_manufacturer_data_cardinality_bounded() -> None:
     with pytest.raises(ValidationError):
-        _sample_ad(
-            manufacturer_data={str(i): "00" for i in range(65)}
-        )
+        _sample_ad(manufacturer_data={str(i): "00" for i in range(65)})
 
 
 def test_service_data_cardinality_bounded() -> None:
