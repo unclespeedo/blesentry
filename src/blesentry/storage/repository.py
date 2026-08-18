@@ -167,12 +167,13 @@ class DeviceRepository:
         changed: a rotation IS an identity event, and it is per-rotation
         (~minutes), not per-sighting, so #84's write savings hold.
         """
-        await self._conn.execute(
-            "UPDATE devices SET address = ?, "
-            "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
-            "WHERE id = ? AND site_id = ?",
-            (address, device_id, self._site),
-        )
+        async with transaction(self._conn):
+            await self._conn.execute(
+                "UPDATE devices SET address = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ? AND site_id = ?",
+                (address, device_id, self._site),
+            )
 
     async def get(self, device_id: int) -> DeviceRow | None:
         """Return a device row, or ``None`` if not found."""

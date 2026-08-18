@@ -166,7 +166,7 @@ async def test_stable_address_changed_payload_fuses(devices) -> None:
     (id_a,) = await _resolve_cycle(
         resolver,
         _ad(
-            address="F9:50:53:07:09:79",
+            address="F9:33:33:33:33:33",
             address_type="random_static",
             local_name="Sensor",
             manufacturer_data={"76": "aabbcc"},
@@ -175,7 +175,7 @@ async def test_stable_address_changed_payload_fuses(devices) -> None:
     (id_b,) = await _resolve_cycle(
         resolver,
         _ad(
-            address="F9:50:53:07:09:79",
+            address="F9:33:33:33:33:33",
             address_type="random_static",
             local_name="Sensor",
             manufacturer_data={"76": "ddeeff"},
@@ -268,22 +268,22 @@ def test_stable_address_mismatch_vetoes_fusion_score() -> None:
 async def test_identical_twin_devices_stay_distinct(devices) -> None:
     """Two factory-identical sensors on different static addresses."""
     resolver = DeviceResolver(devices)
-    eve_one = _ad(
+    twin_one = _ad(
         address="F9:11:11:11:11:11",
         address_type="random_static",
         local_name="Sensor",
         service_uuids=["180d"],
         manufacturer_data={"76": "aabbcc"},
     )
-    eve_two = _ad(
+    twin_two = _ad(
         address="E9:22:22:22:22:22",
         address_type="random_static",
         local_name="Sensor",
         service_uuids=["180d"],
         manufacturer_data={"76": "aabbcc"},
     )
-    (id_one,) = await _resolve_cycle(resolver, eve_one)
-    (id_two,) = await _resolve_cycle(resolver, eve_two)
+    (id_one,) = await _resolve_cycle(resolver, twin_one)
+    (id_two,) = await _resolve_cycle(resolver, twin_two)
     assert id_one != id_two
     assert len(await devices.list_devices()) == 2
 
@@ -495,3 +495,25 @@ async def test_seed_restores_fusion_memory_across_restart(devices) -> None:
         ),
     )
     assert id_a == id_b
+
+
+@pytest.mark.asyncio
+async def test_seed_eviction_discards_oldest_not_newest(devices) -> None:
+    """Window pressure after seeding must evict the OLDEST devices."""
+    writer = DeviceResolver(devices)
+    ads = [
+        _ad(
+            address=f"F9:33:33:33:33:{i:02X}",
+            address_type="random_static",
+            local_name=f"S{i}",
+        )
+        for i in range(3)
+    ]
+    for ad in ads:
+        await _resolve_cycle(writer, ad)
+    small = DeviceResolver(devices, recent_window=3)
+    await small.seed()
+    # one new resolution forces one eviction
+    await _resolve_cycle(small, _ad(address="11:11:11:11:11:11"))
+    remaining = {fp.local_name for fp, _, _ in small._recent.values()}
+    assert "S2" in remaining, "newest seed must survive eviction"

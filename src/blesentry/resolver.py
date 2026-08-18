@@ -7,10 +7,12 @@
 Resolves an ``Advertisement`` to an existing device or creates one.
 Replaces the loop's provisional exact-fingerprint identity with
 weighted scoring across the signal hierarchy the overnight baseline
-validated: manufacturer-data payload continuity is the strongest join
-signal across MAC rotations; an address match is strong only when its
-provenance says the address is stable (``public``/``random_static``);
-a rotating address is a near-zero signal.
+validated: HAP device ids are near-authoritative; manufacturer-data
+payload continuity is the strongest weighted join signal; any exact
+address match within the temporally-local window is strong (two
+radios cannot share an address concurrently — 2026-08-18 policy);
+address *provenance* powers the stable-address mismatch veto rather
+than gating the match weight.
 
 Transaction discipline (the #84 lesson): identities created inside a
 cycle transaction are staged; the caller invokes :meth:`commit` after
@@ -23,6 +25,8 @@ from __future__ import annotations
 import json
 from collections import OrderedDict
 
+import aiosqlite
+
 from blesentry.scanner.models import Advertisement, Fingerprint
 from blesentry.storage.repository import DeviceRepository
 
@@ -31,12 +35,13 @@ from blesentry.storage.repository import DeviceRepository
 # alone is not enough — it needs a name or service-set corroboration.
 # Company-id-only overlap (0.3) can never fuse on its own: the
 # rotation cloud must not collapse into one device per vendor.
+# Weights and the 0.55 default threshold are ACCEPTED-PROVISIONAL
+# pending P0-11 labeled walk-test tuning (2026-08-18 policy decision).
 _W_MFR_PAYLOAD = 0.5
 _W_MFR_COMPANY = 0.3
 _W_UUIDS = 0.25
 _W_NAME = 0.25
 _W_STABLE_ADDRESS = 0.6
-_W_ROTATING_ADDRESS = 0.05
 
 _STABLE_TYPES = frozenset({"public", "random_static"})
 
@@ -48,10 +53,11 @@ def hap_device_id(fingerprint: Fingerprint) -> str | None:
     """Extract the stable HomeKit (HAP) device id, if advertised.
 
     Apple manufacturer data of Continuity type 0x06 is a HAP pairing
-    advertisement: type (1), subtype/length (1), AIL flags (1), then a
-    6-byte device id that is stable per accessory — authoritative
-    identity for HomeKit accessories,
-    unaffected by the state counter that changes across sightings.
+    advertisement: type (1), subtype/length (1), status flags (1),
+    then a 6-byte device id that is stable per accessory —
+    near-authoritative identity for HomeKit accessories (the
+    stable-address mismatch veto runs first in scoring), unaffected
+    by the state counter that changes across sightings.
     """
     for company, payload_hex in fingerprint.manufacturer_data:
         if company != _APPLE_COMPANY:
@@ -59,7 +65,7 @@ def hap_device_id(fingerprint: Fingerprint) -> str | None:
         try:
             payload = bytes.fromhex(payload_hex)
         except ValueError:
-            return None
+            continue
         if len(payload) >= 9 and payload[0] == _HAP_TYPE:
             return payload[3:9].hex()
     return None
@@ -115,7 +121,8 @@ def fusion_score(
     hap_a = hap_device_id(candidate)
     hap_b = hap_device_id(other)
     if hap_a is not None and hap_b is not None:
-        # Authoritative per-accessory identity: equal ids fuse,
+        # Near-authoritative per-accessory identity (the stable-
+        # address veto has already run): equal ids fuse,
         # differing ids veto (covers provenance-null captures too).
         return 1.0 if hap_a == hap_b else 0.0
     score = 0.0
@@ -174,7 +181,7 @@ class DeviceResolver:
         ] = []
 
     @property
-    def connection(self):
+    def connection(self) -> aiosqlite.Connection:
         """The repository connection, for the cycle transaction."""
         return self._devices.connection
 
@@ -271,21 +278,28 @@ class DeviceResolver:
         Stored keys carry no live provenance; address_type seeds None,
         which the same-address and HAP rules do not need.
         """
-        for row in await self._devices.list_recent(self._recent_window):
+        rows = await self._devices.list_recent(self._recent_window)
+        # list_recent is newest-first; insert oldest-first so FIFO
+        # window eviction discards the oldest seeds, not the newest.
+        for row in reversed(rows):
             try:
                 data = json.loads(row["fingerprint"])
-            except ValueError:
+                if not isinstance(data, dict) or data.get("v") != 2:
+                    continue
+                fingerprint = Fingerprint(
+                    address=data.get("address"),
+                    service_uuids=frozenset(data.get("service_uuids") or []),
+                    manufacturer_data=frozenset(
+                        (k, v)
+                        for k, v in (data.get("manufacturer_data") or [])
+                    ),
+                    local_name=data.get("local_name"),
+                )
+            except (ValueError, TypeError):
+                # A tampered or corrupt row must never take the
+                # sentinel down at boot: skip it (fail-fast is for
+                # scanning, not for warming an optional cache).
                 continue
-            if not isinstance(data, dict) or data.get("v") != 2:
-                continue
-            fingerprint = Fingerprint(
-                address=data.get("address"),
-                service_uuids=frozenset(data.get("service_uuids") or []),
-                manufacturer_data=frozenset(
-                    (k, v) for k, v in (data.get("manufacturer_data") or [])
-                ),
-                local_name=data.get("local_name"),
-            )
             key = row["fingerprint"]
             self._key_cache[key] = row["id"]
             self._recent[key] = (fingerprint, None, row["id"])

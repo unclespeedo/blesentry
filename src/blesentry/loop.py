@@ -7,8 +7,8 @@
 Identity comes from the fusion resolver (#19, ``resolver.py``):
 weighted signal scoring with a stable-address mismatch veto,
 conservative by design — see resolver.py and docs/risks.md for the
-fusion limits (restart amnesia, payload-variance under-joining,
-impersonation surface).
+fusion limits (payload-variance under-joining, impersonation
+surface, window bounds).
 
 Error contract (ADR-0002): scanner failures propagate out of the loop
 — the process exits non-zero and the supervisor (systemd, P3-1)
