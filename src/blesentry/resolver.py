@@ -50,7 +50,7 @@ def hap_device_id(fingerprint: Fingerprint) -> str | None:
     Apple manufacturer data of Continuity type 0x06 is a HAP pairing
     advertisement: type (1), subtype/length (1), AIL flags (1), then a
     6-byte device id that is stable per accessory — authoritative
-    identity for HomeKit gear (e.g. the site's Eve smart plugs),
+    identity for HomeKit accessories,
     unaffected by the state counter that changes across sightings.
     """
     for company, payload_hex in fingerprint.manufacturer_data:

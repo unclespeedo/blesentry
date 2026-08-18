@@ -70,7 +70,7 @@ def test_identical_non_address_signals_score_high() -> None:
     a = Fingerprint.from_advertisement(
         _ad(
             address="11:11:11:11:11:11",
-            local_name="Eve",
+            local_name="Sensor",
             service_uuids=["180d"],
             manufacturer_data={"76": "aabbcc"},
         )
@@ -78,7 +78,7 @@ def test_identical_non_address_signals_score_high() -> None:
     b = Fingerprint.from_advertisement(
         _ad(
             address="22:22:22:22:22:22",
-            local_name="Eve",
+            local_name="Sensor",
             service_uuids=["180d"],
             manufacturer_data={"76": "aabbcc"},
         )
@@ -129,14 +129,14 @@ async def test_rotated_mac_stable_payload_fuses(devices) -> None:
     before = _ad(
         address="5E:11:11:11:11:11",
         address_type="rpa",
-        local_name="Eve",
+        local_name="Sensor",
         service_uuids=["180d"],
         manufacturer_data={"76": "aabbcc"},
     )
     after = _ad(
         address="43:22:22:22:22:22",
         address_type="rpa",
-        local_name="Eve",
+        local_name="Sensor",
         service_uuids=["180d"],
         manufacturer_data={"76": "aabbcc"},
     )
@@ -157,14 +157,16 @@ async def test_rotating_nulls_stay_distinct(devices) -> None:
 
 @pytest.mark.asyncio
 async def test_stable_address_changed_payload_fuses(devices) -> None:
-    """The live Eve case: same static address, payload changed."""
+    """Observed live: same static address, payload changed — one
+    device whose advertisement state ticked, not two devices.
+    """
     resolver = DeviceResolver(devices)
     (id_a,) = await _resolve_cycle(
         resolver,
         _ad(
             address="F9:50:53:07:09:79",
             address_type="random_static",
-            local_name="Eve",
+            local_name="Sensor",
             manufacturer_data={"76": "aabbcc"},
         ),
     )
@@ -173,7 +175,7 @@ async def test_stable_address_changed_payload_fuses(devices) -> None:
         _ad(
             address="F9:50:53:07:09:79",
             address_type="random_static",
-            local_name="Eve",
+            local_name="Sensor",
             manufacturer_data={"76": "ddeeff"},
         ),
     )
@@ -192,12 +194,12 @@ async def test_threshold_is_configurable(devices) -> None:
     strict = DeviceResolver(devices, min_score=0.99)
     before = _ad(
         address="5E:11:11:11:11:11",
-        local_name="Eve",
+        local_name="Sensor",
         manufacturer_data={"76": "aabbcc"},
     )
     after = _ad(
         address="43:22:22:22:22:22",
-        local_name="Eve",
+        local_name="Sensor",
         manufacturer_data={"76": "aabbcc"},
     )
     # payload+name = 0.75: fuses at the default threshold, not at 0.99
@@ -224,9 +226,9 @@ async def test_abort_discards_staged_identities(devices) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Ground truth (maintainer report): TWO physical Eve devices in range.
-# Identical twin products must never fuse across distinct stable
-# addresses — the stable-address mismatch veto.
+# Ground truth (maintainer-verified): two factory-identical
+# accessories exist at the test site. Identical twin products must
+# never fuse across distinct stable addresses — the veto.
 # ---------------------------------------------------------------------------
 
 
@@ -235,7 +237,7 @@ def test_stable_address_mismatch_vetoes_fusion_score() -> None:
         _ad(
             address="F9:11:11:11:11:11",
             address_type="random_static",
-            local_name="Eve",
+            local_name="Sensor",
             service_uuids=["180d"],
             manufacturer_data={"76": "aabbcc"},
         )
@@ -244,7 +246,7 @@ def test_stable_address_mismatch_vetoes_fusion_score() -> None:
         _ad(
             address="E9:22:22:22:22:22",
             address_type="random_static",
-            local_name="Eve",
+            local_name="Sensor",
             service_uuids=["180d"],
             manufacturer_data={"76": "aabbcc"},
         )
@@ -267,14 +269,14 @@ async def test_identical_twin_devices_stay_distinct(devices) -> None:
     eve_one = _ad(
         address="F9:11:11:11:11:11",
         address_type="random_static",
-        local_name="Eve",
+        local_name="Sensor",
         service_uuids=["180d"],
         manufacturer_data={"76": "aabbcc"},
     )
     eve_two = _ad(
         address="E9:22:22:22:22:22",
         address_type="random_static",
-        local_name="Eve",
+        local_name="Sensor",
         service_uuids=["180d"],
         manufacturer_data={"76": "aabbcc"},
     )
@@ -426,20 +428,20 @@ def test_matching_hap_ids_fuse_across_rotation() -> None:
 def test_differing_hap_ids_veto_fusion() -> None:
     """Differing HAP ids veto.
 
-    Two Eve plugs: same name, different HAP ids — never fuse, even
+    Twin accessories: same name, different HAP ids — never fuse, even
     without address provenance (closes the macOS-capture gap).
     """
     a = Fingerprint.from_advertisement(
         _ad(
             address="11:11:11:11:11:11",
-            local_name="Eve",
+            local_name="Sensor",
             manufacturer_data={"76": "0631001e2a3b4c5d6e0a01020304"},
         )
     )
     b = Fingerprint.from_advertisement(
         _ad(
             address="22:22:22:22:22:22",
-            local_name="Eve",
+            local_name="Sensor",
             manufacturer_data={"76": "063100ffeeddccbbaa0a01020304"},
         )
     )
