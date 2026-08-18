@@ -6,9 +6,9 @@
 -->
 # ADR-0001: OS Image — Raspberry Pi OS Lite Trixie arm64
 
-- **Status:** Proposed
-- **Date:** 2026-08-16
-- **Deciders:** <human sign-off required — agents may draft, never accept>
+- **Status:** Accepted
+- **Date:** 2026-08-16 (accepted 2026-08-17)
+- **Deciders:** Ryan Speed
 
 ## Context
 
