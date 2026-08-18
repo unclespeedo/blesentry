@@ -174,7 +174,9 @@ def _display_text(value: str) -> str:
     control characters are replaced so a crafted name cannot inject
     terminal sequences or visually reorder the line. isprintable()
     is False for both C0/C1 controls and Unicode format characters
-    (Cf), which covers ESC/BEL and the bidi overrides.
+    (Cf), which covers ESC/BEL and the bidi overrides. Residual and
+    accepted: combining-mark floods and homoglyphs are printable and
+    pass through — cosmetic misalignment only, no injection.
     """
     return "".join(ch if ch.isprintable() else "�" for ch in value)
 

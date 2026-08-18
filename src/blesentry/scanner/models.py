@@ -22,10 +22,14 @@ from pydantic import (
 )
 
 # Radio-controlled fields are bounded (#85): the model must not assume
-# the radio is honest. 248 is the GAP device-name maximum; 64 entries
-# is far beyond any legitimate advertisement's container cardinality.
+# the radio is honest. GAP's device-name maximum is 248 octets (the
+# code-point Field cap is looser; the validator enforces the octet
+# cap). 64 entries / 64-char keys / 4096-char values are far beyond
+# any legitimate advertisement.
 MAX_NAME_LENGTH = 248
 MAX_CONTAINER_ENTRIES = 64
+MAX_KEY_LENGTH = 64
+MAX_VALUE_LENGTH = 4096
 
 
 class Advertisement(BaseModel):
@@ -40,7 +44,7 @@ class Advertisement(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    mac: str = Field(min_length=1)
+    mac: str = Field(min_length=1, max_length=64)
     rssi: int
     local_name: str | None = Field(default=None, max_length=MAX_NAME_LENGTH)
     service_uuids: Sequence[str] = Field(
@@ -54,25 +58,44 @@ class Advertisement(BaseModel):
 
     @field_validator("local_name")
     @classmethod
-    def _reject_unencodable_name(cls, value: str | None) -> str | None:
-        """Reject lone surrogates and other unencodable text.
+    def _bound_name(cls, value: str | None) -> str | None:
+        """Enforce the GAP 248-octet cap (UTF-8 bytes, not code points).
 
-        A name that cannot round-trip UTF-8 would crash any future
-        direct text bind (DB, notifier); refuse it at the boundary so
-        the hostile advertisement is skipped-and-logged instead.
+        pydantic-core already rejects lone surrogates during str
+        validation; the encode here is a backstop for older 2.x cores
+        and makes the octet cap enforceable in one place.
         """
-        if value is not None:
-            value.encode("utf-8")
+        if value is not None and len(value.encode("utf-8")) > MAX_NAME_LENGTH:
+            raise ValueError(f"local_name exceeds {MAX_NAME_LENGTH} bytes")
+        return value
+
+    @field_validator("service_uuids")
+    @classmethod
+    def _bound_uuids(cls, value: Sequence[str]) -> Sequence[str]:
+        """Cap per-entry UUID string size; require UTF-8-clean text."""
+        for item in value:
+            if len(item) > MAX_KEY_LENGTH:
+                raise ValueError(
+                    f"service uuid exceeds {MAX_KEY_LENGTH} chars"
+                )
+            item.encode("utf-8")
         return value
 
     @field_validator("manufacturer_data", "service_data")
     @classmethod
     def _bound_mapping(cls, value: Mapping[str, str]) -> Mapping[str, str]:
-        """Cap mapping cardinality (radio-controlled input)."""
+        """Cap cardinality and per-entry sizes (radio-controlled input)."""
         if len(value) > MAX_CONTAINER_ENTRIES:
             raise ValueError(
                 f"mapping exceeds {MAX_CONTAINER_ENTRIES} entries"
             )
+        for key, item in value.items():
+            if len(key) > MAX_KEY_LENGTH:
+                raise ValueError(f"key exceeds {MAX_KEY_LENGTH} chars")
+            if len(item) > MAX_VALUE_LENGTH:
+                raise ValueError(f"value exceeds {MAX_VALUE_LENGTH} chars")
+            key.encode("utf-8")
+            item.encode("utf-8")
         return value
 
     def model_post_init(self, __context: object, /) -> None:

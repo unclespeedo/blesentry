@@ -238,3 +238,28 @@ def test_manufacturer_data_cardinality_bounded() -> None:
 def test_service_data_cardinality_bounded() -> None:
     with pytest.raises(ValidationError):
         _sample_ad(service_data={f"{i:04x}": "00" for i in range(65)})
+
+
+def test_local_name_octet_cap_enforced() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(local_name="é" * 125)
+
+
+def test_mac_length_bounded() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(mac="A" * 65)
+
+
+def test_service_uuid_entry_size_bounded() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(service_uuids=["x" * 65])
+
+
+def test_mapping_value_size_bounded() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(manufacturer_data={"76": "0" * 4097})
+
+
+def test_service_uuid_surrogate_rejected() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(service_uuids=["ok", "bad\ud800"])
