@@ -9,6 +9,7 @@ from blesentry.storage.database import (
     MigrationError,
     apply_migrations,
     connect,
+    transaction,
 )
 from blesentry.storage.repository import (
     DeviceRepository,
@@ -22,4 +23,5 @@ __all__ = [
     "ObservationRepository",
     "apply_migrations",
     "connect",
+    "transaction",
 ]

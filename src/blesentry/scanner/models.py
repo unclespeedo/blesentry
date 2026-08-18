@@ -44,7 +44,9 @@ class Advertisement(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    mac: str = Field(min_length=1, max_length=64)
+    address: str = Field(min_length=1, max_length=64)
+    address_type: str | None = Field(default=None, max_length=32)
+    adv_type: str | None = Field(default=None, max_length=32)
     rssi: int
     local_name: str | None = Field(default=None, max_length=MAX_NAME_LENGTH)
     service_uuids: Sequence[str] = Field(
@@ -136,7 +138,7 @@ class Fingerprint(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    mac: str | None = None
+    address: str | None = None
     service_uuids: frozenset[str] = Field(default_factory=frozenset)
     manufacturer_data: frozenset[tuple[str, str]] = Field(
         default_factory=lambda: frozenset[tuple[str, str]]()
@@ -151,7 +153,7 @@ class Fingerprint(BaseModel):
         from different capture passes produce equal fingerprints.
         """
         return cls(
-            mac=advertisement.mac,
+            address=advertisement.address,
             service_uuids=frozenset(advertisement.service_uuids),
             manufacturer_data=frozenset(
                 advertisement.manufacturer_data.items()

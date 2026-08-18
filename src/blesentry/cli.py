@@ -190,7 +190,9 @@ def format_table(advertisements: list[Advertisement]) -> str:
         lines.append(f"{'ADDRESS':<40} {'RSSI':>5}  NAME")
         for ad in sorted(advertisements, key=lambda a: -a.rssi):
             name = _display_text(ad.local_name or "-")
-            lines.append(f"{_display_text(ad.mac):<40} {ad.rssi:>5}  {name}")
+            lines.append(
+                f"{_display_text(ad.address):<40} {ad.rssi:>5}  {name}"
+            )
     return "\n".join(lines)
 
 
@@ -217,7 +219,9 @@ async def _run_daemon(args: argparse.Namespace) -> int:
 
     SIGTERM (systemd's stop signal) cancels the task so the loop
     unwinds through ``finally`` and the connection closes cleanly —
-    the issue #20 graceful-shutdown contract.
+    the issue #20 graceful-shutdown contract. A second SIGTERM during
+    shutdown hits the default disposition and kills the process
+    immediately (WAL keeps the database consistent) — deliberate.
     """
     from blesentry.loop import run_loop
     from blesentry.storage.database import apply_migrations, connect

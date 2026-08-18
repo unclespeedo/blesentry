@@ -14,6 +14,8 @@ from typing import TypedDict
 
 import aiosqlite
 
+from blesentry.storage.database import transaction
+
 
 class DeviceRow(TypedDict):
     """Shape of a row returned by :class:`DeviceRepository`."""
@@ -21,7 +23,7 @@ class DeviceRow(TypedDict):
     id: int
     site_id: str
     fingerprint: str
-    mac: str | None
+    address: str | None
     label: str | None
     description: str | None
     created_at: str
@@ -37,6 +39,8 @@ class ObservationRow(TypedDict):
     rssi: int
     observed_at: str
     adapter_id: str | None
+    address_type: str | None
+    adv_type: str | None
 
 
 class DeviceRepository:
@@ -51,33 +55,37 @@ class DeviceRepository:
         self._conn = conn
         self._site = site_id
 
+    @property
+    def connection(self) -> aiosqlite.Connection:
+        """The underlying connection, for ambient transactions (#84)."""
+        return self._conn
+
     async def upsert(
         self,
         *,
         fingerprint: str,
-        mac: str | None = None,
+        address: str | None = None,
         label: str | None = None,
         description: str | None = None,
     ) -> int:
         """Insert a device or update on fingerprint match.
 
-        On conflict the MAC is always replaced.  ``label`` and
+        On conflict the address is always replaced.  ``label`` and
         ``description`` use ``COALESCE`` so omitting them preserves
         existing operator-assigned metadata.
 
         Returns the device ``id`` (new or existing).
         """
-        await self._conn.execute("BEGIN")
-        try:
+        async with transaction(self._conn):
             cur = await self._conn.execute(
                 "INSERT INTO devices "
-                "(site_id, fingerprint, mac, label, "
+                "(site_id, fingerprint, address, label, "
                 "description) "
                 "VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT (site_id, fingerprint) "
                 "DO UPDATE SET "
-                "mac = COALESCE("
-                "excluded.mac, devices.mac"
+                "address = COALESCE("
+                "excluded.address, devices.address"
                 "), "
                 "label = COALESCE("
                 "excluded.label, devices.label"
@@ -93,7 +101,7 @@ class DeviceRepository:
                 (
                     self._site,
                     fingerprint,
-                    mac,
+                    address,
                     label,
                     description,
                 ),
@@ -102,16 +110,12 @@ class DeviceRepository:
             await cur.close()
             if row is None:
                 raise RuntimeError("RETURNING produced no row")
-            await self._conn.execute("COMMIT")
             return int(row[0])
-        except Exception:
-            await self._conn.execute("ROLLBACK")
-            raise
 
     async def get(self, device_id: int) -> DeviceRow | None:
         """Return a device row, or ``None`` if not found."""
         cur = await self._conn.execute(
-            "SELECT id, site_id, fingerprint, mac, label, "
+            "SELECT id, site_id, fingerprint, address, label, "
             "description, created_at, updated_at "
             "FROM devices WHERE id = ? AND site_id = ?",
             (device_id, self._site),
@@ -124,7 +128,7 @@ class DeviceRepository:
             id=row[0],
             site_id=row[1],
             fingerprint=row[2],
-            mac=row[3],
+            address=row[3],
             label=row[4],
             description=row[5],
             created_at=row[6],
@@ -134,7 +138,7 @@ class DeviceRepository:
     async def list_devices(self) -> list[DeviceRow]:
         """Return all devices for this site, ordered by id."""
         cur = await self._conn.execute(
-            "SELECT id, site_id, fingerprint, mac, label, "
+            "SELECT id, site_id, fingerprint, address, label, "
             "description, created_at, updated_at "
             "FROM devices WHERE site_id = ? "
             "ORDER BY id",
@@ -147,7 +151,7 @@ class DeviceRepository:
                 id=r[0],
                 site_id=r[1],
                 fingerprint=r[2],
-                mac=r[3],
+                address=r[3],
                 label=r[4],
                 description=r[5],
                 created_at=r[6],
@@ -169,6 +173,11 @@ class ObservationRepository:
         self._conn = conn
         self._site = site_id
 
+    @property
+    def connection(self) -> aiosqlite.Connection:
+        """The underlying connection, for ambient transactions (#84)."""
+        return self._conn
+
     async def append(
         self,
         *,
@@ -176,30 +185,24 @@ class ObservationRepository:
         rssi: int,
         observed_at: str,
         adapter_id: str | None = None,
+        address_type: str | None = None,
+        adv_type: str | None = None,
     ) -> int:
         """Append one RSSI observation for a device.
 
-        Validates that ``device_id`` belongs to this site
-        atomically within the same transaction as the insert.
+        Caller contract: ``device_id`` must come from this site's
+        :class:`DeviceRepository` (the FK enforces existence; the
+        redundant per-append ownership probe was dropped in #84 —
+        cross-site misuse is a caller bug, not a runtime check).
         Returns the new observation ``id``.
         """
-        await self._conn.execute("BEGIN")
-        try:
-            cur = await self._conn.execute(
-                "SELECT 1 FROM devices WHERE id = ? AND site_id = ?",
-                (device_id, self._site),
-            )
-            owns = await cur.fetchone()
-            await cur.close()
-            if owns is None:
-                raise ValueError(
-                    f"device {device_id} not found in site {self._site!r}"
-                )
+        async with transaction(self._conn):
             cur = await self._conn.execute(
                 "INSERT INTO observations "
                 "(site_id, device_id, rssi, "
-                "observed_at, adapter_id) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "observed_at, adapter_id, "
+                "address_type, adv_type) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "RETURNING id",
                 (
                     self._site,
@@ -207,17 +210,15 @@ class ObservationRepository:
                     rssi,
                     observed_at,
                     adapter_id,
+                    address_type,
+                    adv_type,
                 ),
             )
             row = await cur.fetchone()
             await cur.close()
             if row is None:
                 raise RuntimeError("RETURNING produced no row")
-            await self._conn.execute("COMMIT")
             return int(row[0])
-        except Exception:
-            await self._conn.execute("ROLLBACK")
-            raise
 
     async def query_recent_rssi(
         self,
@@ -246,7 +247,8 @@ class ObservationRepository:
         """Return an observation row, or ``None``."""
         cur = await self._conn.execute(
             "SELECT id, site_id, device_id, rssi, "
-            "observed_at, adapter_id "
+            "observed_at, adapter_id, "
+            "address_type, adv_type "
             "FROM observations "
             "WHERE id = ? AND site_id = ?",
             (observation_id, self._site),
@@ -262,4 +264,6 @@ class ObservationRepository:
             rssi=row[3],
             observed_at=row[4],
             adapter_id=row[5],
+            address_type=row[6],
+            adv_type=row[7],
         )

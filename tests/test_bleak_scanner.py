@@ -159,7 +159,7 @@ async def test_scan_converts_advertisement() -> None:
     result = await scanner.scan(duration=1.0)
     assert len(result) == 1
     assert isinstance(result[0], Advertisement)
-    assert result[0].mac == "AA:BB:CC:DD:EE:FF"
+    assert result[0].address == "AA:BB:CC:DD:EE:FF"
     assert result[0].rssi == -65
     assert result[0].local_name == "Test Device"
     assert result[0].adapter_id == "test-adapter"
@@ -281,7 +281,7 @@ async def test_malformed_advertisement_is_skipped_not_fatal() -> None:
     )
 
     result = await scanner.scan(duration=1.0)
-    assert [ad.mac for ad in result] == ["AA:BB:CC:DD:EE:01"]
+    assert [ad.address for ad in result] == ["AA:BB:CC:DD:EE:01"]
 
 
 # ---------------------------------------------------------------------------
@@ -343,3 +343,58 @@ def test_contract_bleak_rejects_passive_without_or_patterns() -> None:
 
     with pytest.raises(BleakError):
         _RealBleakScanner(scanning_mode="passive")
+
+
+# ---------------------------------------------------------------------------
+# Address-type extraction (#56): BlueZ AddressType refined by MAC bits
+# ---------------------------------------------------------------------------
+
+
+def test_address_type_public_passthrough() -> None:
+    scanner = _scanner()
+    device = BLEDevice(
+        address="00:11:22:33:44:55",
+        name=None,
+        details={"props": {"AddressType": "public"}},
+    )
+    assert scanner._address_type(device) == "public"
+
+
+@pytest.mark.parametrize(
+    ("first_octet", "expected"),
+    [
+        ("F0", "random_static"),
+        ("5E", "rpa"),
+        ("2C", "non_resolvable"),
+    ],
+)
+def test_address_type_random_refined_by_top_bits(
+    first_octet: str, expected: str
+) -> None:
+    scanner = _scanner()
+    device = BLEDevice(
+        address=f"{first_octet}:11:22:33:44:55",
+        name=None,
+        details={"props": {"AddressType": "random"}},
+    )
+    assert scanner._address_type(device) == expected
+
+
+def test_address_type_absent_details_is_none() -> None:
+    scanner = _scanner()
+    device = _make_device()
+    assert scanner._address_type(device) is None
+
+
+@pytest.mark.asyncio
+async def test_scan_stamps_address_type() -> None:
+    scanner = _scanner()
+    device = BLEDevice(
+        address="F0:11:22:33:44:55",
+        name=None,
+        details={"props": {"AddressType": "random"}},
+    )
+    adv_data = _make_adv_data(rssi=-60, local_name=None)
+    _patch_run_scan(scanner, {device.address: (device, adv_data)})
+    result = await scanner.scan(duration=1.0)
+    assert result[0].address_type == "random_static"

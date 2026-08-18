@@ -6,13 +6,19 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import aiosqlite
 import pytest
 
-from blesentry.storage import MigrationError, apply_migrations, connect
+from blesentry.storage import (
+    MigrationError,
+    apply_migrations,
+    connect,
+    transaction,
+)
 
 EXPECTED_TABLES = (
     "devices",
@@ -90,13 +96,13 @@ async def test_migrations_are_idempotent(
 ) -> None:
     first = await apply_migrations(conn)
     second = await apply_migrations(conn)
-    assert first == [SCHEMA_V1]
+    assert first[0] == SCHEMA_V1
     assert second == []
     cur = await conn.execute("SELECT COUNT(*) FROM schema_migrations")
     row = await cur.fetchone()
     await cur.close()
     assert row is not None
-    assert row[0] == 1
+    assert row[0] == len(first)
 
 
 async def test_all_v1_tables_created(conn: aiosqlite.Connection) -> None:
@@ -230,3 +236,141 @@ async def test_mutated_migration_is_detected(tmp_path: Path) -> None:
             await apply_migrations(db, migrations_dir=tmp_path)
     finally:
         await db.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0002_applies_address_provenance(tmp_path) -> None:
+    conn = await connect(tmp_path / "m2.db")
+    applied = await apply_migrations(conn)
+    assert "0002_address_provenance.sql" in applied
+    cur = await conn.execute("PRAGMA table_info(observations)")
+    cols = {row[1] for row in await cur.fetchall()}
+    await cur.close()
+    assert {"address_type", "adv_type"} <= cols
+    cur = await conn.execute("PRAGMA table_info(devices)")
+    dcols = {row[1] for row in await cur.fetchall()}
+    await cur.close()
+    assert "address" in dcols and "mac" not in dcols
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0002_preserves_v1_data(tmp_path) -> None:
+    """Upgrade path: a populated v1 database renames without data loss."""
+    db = tmp_path / "upgrade.db"
+    conn = await connect(db)
+    only_v1 = tmp_path / "v1"
+    only_v1.mkdir()
+    import shutil
+
+    from blesentry.storage.database import DEFAULT_MIGRATIONS_DIR
+
+    shutil.copy(
+        DEFAULT_MIGRATIONS_DIR / "0001_schema_v1.sql",
+        only_v1 / "0001_schema_v1.sql",
+    )
+    await apply_migrations(conn, migrations_dir=only_v1)
+    await conn.execute(
+        "INSERT INTO devices (site_id, fingerprint, mac) "
+        "VALUES ('s', 'fp', 'AA:BB:CC:DD:EE:FF')"
+    )
+    await conn.commit()
+    await conn.execute(
+        "INSERT INTO observations "
+        "(site_id, device_id, rssi, observed_at) "
+        "VALUES ('s', 1, -60, '2025-01-01T00:00:00.000Z')"
+    )
+    await conn.commit()
+    applied = await apply_migrations(conn)
+    assert "0002_address_provenance.sql" in applied
+    cur = await conn.execute("SELECT address FROM devices")
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None and row[0] == "AA:BB:CC:DD:EE:FF"
+    cur = await conn.execute("PRAGMA foreign_key_check")
+    assert await cur.fetchall() == []
+    await cur.close()
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='devices'"
+    )
+    names = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_devices_address" in names
+    assert "idx_devices_mac" not in names
+    cur = await conn.execute(
+        "SELECT address_type FROM observations WHERE id = 1"
+    )
+    old = await cur.fetchone()
+    await cur.close()
+    assert old is not None and old[0] is None
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_transaction_commits_on_success(tmp_path) -> None:
+    conn = await connect(tmp_path / "t.db")
+    await apply_migrations(conn)
+    async with transaction(conn):
+        await conn.execute(
+            "INSERT INTO devices (site_id, fingerprint) VALUES ('s','f')"
+        )
+    cur = await conn.execute("SELECT COUNT(*) FROM devices")
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None and row[0] == 1
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_transaction_rolls_back_on_error(tmp_path) -> None:
+    conn = await connect(tmp_path / "t.db")
+    await apply_migrations(conn)
+    with pytest.raises(RuntimeError):
+        async with transaction(conn):
+            await conn.execute(
+                "INSERT INTO devices (site_id, fingerprint) VALUES ('s','f')"
+            )
+            raise RuntimeError("boom")
+    cur = await conn.execute("SELECT COUNT(*) FROM devices")
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None and row[0] == 0
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_transaction_rolls_back_on_cancellation(tmp_path) -> None:
+    """BaseException (CancelledError) must also roll back."""
+    conn = await connect(tmp_path / "t.db")
+    await apply_migrations(conn)
+    with pytest.raises(asyncio.CancelledError):
+        async with transaction(conn):
+            await conn.execute(
+                "INSERT INTO devices (site_id, fingerprint) VALUES ('s','f')"
+            )
+            raise asyncio.CancelledError()
+    cur = await conn.execute("SELECT COUNT(*) FROM devices")
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None and row[0] == 0
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_transactions_nest_outermost_wins(tmp_path) -> None:
+    conn = await connect(tmp_path / "t.db")
+    await apply_migrations(conn)
+    with pytest.raises(RuntimeError):
+        async with transaction(conn):
+            async with transaction(conn):
+                await conn.execute(
+                    "INSERT INTO devices (site_id, fingerprint) "
+                    "VALUES ('s','f')"
+                )
+            raise RuntimeError("outer fails after inner exits")
+    cur = await conn.execute("SELECT COUNT(*) FROM devices")
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None and row[0] == 0
+    await conn.close()

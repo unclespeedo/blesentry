@@ -20,7 +20,7 @@ import pytest
 FIXTURES = Path(__file__).parent / "fixtures"
 CORPUS = FIXTURES / "corpus-macos-corebluetooth.json"
 REQUIRED_FIELDS = {
-    "mac",
+    "address",
     "rssi",
     "local_name",
     "service_uuids",
@@ -62,7 +62,7 @@ def test_corpus_records_match_schema(path: Path) -> None:
         assert isinstance(record, dict)
         missing = REQUIRED_FIELDS - set(record)
         assert not missing, f"{path.name}: missing {sorted(missing)}"
-        assert isinstance(record["mac"], str) and record["mac"]
+        assert isinstance(record["address"], str) and record["address"]
         assert isinstance(record["rssi"], int)
         assert record["local_name"] is None or isinstance(
             record["local_name"], str

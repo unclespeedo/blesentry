@@ -14,8 +14,14 @@ Usage:
 
 Normalized record schema (each element of the JSON array):
 
-    mac                source address; on macOS/CoreBluetooth this is the
+    address            source address; on macOS/CoreBluetooth this is the
                        peripheral identifier, not a real MAC (docs/risks.md)
+    address_type       always null from this script (its raw bleak
+                       callbacks predate provenance wiring); use
+                       'blesentry scan --json' for provenance-bearing
+                       captures on BlueZ
+    adv_type           PDU type when a backend exposes it (null on both
+                       current backends)
     rssi               last reported signal strength, dBm
     local_name         advertised name or null
     service_uuids      list of service UUID strings
@@ -54,7 +60,9 @@ def _normalize(
     address: str, adv: Any, adapter_id: str, timestamp: float
 ) -> dict[str, Any]:
     return {
-        "mac": address,
+        "address": address,
+        "address_type": None,
+        "adv_type": None,
         "rssi": adv.rssi,
         "local_name": adv.local_name,
         "service_uuids": list(adv.service_uuids),

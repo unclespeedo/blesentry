@@ -26,6 +26,7 @@ from typing import NamedTuple
 
 from blesentry.scanner.models import Fingerprint
 from blesentry.scanner.protocol import Scanner
+from blesentry.storage.database import transaction
 from blesentry.storage.repository import (
     DeviceRepository,
     ObservationRepository,
@@ -62,7 +63,8 @@ def fingerprint_key(fingerprint: Fingerprint) -> str:
     """
     return json.dumps(
         {
-            "mac": fingerprint.mac,
+            "v": 2,
+            "address": fingerprint.address,
             "service_uuids": sorted(fingerprint.service_uuids),
             "manufacturer_data": sorted(fingerprint.manufacturer_data),
             "local_name": fingerprint.local_name,
@@ -72,27 +74,68 @@ def fingerprint_key(fingerprint: Fingerprint) -> str:
     )
 
 
+# In-process fingerprint -> device_id cache (#84): a known device is
+# not re-upserted every sighting (the ON CONFLICT branch only bumped
+# updated_at — 37% of measured WAL volume for zero information).
+# updated_at therefore means "identity/metadata changed", not "last
+# seen" — observations carry last-seen. Bounded: cleared when full.
+_MAX_CACHE_ENTRIES = 100_000
+
+
 async def run_cycle(
     scanner: Scanner,
     devices: DeviceRepository,
     observations: ObservationRepository,
     duration: float,
+    device_cache: dict[str, int] | None = None,
 ) -> CycleStats:
-    """Run one scan window and persist everything heard."""
+    """Run one scan window and persist everything heard atomically.
+
+    The whole cycle commits in ONE transaction (#84): on process
+    death at most one cycle (~15s) of observations is lost — at or
+    inside the durability trade already accepted by docs/schema.md
+    (power loss can additionally lose commits since the last WAL
+    checkpoint, as schema.md documents).
+
+    New device ids are staged and merged into ``device_cache`` only
+    after the transaction commits — a rolled-back cycle must never
+    poison the cache with ids whose rows do not exist (panel-verified
+    failure mode: a permanent FK crash-loop for any caller that
+    tolerates per-cycle errors).
+    """
     advertisements = await scanner.scan(duration=duration)
+    cache = device_cache if device_cache is not None else {}
+    if observations.connection is not devices.connection:
+        raise ValueError(
+            "repositories must share one connection for cycle atomicity"
+        )
     device_ids: set[int] = set()
     persisted = 0
-    for ad in advertisements:
-        key = fingerprint_key(Fingerprint.from_advertisement(ad))
-        device_id = await devices.upsert(fingerprint=key, mac=ad.mac)
-        await observations.append(
-            device_id=device_id,
-            rssi=ad.rssi,
-            observed_at=iso_utc(ad.timestamp),
-            adapter_id=ad.adapter_id,
-        )
-        device_ids.add(device_id)
-        persisted += 1
+    pending: dict[str, int] = {}
+    async with transaction(devices.connection):
+        for ad in advertisements:
+            key = fingerprint_key(Fingerprint.from_advertisement(ad))
+            device_id = cache.get(key)
+            if device_id is None:
+                device_id = pending.get(key)
+            if device_id is None:
+                device_id = await devices.upsert(
+                    fingerprint=key, address=ad.address
+                )
+                pending[key] = device_id
+            await observations.append(
+                device_id=device_id,
+                rssi=ad.rssi,
+                observed_at=iso_utc(ad.timestamp),
+                adapter_id=ad.adapter_id,
+                address_type=ad.address_type,
+                adv_type=ad.adv_type,
+            )
+            device_ids.add(device_id)
+            persisted += 1
+    if len(cache) + len(pending) > _MAX_CACHE_ENTRIES:
+        cache.clear()
+    cache.update(pending)
     return CycleStats(
         heard=len(advertisements),
         devices=len(device_ids),
@@ -124,8 +167,11 @@ async def run_loop(
         Number of cycles completed.
     """
     cycles = 0
+    device_cache: dict[str, int] = {}
     while max_cycles is None or cycles < max_cycles:
-        stats = await run_cycle(scanner, devices, observations, duration)
+        stats = await run_cycle(
+            scanner, devices, observations, duration, device_cache
+        )
         cycles += 1
         logger.info(
             "cycle %d: heard=%d devices=%d observations=%d",

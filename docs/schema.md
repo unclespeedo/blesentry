@@ -20,6 +20,11 @@ exclusively by the migration runner — never by hand.
   statements yourself.
 - Add a new migration by appending the next-numbered `NNNN_*.sql` file. Do
   not edit an already-shipped file.
+- **Schema-changing deploys:** stop the collector, deploy, then start it
+  (startup migrates). A still-running old collector fails loudly after a
+  migration renames columns under it, and a migration that cannot get the
+  write lock raises `MigrationError` leaving the schema untouched — safe
+  to retry once the collector is stopped.
 
 ## Connection pragmas
 
@@ -61,10 +66,10 @@ One row per resolved identity. Identity is the fingerprint fusion key
 | `id` | INTEGER PK | |
 | `site_id` | TEXT NOT NULL | |
 | `fingerprint` | TEXT NOT NULL | Stable fused identity key. `UNIQUE (site_id, fingerprint)`. |
-| `mac` | TEXT NULL | Currently-known MAC; may rotate or be null. Indexed (`idx_devices_mac`). |
+| `address` | TEXT NULL | Currently-known source address (a peripheral UUID on CoreBluetooth captures); may rotate or be null. Indexed (`idx_devices_address`). Renamed from `mac` in `0002`. |
 | `label` | TEXT NULL | Operator-assigned friendly name (`P2-6/P2-7`); null until labeled. |
 | `description` | TEXT NULL | Optional operator notes. |
-| `created_at` / `updated_at` | TEXT NOT NULL | `updated_at` bumped by repository upserts (`P1-6`). |
+| `created_at` / `updated_at` | TEXT NOT NULL | `updated_at` means *identity/metadata changed*, not last-seen (observations carry last-seen); the per-sighting bump was removed in #84. |
 
 ### `observations`
 
@@ -79,6 +84,8 @@ advertisement heard becomes a row.
 | `rssi` | INTEGER NOT NULL | dBm, typically negative. |
 | `observed_at` | TEXT NOT NULL | When the advertisement was heard. Indexed with `site_id` and `device_id` for the P1-6 recent-window queries. |
 | `adapter_id` | TEXT NULL | Which radio adapter heard it (from the `Advertisement` model). |
+| `address_type` | TEXT NULL | Authoritative provenance at reception (`public` / `random_static` / `rpa` / `non_resolvable`, plus unrefined `random` for the reserved 0b10 bit pattern); NULL where the OS does not report it (CoreBluetooth) — and NULL on every row predating `0002`: treat those as heuristic-grade regardless of adapter. Added in `0002` (#56). |
+| `adv_type` | TEXT NULL | PDU type when a backend exposes it; null on both current backends. Added in `0002` (#56). |
 
 ### `presence_events`
 
