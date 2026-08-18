@@ -14,3 +14,7 @@ dist/
 .env
 config.local.toml
 .DS_Store
+
+# raw BLE captures and logs never get committed (AGENTS.md hygiene)
+capture*.json
+*.log

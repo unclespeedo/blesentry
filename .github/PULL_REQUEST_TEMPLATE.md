@@ -16,6 +16,8 @@ command output, file paths. "Done" without evidence will be rejected. -->
 - [ ] DCO sign-off on all commits
 - [ ] No SQL outside repository modules; seams (ADR-0002) respected
 - [ ] No secrets, tokens, or credentials anywhere in the diff
+- [ ] Evidence redacted per the AGENTS.md hygiene rule (no SSIDs, MACs,
+      IPs, hostnames, inventories, or occupancy times)
 - [ ] Scope limited to the linked issue
 - [ ] HUMAN VERIFY checkboxes left unchecked and called out below
 

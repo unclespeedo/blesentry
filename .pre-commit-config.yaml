@@ -30,3 +30,8 @@ repos:
         entry: "bash -c 'if [ -f pyproject.toml ]; then uv run pytest -m \"not hardware\"; else echo \"bootstrap: skipping pytest\"; fi'"
         language: system
         pass_filenames: false
+
+      - id: leak-patterns
+        name: leak patterns (AGENTS.md public-repo hygiene)
+        entry: scripts/hooks/check-leak-patterns.sh
+        language: system
