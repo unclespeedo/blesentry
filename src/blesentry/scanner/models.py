@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class Advertisement(BaseModel):
@@ -49,6 +49,20 @@ class Advertisement(BaseModel):
         object.__setattr__(
             self, "service_data", MappingProxyType(dict(self.service_data))
         )
+
+    @field_serializer("service_uuids")
+    def _serialize_service_uuids(self, value: Sequence[str]) -> list[str]:
+        """Dump the frozen tuple as a plain list (#74).
+
+        pydantic's serializer warns on the post-init container types;
+        explicit serializers keep dumps warning-free and JSON-clean.
+        """
+        return list(value)
+
+    @field_serializer("manufacturer_data", "service_data")
+    def _serialize_mapping(self, value: Mapping[str, str]) -> dict[str, str]:
+        """Dump MappingProxyType as a plain dict (#74)."""
+        return dict(value)
 
 
 class Fingerprint(BaseModel):
