@@ -69,7 +69,7 @@ One row per resolved identity. Identity is the fingerprint fusion key
 | `address` | TEXT NULL | Currently-known source address (a peripheral UUID on CoreBluetooth captures); may rotate or be null. Indexed (`idx_devices_address`). Renamed from `mac` in `0002`. |
 | `label` | TEXT NULL | Operator-assigned friendly name (`P2-6/P2-7`); null until labeled. |
 | `description` | TEXT NULL | Optional operator notes. |
-| `created_at` / `updated_at` | TEXT NOT NULL | `updated_at` bumped by repository upserts (`P1-6`). |
+| `created_at` / `updated_at` | TEXT NOT NULL | `updated_at` means *identity/metadata changed*, not last-seen (observations carry last-seen); the per-sighting bump was removed in #84. |
 
 ### `observations`
 

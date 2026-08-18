@@ -552,28 +552,36 @@ async def test_query_recent_rssi_handles_duplicate_appends(
     assert len(results) == 2
 
 
-async def test_append_rejects_cross_site_device(
+async def test_append_cross_site_is_caller_contract(
     obs_repo: ObservationRepository,
     device_repo: DeviceRepository,
     db: aiosqlite.Connection,
 ) -> None:
+    """Cross-site append is a documented caller contract (#84).
+
+    The per-append ownership probe was dropped: device_id must come
+    from this site's DeviceRepository (documented caller contract).
+    A cross-site id passes the FK; the row lands under the repo site.
+    """
     other_devs = DeviceRepository(db, "other-site")
     other_id = await other_devs.upsert(
         fingerprint="fp-xsite", address="AA:BB:CC:DD:EE:FF"
     )
-    with pytest.raises(ValueError, match="not found in site"):
-        await obs_repo.append(
-            device_id=other_id,
-            rssi=-60,
-            observed_at=_ts(10, 0),
-            adapter_id="hci0",
-        )
+    obs_id = await obs_repo.append(
+        device_id=other_id,
+        rssi=-60,
+        observed_at=_ts(10, 0),
+        adapter_id="hci0",
+    )
+    row = await obs_repo.get(obs_id)
+    assert row is not None and row["site_id"] == "test-site"
 
 
 async def test_append_rejects_nonexistent_device(
     obs_repo: ObservationRepository,
 ) -> None:
-    with pytest.raises(ValueError, match="not found in site"):
+    """FK enforcement (#84): missing device fails loudly at insert."""
+    with pytest.raises(aiosqlite.IntegrityError):
         await obs_repo.append(
             device_id=99999,
             rssi=-60,

@@ -219,7 +219,9 @@ async def _run_daemon(args: argparse.Namespace) -> int:
 
     SIGTERM (systemd's stop signal) cancels the task so the loop
     unwinds through ``finally`` and the connection closes cleanly —
-    the issue #20 graceful-shutdown contract.
+    the issue #20 graceful-shutdown contract. A second SIGTERM during
+    shutdown hits the default disposition and kills the process
+    immediately (WAL keeps the database consistent) — deliberate.
     """
     from blesentry.loop import run_loop
     from blesentry.storage.database import apply_migrations, connect
