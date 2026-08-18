@@ -4,11 +4,11 @@
 
 """Continuous scan loop (P1-8): scan window -> resolve -> persist.
 
-The resolver here is PROVISIONAL: identity is the exact canonical
-serialization of ``Fingerprint.from_advertisement()``, so a device
-that rotates its MAC becomes a new ``devices`` row. #19 (P1-7)
-replaces this with fingerprint fusion; the inflation in the meantime
-is expected and is itself useful ground truth for that design.
+Identity comes from the fusion resolver (#19, ``resolver.py``):
+weighted signal scoring with a stable-address mismatch veto,
+conservative by design — see resolver.py and docs/risks.md for the
+fusion limits (payload-variance under-joining, impersonation
+surface, window bounds).
 
 Error contract (ADR-0002): scanner failures propagate out of the loop
 — the process exits non-zero and the supervisor (systemd, P3-1)
@@ -19,12 +19,11 @@ site.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from datetime import UTC, datetime
 from typing import NamedTuple
 
-from blesentry.scanner.models import Fingerprint
+from blesentry.resolver import DeviceResolver, fingerprint_key
 from blesentry.scanner.protocol import Scanner
 from blesentry.storage.database import transaction
 from blesentry.storage.repository import (
@@ -54,32 +53,7 @@ def iso_utc(timestamp: float) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{millis:03d}Z"
 
 
-def fingerprint_key(fingerprint: Fingerprint) -> str:
-    """Canonical, deterministic string form of a Fingerprint.
-
-    Sorted containers and sorted JSON keys so equal fingerprints from
-    different capture passes serialize identically. This string is the
-    provisional ``devices.fingerprint`` identity key (see module note).
-    """
-    return json.dumps(
-        {
-            "v": 2,
-            "address": fingerprint.address,
-            "service_uuids": sorted(fingerprint.service_uuids),
-            "manufacturer_data": sorted(fingerprint.manufacturer_data),
-            "local_name": fingerprint.local_name,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-
-
-# In-process fingerprint -> device_id cache (#84): a known device is
-# not re-upserted every sighting (the ON CONFLICT branch only bumped
-# updated_at — 37% of measured WAL volume for zero information).
-# updated_at therefore means "identity/metadata changed", not "last
-# seen" — observations carry last-seen. Bounded: cleared when full.
-_MAX_CACHE_ENTRIES = 100_000
+__all__ = ["CycleStats", "fingerprint_key", "iso_utc", "run_cycle", "run_loop"]
 
 
 async def run_cycle(
@@ -87,7 +61,7 @@ async def run_cycle(
     devices: DeviceRepository,
     observations: ObservationRepository,
     duration: float,
-    device_cache: dict[str, int] | None = None,
+    resolver: DeviceResolver | None = None,
 ) -> CycleStats:
     """Run one scan window and persist everything heard atomically.
 
@@ -97,45 +71,38 @@ async def run_cycle(
     (power loss can additionally lose commits since the last WAL
     checkpoint, as schema.md documents).
 
-    New device ids are staged and merged into ``device_cache`` only
-    after the transaction commits — a rolled-back cycle must never
-    poison the cache with ids whose rows do not exist (panel-verified
-    failure mode: a permanent FK crash-loop for any caller that
-    tolerates per-cycle errors).
+    Identity comes from the fusion resolver (#19). Its staged ids
+    publish only after COMMIT and are discarded on failure — a
+    rolled-back cycle can never poison resolver memory (the #84
+    lesson). Pass one resolver across cycles (run_loop does) or
+    rotation fusion resets every call.
     """
     advertisements = await scanner.scan(duration=duration)
-    cache = device_cache if device_cache is not None else {}
     if observations.connection is not devices.connection:
         raise ValueError(
             "repositories must share one connection for cycle atomicity"
         )
+    r = resolver if resolver is not None else DeviceResolver(devices)
     device_ids: set[int] = set()
     persisted = 0
-    pending: dict[str, int] = {}
-    async with transaction(devices.connection):
-        for ad in advertisements:
-            key = fingerprint_key(Fingerprint.from_advertisement(ad))
-            device_id = cache.get(key)
-            if device_id is None:
-                device_id = pending.get(key)
-            if device_id is None:
-                device_id = await devices.upsert(
-                    fingerprint=key, address=ad.address
+    try:
+        async with transaction(devices.connection):
+            for ad in advertisements:
+                device_id = await r.resolve(ad)
+                await observations.append(
+                    device_id=device_id,
+                    rssi=ad.rssi,
+                    observed_at=iso_utc(ad.timestamp),
+                    adapter_id=ad.adapter_id,
+                    address_type=ad.address_type,
+                    adv_type=ad.adv_type,
                 )
-                pending[key] = device_id
-            await observations.append(
-                device_id=device_id,
-                rssi=ad.rssi,
-                observed_at=iso_utc(ad.timestamp),
-                adapter_id=ad.adapter_id,
-                address_type=ad.address_type,
-                adv_type=ad.adv_type,
-            )
-            device_ids.add(device_id)
-            persisted += 1
-    if len(cache) + len(pending) > _MAX_CACHE_ENTRIES:
-        cache.clear()
-    cache.update(pending)
+                device_ids.add(device_id)
+                persisted += 1
+    except BaseException:
+        r.abort()
+        raise
+    r.commit()
     return CycleStats(
         heard=len(advertisements),
         devices=len(device_ids),
@@ -167,10 +134,11 @@ async def run_loop(
         Number of cycles completed.
     """
     cycles = 0
-    device_cache: dict[str, int] = {}
+    resolver = DeviceResolver(devices)
+    await resolver.seed()
     while max_cycles is None or cycles < max_cycles:
         stats = await run_cycle(
-            scanner, devices, observations, duration, device_cache
+            scanner, devices, observations, duration, resolver
         )
         cycles += 1
         logger.info(

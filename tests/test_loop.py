@@ -23,6 +23,7 @@ from blesentry.loop import (
     run_cycle,
     run_loop,
 )
+from blesentry.resolver import DeviceResolver
 from blesentry.scanner import Advertisement, Fingerprint
 from blesentry.scanner.mock import MockScanner
 from blesentry.storage.database import apply_migrations, connect
@@ -101,8 +102,9 @@ async def test_cycle_persists_devices_and_observations(repos) -> None:
         scenarios=[[_ad(), _ad(address="11:22:33:44:55:66", rssi=-80)]]
     )
     stats = await run_cycle(scanner, devices, observations, duration=1.0)
-    assert stats == CycleStats(heard=2, devices=2, observations=2)
-    assert len(await devices.list_devices()) == 2
+    # same name/uuids/payload on two addresses: fusion (#19) joins them
+    assert stats == CycleStats(heard=2, devices=1, observations=2)
+    assert len(await devices.list_devices()) == 1
 
 
 @pytest.mark.asyncio
@@ -256,13 +258,13 @@ async def test_known_device_not_rewritten_every_cycle(repos) -> None:
             [_ad(rssi=-61, timestamp=1755400015.0)],
         ]
     )
-    cache: dict[str, int] = {}
+    resolver = DeviceResolver(devices)
     await run_cycle(
-        scanner, devices, observations, duration=1.0, device_cache=cache
+        scanner, devices, observations, duration=1.0, resolver=resolver
     )
     first = (await devices.list_devices())[0]["updated_at"]
     await run_cycle(
-        scanner, devices, observations, duration=1.0, device_cache=cache
+        scanner, devices, observations, duration=1.0, resolver=resolver
     )
     rows = await devices.list_devices()
     assert len(rows) == 1
@@ -277,19 +279,30 @@ async def test_known_device_not_rewritten_every_cycle(repos) -> None:
 async def test_cache_survives_rollback_unpoisoned(repos) -> None:
     """A rolled-back cycle must not leave phantom ids in the cache."""
     devices, observations = repos
-    cache: dict[str, int] = {}
+    resolver = DeviceResolver(devices)
     good = _ad(address="AA:00:00:00:00:01")
     bad = _ad(address="AA:00:00:00:00:02")
     object.__setattr__(bad, "timestamp", float("nan"))
     failing = MockScanner(scenarios=[[good, bad]])
     with pytest.raises(ValueError):
         await run_cycle(
-            failing, devices, observations, duration=1.0, device_cache=cache
+            failing, devices, observations, duration=1.0, resolver=resolver
         )
-    assert cache == {}
     clean = MockScanner(scenarios=[[good]])
     stats = await run_cycle(
-        clean, devices, observations, duration=1.0, device_cache=cache
+        clean, devices, observations, duration=1.0, resolver=resolver
     )
     assert stats.observations == 1
     assert len(await devices.list_devices()) == 1
+
+
+@pytest.mark.asyncio
+async def test_migration_0003_recency_index_exists(repos) -> None:
+    devices, _ = repos
+    cur = await devices.connection.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='devices'"
+    )
+    names = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_devices_site_updated" in names

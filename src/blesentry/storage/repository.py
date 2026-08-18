@@ -112,6 +112,73 @@ class DeviceRepository:
                 raise RuntimeError("RETURNING produced no row")
             return int(row[0])
 
+    async def get_by_fingerprint(self, fingerprint: str) -> DeviceRow | None:
+        """Return the device owning this exact fingerprint key, if any."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, fingerprint, address, label, "
+            "description, created_at, updated_at "
+            "FROM devices WHERE site_id = ? AND fingerprint = ?",
+            (self._site, fingerprint),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return DeviceRow(
+            id=row[0],
+            site_id=row[1],
+            fingerprint=row[2],
+            address=row[3],
+            label=row[4],
+            description=row[5],
+            created_at=row[6],
+            updated_at=row[7],
+        )
+
+    async def list_recent(self, limit: int) -> list[DeviceRow]:
+        """Return the most recently updated devices, newest first."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, fingerprint, address, label, "
+            "description, created_at, updated_at "
+            "FROM devices WHERE site_id = ? "
+            "ORDER BY updated_at DESC, id DESC LIMIT ?",
+            (self._site, limit),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            DeviceRow(
+                id=r[0],
+                site_id=r[1],
+                fingerprint=r[2],
+                address=r[3],
+                label=r[4],
+                description=r[5],
+                created_at=r[6],
+                updated_at=r[7],
+            )
+            for r in rows
+        ]
+
+    async def touch_address(self, device_id: int, address: str) -> None:
+        """Record a fused rotation's current address (#19).
+
+        Semantically consistent with ``updated_at`` = identity/metadata
+        changed: the UPDATE is conditional on the address actually
+        changing (``IS NOT`` is NULL-safe), so a chatty device minting
+        new payload keys at a fixed address costs zero writes — the
+        #84 savings hold per-rotation, not per-sighting. A wrong-site
+        or stale ``device_id`` is a silent no-op (caller contract, as
+        with append).
+        """
+        async with transaction(self._conn):
+            await self._conn.execute(
+                "UPDATE devices SET address = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ? AND site_id = ? AND address IS NOT ?",
+                (address, device_id, self._site, address),
+            )
+
     async def get(self, device_id: int) -> DeviceRow | None:
         """Return a device row, or ``None`` if not found."""
         cur = await self._conn.execute(

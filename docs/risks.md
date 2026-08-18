@@ -83,3 +83,50 @@ is a go/no-go on P4-3's numbers, never a silent switch.
 3. Re-run `uv run scripts/capture_scan.py --duration 900 --out capture.json`
    to regenerate/extend the corpus; commit the result under
    `tests/fixtures/` (keep `adapter_id` distinct per backend).
+
+## Fusion resolver limits (#19)
+
+The resolver joins rotated addresses into device identities by
+weighted signal scoring. Its deliberate conservatism and its known
+gaps, from the adversarial review:
+
+- **Impersonation inheritance.** Advertisements are unauthenticated.
+  A spoofer replaying a known device's name/payload/uuids from a
+  rotating-type address can be fused INTO that known identity,
+  inheriting its status and polluting its history — where exact-key
+  identity would have flagged a new device. Mitigation candidates
+  (contradiction detection, fusion audit trail) are follow-up work;
+  labeling and alert design (P2) must not treat fused identity as
+  authenticated. Two low-effort paths deserve naming: replaying a
+  HAP device id (6 cleartext bytes on the air) fuses at 1.0 with no
+  other shared signal, and replaying a device's current address
+  alone fuses within the window; a spoofed differing-HAP payload
+  merely inflates rows. All are detector-not-authenticator behavior
+  accepted by the 2026-08-18 policy — recorded so P2 designs
+  against them.
+- **Provenance-null captures weaken the twin veto.** The
+  stable-address mismatch veto needs address_type on both sides;
+  CoreBluetooth captures carry none. HAP-advertising twins are now
+  protected by the device-id veto even without provenance; non-HAP
+  twins remain exposed in Mac-corpus replays. Pi/BlueZ data carries
+  provenance and is the deployment path.
+- **Payload variance under-joins (partially mitigated by policy,
+  2026-08-18).** Apple Continuity payload bytes vary, so weighted
+  fusion of unnamed Apple devices rarely clears the threshold. Two
+  approved strengtheners now apply: HAP (HomeKit type-0x06) stable
+  device ids are parsed as authoritative identity (equal ids fuse at
+  1.0; differing ids veto — covering provenance-null captures), and
+  an exact address match within the resolver's temporally-local
+  window fuses regardless of provenance (two radios cannot share an
+  address concurrently). Non-HomeKit unnamed rotations still mostly
+  stay unfused — conservative by design until walk-test tuning.
+  Precedence note: the stable-address mismatch veto runs before the
+  HAP rule, so equal HAP ids claimed from two different known-stable
+  addresses stay distinct (a cloned payload, not one accessory).
+- **Restart amnesia (mitigated) and window bounds.** Exact keys
+  recover from the database, and the resolver seeds its window from
+  the newest stored devices at startup, so restart-spanning rotations
+  mostly re-join. A device absent longer than the window still opens
+  a new device row. An advertisement flood can
+  flush the window (availability of fusion, not correctness — ties to
+  the #85 flood posture).

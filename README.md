@@ -19,7 +19,7 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
                 │        │                                     │
                 │        ▼                                     │
                 │ Fingerprint engine ──▶ Device resolver       │
-                │  (MAC + svc UUIDs + mfr data + adv name)     │
+                │  (address + svc UUIDs + mfr data + adv name)     │
                 │        │                                     │
                 │        ▼                                     │
                 │ SQLite (aiosqlite) — source of truth         │
