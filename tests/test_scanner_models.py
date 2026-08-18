@@ -202,3 +202,64 @@ def test_advertisement_model_dump_json_round_trips() -> None:
         raw = ad.model_dump_json()
     revived = Advertisement.model_validate(json.loads(raw))
     assert revived == ad
+
+
+# ---------------------------------------------------------------------------
+# Input hardening (#85): radio-controlled fields are bounded; the model
+# must not assume the radio is honest
+# ---------------------------------------------------------------------------
+
+
+def test_local_name_over_gap_maximum_rejected() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(local_name="A" * 249)
+
+
+def test_local_name_at_gap_maximum_accepted() -> None:
+    ad = _sample_ad(local_name="A" * 248)
+    assert ad.local_name is not None and len(ad.local_name) == 248
+
+
+def test_lone_surrogate_local_name_rejected() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(local_name="evil\ud800name")
+
+
+def test_service_uuid_cardinality_bounded() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(service_uuids=[f"{i:04x}" for i in range(65)])
+
+
+def test_manufacturer_data_cardinality_bounded() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(manufacturer_data={str(i): "00" for i in range(65)})
+
+
+def test_service_data_cardinality_bounded() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(service_data={f"{i:04x}": "00" for i in range(65)})
+
+
+def test_local_name_octet_cap_enforced() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(local_name="é" * 125)
+
+
+def test_mac_length_bounded() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(mac="A" * 65)
+
+
+def test_service_uuid_entry_size_bounded() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(service_uuids=["x" * 65])
+
+
+def test_mapping_value_size_bounded() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(manufacturer_data={"76": "0" * 4097})
+
+
+def test_service_uuid_surrogate_rejected() -> None:
+    with pytest.raises(ValidationError):
+        _sample_ad(service_uuids=["ok", "bad\ud800"])

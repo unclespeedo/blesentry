@@ -157,3 +157,27 @@ def test_format_table_sorts_by_rssi_strongest_first() -> None:
 def test_format_table_handles_no_results() -> None:
     out = format_table([])
     assert "0 device" in out
+
+
+# ---------------------------------------------------------------------------
+# Display-boundary sanitization (#85): device names are untrusted
+# ---------------------------------------------------------------------------
+
+
+def test_format_table_strips_terminal_escapes() -> None:
+    out = format_table([_ad(local_name="\x1b]0;pwned\x07\x1b[2Jbad")])
+    assert "\x1b" not in out
+    assert "\x07" not in out
+    assert "bad" in out
+
+
+def test_format_table_strips_bidi_overrides() -> None:
+    out = format_table([_ad(local_name="ab\u202ecd")])
+    assert "\u202e" not in out
+    assert "ab" in out and "cd" in out
+
+
+def test_format_json_keeps_names_escaped_not_raw() -> None:
+    raw = format_json([_ad(local_name="x\x1b[2Jy")])
+    assert "\x1b" not in raw
+    assert "\\u001b" in raw
