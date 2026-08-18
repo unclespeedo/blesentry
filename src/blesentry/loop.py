@@ -62,7 +62,8 @@ def fingerprint_key(fingerprint: Fingerprint) -> str:
     """
     return json.dumps(
         {
-            "mac": fingerprint.mac,
+            "v": 2,
+            "address": fingerprint.address,
             "service_uuids": sorted(fingerprint.service_uuids),
             "manufacturer_data": sorted(fingerprint.manufacturer_data),
             "local_name": fingerprint.local_name,
@@ -84,12 +85,14 @@ async def run_cycle(
     persisted = 0
     for ad in advertisements:
         key = fingerprint_key(Fingerprint.from_advertisement(ad))
-        device_id = await devices.upsert(fingerprint=key, mac=ad.mac)
+        device_id = await devices.upsert(fingerprint=key, address=ad.address)
         await observations.append(
             device_id=device_id,
             rssi=ad.rssi,
             observed_at=iso_utc(ad.timestamp),
             adapter_id=ad.adapter_id,
+            address_type=ad.address_type,
+            adv_type=ad.adv_type,
         )
         device_ids.add(device_id)
         persisted += 1

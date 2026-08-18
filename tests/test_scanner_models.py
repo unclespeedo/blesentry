@@ -36,7 +36,7 @@ def _sample_ad(**overrides: object) -> Advertisement:
 @pytest.mark.parametrize(
     "record",
     _corpus(),
-    ids=lambda r: f"address={r['mac'][:8]}",
+    ids=lambda r: f"address={r['address'][:8]}",
 )
 def test_corpus_record_parses_as_advertisement(
     record: dict[str, object],
@@ -147,8 +147,12 @@ def test_fingerprint_is_hashable() -> None:
 
 def test_fingerprint_distinguishes_different_devices() -> None:
     """Different identity components yield different fingerprints."""
-    fp_a = Fingerprint.from_advertisement(_sample_ad(address="00:11:22:33:44:55"))
-    fp_b = Fingerprint.from_advertisement(_sample_ad(address="66:77:88:99:AA:BB"))
+    fp_a = Fingerprint.from_advertisement(
+        _sample_ad(address="00:11:22:33:44:55")
+    )
+    fp_b = Fingerprint.from_advertisement(
+        _sample_ad(address="66:77:88:99:AA:BB")
+    )
     assert fp_a != fp_b
 
 

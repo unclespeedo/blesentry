@@ -109,7 +109,9 @@ def test_parse_or_pattern_rejects_malformed(raw: str) -> None:
 
 @pytest.mark.asyncio
 async def test_run_scan_returns_advertisements() -> None:
-    scanner = MockScanner(scenarios=[[_ad(), _ad(address="11:22:33:44:55:66")]])
+    scanner = MockScanner(
+        scenarios=[[_ad(), _ad(address="11:22:33:44:55:66")]]
+    )
     ads = await run_scan(scanner, duration=1.0)
     assert len(ads) == 2
 

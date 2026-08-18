@@ -190,7 +190,9 @@ def format_table(advertisements: list[Advertisement]) -> str:
         lines.append(f"{'ADDRESS':<40} {'RSSI':>5}  NAME")
         for ad in sorted(advertisements, key=lambda a: -a.rssi):
             name = _display_text(ad.local_name or "-")
-            lines.append(f"{_display_text(ad.mac):<40} {ad.rssi:>5}  {name}")
+            lines.append(
+                f"{_display_text(ad.address):<40} {ad.rssi:>5}  {name}"
+            )
     return "\n".join(lines)
 
 

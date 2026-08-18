@@ -471,8 +471,12 @@ async def test_query_recent_rssi_excludes_other_devices(
     obs_repo: ObservationRepository,
     device_repo: DeviceRepository,
 ) -> None:
-    d1 = await device_repo.upsert(fingerprint="fp-d1", address="AA:00:00:00:00:01")
-    d2 = await device_repo.upsert(fingerprint="fp-d2", address="AA:00:00:00:00:02")
+    d1 = await device_repo.upsert(
+        fingerprint="fp-d1", address="AA:00:00:00:00:01"
+    )
+    d2 = await device_repo.upsert(
+        fingerprint="fp-d2", address="AA:00:00:00:00:02"
+    )
     await obs_repo.append(
         device_id=d1,
         rssi=-50,

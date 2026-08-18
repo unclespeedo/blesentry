@@ -169,7 +169,8 @@ class BleakScanner:
                 service_data[str(key)] = value.hex()
 
             return Advertisement(
-                mac=device.address,
+                address=device.address,
+                address_type=self._address_type(device),
                 rssi=adv_data.rssi,
                 local_name=adv_data.local_name,
                 service_uuids=adv_data.service_uuids,
@@ -186,3 +187,37 @@ class BleakScanner:
                 exc_info=True,
             )
             return None
+
+    @staticmethod
+    def _address_type(device: BLEDevice) -> str | None:
+        """Authoritative address provenance (#56), where the OS has it.
+
+        BlueZ reports ``AddressType`` as ``public`` or ``random`` in
+        the Device1 properties bleak carries in ``device.details``;
+        for ``random`` the subtype is encoded in the top two bits of
+        the most significant octet (11 static, 01 resolvable private,
+        00 non-resolvable). CoreBluetooth exposes no address type
+        (its 'address' is a host-local UUID) — returns None there.
+        ``adv_type`` (the PDU type) is not exposed by either D-Bus or
+        CoreBluetooth; the field stays None until a raw-HCI backend.
+        """
+        details = getattr(device, "details", None)
+        if not isinstance(details, dict):
+            return None
+        props = details.get("props")
+        if not isinstance(props, dict):
+            return None
+        reported = props.get("AddressType")
+        if reported != "random":
+            return reported
+        try:
+            top_two = int(device.address.split(":")[0], 16) >> 6
+        except (ValueError, IndexError):
+            return "random"
+        if top_two == 0b11:
+            return "random_static"
+        if top_two == 0b01:
+            return "rpa"
+        if top_two == 0b00:
+            return "non_resolvable_rpa"
+        return "random"

@@ -90,13 +90,13 @@ async def test_migrations_are_idempotent(
 ) -> None:
     first = await apply_migrations(conn)
     second = await apply_migrations(conn)
-    assert first == [SCHEMA_V1]
+    assert first[0] == SCHEMA_V1
     assert second == []
     cur = await conn.execute("SELECT COUNT(*) FROM schema_migrations")
     row = await cur.fetchone()
     await cur.close()
     assert row is not None
-    assert row[0] == 1
+    assert row[0] == len(first)
 
 
 async def test_all_v1_tables_created(conn: aiosqlite.Connection) -> None:
@@ -245,4 +245,34 @@ async def test_migration_0002_applies_address_provenance(tmp_path) -> None:
     dcols = {row[1] for row in await cur.fetchall()}
     await cur.close()
     assert "address" in dcols and "mac" not in dcols
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0002_preserves_v1_data(tmp_path) -> None:
+    """Upgrade path: a populated v1 database renames without data loss."""
+    db = tmp_path / "upgrade.db"
+    conn = await connect(db)
+    only_v1 = tmp_path / "v1"
+    only_v1.mkdir()
+    import shutil
+
+    from blesentry.storage.database import DEFAULT_MIGRATIONS_DIR
+
+    shutil.copy(
+        DEFAULT_MIGRATIONS_DIR / "0001_schema_v1.sql",
+        only_v1 / "0001_schema_v1.sql",
+    )
+    await apply_migrations(conn, migrations_dir=only_v1)
+    await conn.execute(
+        "INSERT INTO devices (site_id, fingerprint, mac) "
+        "VALUES ('s', 'fp', 'AA:BB:CC:DD:EE:FF')"
+    )
+    await conn.commit()
+    applied = await apply_migrations(conn)
+    assert "0002_address_provenance.sql" in applied
+    cur = await conn.execute("SELECT address FROM devices")
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None and row[0] == "AA:BB:CC:DD:EE:FF"
     await conn.close()
