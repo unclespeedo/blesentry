@@ -25,6 +25,13 @@ protection requires the `checks` and `dco` jobs) and on main.
    Re-read the diff as a hostile reviewer. Check: MPL header on new files,
    no secrets, no SQL outside repositories, no code outside the seam
    contracts (ADR-0002).
+   PANEL REVIEW: changes touching this file, ADRs, the scanner or
+   storage seams, or data-handling policy additionally get a
+   multi-expert review — independent subagents with distinct subject
+   lenses (chosen to fit the artifact: e.g. security, BLE domain,
+   asyncio, embedded storage, privacy, policy consistency) — and
+   findings are addressed or filed as issues before the PR is marked
+   ready. Mechanical changes and docs-only typo fixes are exempt.
 5. PR: one issue per PR. Template: DoD checklist with EVIDENCE per checkbox
    (test names, command output). Checkboxes annotated "HUMAN VERIFY" are left
    unchecked with a note. Link `Closes #N`.
