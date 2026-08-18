@@ -6,13 +6,19 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import aiosqlite
 import pytest
 
-from blesentry.storage import MigrationError, apply_migrations, connect
+from blesentry.storage import (
+    MigrationError,
+    apply_migrations,
+    connect,
+    transaction,
+)
 
 EXPECTED_TABLES = (
     "devices",
@@ -298,4 +304,71 @@ async def test_migration_0002_preserves_v1_data(tmp_path) -> None:
     old = await cur.fetchone()
     await cur.close()
     assert old is not None and old[0] is None
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_transaction_commits_on_success(tmp_path) -> None:
+    conn = await connect(tmp_path / "t.db")
+    await apply_migrations(conn)
+    async with transaction(conn):
+        await conn.execute(
+            "INSERT INTO devices (site_id, fingerprint) VALUES ('s','f')"
+        )
+    cur = await conn.execute("SELECT COUNT(*) FROM devices")
+    assert (await cur.fetchone())[0] == 1
+    await cur.close()
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_transaction_rolls_back_on_error(tmp_path) -> None:
+    conn = await connect(tmp_path / "t.db")
+    await apply_migrations(conn)
+    with pytest.raises(RuntimeError):
+        async with transaction(conn):
+            await conn.execute(
+                "INSERT INTO devices (site_id, fingerprint) "
+                "VALUES ('s','f')"
+            )
+            raise RuntimeError("boom")
+    cur = await conn.execute("SELECT COUNT(*) FROM devices")
+    assert (await cur.fetchone())[0] == 0
+    await cur.close()
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_transaction_rolls_back_on_cancellation(tmp_path) -> None:
+    """BaseException (CancelledError) must also roll back."""
+    conn = await connect(tmp_path / "t.db")
+    await apply_migrations(conn)
+    with pytest.raises(asyncio.CancelledError):
+        async with transaction(conn):
+            await conn.execute(
+                "INSERT INTO devices (site_id, fingerprint) "
+                "VALUES ('s','f')"
+            )
+            raise asyncio.CancelledError()
+    cur = await conn.execute("SELECT COUNT(*) FROM devices")
+    assert (await cur.fetchone())[0] == 0
+    await cur.close()
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_transactions_nest_outermost_wins(tmp_path) -> None:
+    conn = await connect(tmp_path / "t.db")
+    await apply_migrations(conn)
+    with pytest.raises(RuntimeError):
+        async with transaction(conn):
+            async with transaction(conn):
+                await conn.execute(
+                    "INSERT INTO devices (site_id, fingerprint) "
+                    "VALUES ('s','f')"
+                )
+            raise RuntimeError("outer fails after inner exits")
+    cur = await conn.execute("SELECT COUNT(*) FROM devices")
+    assert (await cur.fetchone())[0] == 0
+    await cur.close()
     await conn.close()

@@ -224,3 +224,45 @@ async def test_cycle_persists_address_type(repos) -> None:
     assert obs["address_type"] == "random_static"
     assert obs["adv_type"] == "ADV_IND"
     assert rows[0]["address"] == "F0:11:22:33:44:55"
+
+
+# ---------------------------------------------------------------------------
+# Cycle batching (#84): one transaction per cycle, no updated_at churn
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cycle_rolls_back_atomically_on_mid_batch_failure(
+    repos, tmp_path
+) -> None:
+    """A failure inside the cycle leaves NO partial rows behind."""
+    devices, observations = repos
+    good = _ad(address="AA:00:00:00:00:01")
+    bad = _ad(address="AA:00:00:00:00:02", rssi=-60)
+    object.__setattr__(bad, "timestamp", float("nan"))
+    scanner = MockScanner(scenarios=[[good, bad]])
+    with pytest.raises(ValueError):
+        await run_cycle(scanner, devices, observations, duration=1.0)
+    assert await devices.list_devices() == []
+
+
+@pytest.mark.asyncio
+async def test_known_device_not_rewritten_every_cycle(repos) -> None:
+    """A stationary device's row is written once, not per sighting."""
+    devices, observations = repos
+    scanner = MockScanner(
+        scenarios=[
+            [_ad(rssi=-60, timestamp=1755400000.0)],
+            [_ad(rssi=-61, timestamp=1755400015.0)],
+        ]
+    )
+    await run_cycle(scanner, devices, observations, duration=1.0)
+    first = (await devices.list_devices())[0]["updated_at"]
+    await run_cycle(scanner, devices, observations, duration=1.0)
+    rows = await devices.list_devices()
+    assert len(rows) == 1
+    assert rows[0]["updated_at"] == first
+    rssi = await observations.query_recent_rssi(
+        device_id=rows[0]["id"], since="2025-01-01T00:00:00.000Z"
+    )
+    assert len(rssi) == 2
