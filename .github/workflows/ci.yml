@@ -46,6 +46,10 @@ jobs:
           uv run ruff check .
           uv run ruff format --check .
 
+      - name: Leak patterns (AGENTS.md public-repo hygiene)
+        if: steps.proj.outputs.present == 'true'
+        run: git ls-files -z | xargs -0 scripts/hooks/check-leak-patterns.sh
+
       - name: Type check
         if: steps.proj.outputs.present == 'true'
         run: uv run ty check
