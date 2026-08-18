@@ -112,6 +112,43 @@ class DeviceRepository:
                 raise RuntimeError("RETURNING produced no row")
             return int(row[0])
 
+    async def get_by_fingerprint(self, fingerprint: str) -> DeviceRow | None:
+        """Return the device owning this exact fingerprint key, if any."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, fingerprint, address, label, "
+            "description, created_at, updated_at "
+            "FROM devices WHERE site_id = ? AND fingerprint = ?",
+            (self._site, fingerprint),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return DeviceRow(
+            id=row[0],
+            site_id=row[1],
+            fingerprint=row[2],
+            address=row[3],
+            label=row[4],
+            description=row[5],
+            created_at=row[6],
+            updated_at=row[7],
+        )
+
+    async def touch_address(self, device_id: int, address: str) -> None:
+        """Record a fused rotation's current address (#19).
+
+        Semantically consistent with ``updated_at`` = identity/metadata
+        changed: a rotation IS an identity event, and it is per-rotation
+        (~minutes), not per-sighting, so #84's write savings hold.
+        """
+        await self._conn.execute(
+            "UPDATE devices SET address = ?, "
+            "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+            "WHERE id = ? AND site_id = ?",
+            (address, device_id, self._site),
+        )
+
     async def get(self, device_id: int) -> DeviceRow | None:
         """Return a device row, or ``None`` if not found."""
         cur = await self._conn.execute(

@@ -4,11 +4,11 @@
 
 """Continuous scan loop (P1-8): scan window -> resolve -> persist.
 
-The resolver here is PROVISIONAL: identity is the exact canonical
-serialization of ``Fingerprint.from_advertisement()``, so a device
-that rotates its MAC becomes a new ``devices`` row. #19 (P1-7)
-replaces this with fingerprint fusion; the inflation in the meantime
-is expected and is itself useful ground truth for that design.
+Identity comes from the fusion resolver (#19, ``resolver.py``):
+weighted signal scoring with a stable-address mismatch veto,
+conservative by design — see resolver.py and docs/risks.md for the
+fusion limits (restart amnesia, payload-variance under-joining,
+impersonation surface).
 
 Error contract (ADR-0002): scanner failures propagate out of the loop
 — the process exits non-zero and the supervisor (systemd, P3-1)

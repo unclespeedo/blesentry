@@ -101,13 +101,13 @@ def fusion_score(
         and candidate.service_uuids == other.service_uuids
     ):
         score += _W_UUIDS
-    if (
-        candidate.local_name is not None
-        and candidate.local_name == other.local_name
-    ):
+    if candidate.local_name and candidate.local_name == other.local_name:
         score += _W_NAME
     if candidate.address and candidate.address == other.address:
-        if address_type in _STABLE_TYPES:
+        if (
+            address_type in _STABLE_TYPES
+            or other_address_type in _STABLE_TYPES
+        ):
             score += _W_STABLE_ADDRESS
         else:
             score += _W_ROTATING_ADDRESS
@@ -162,11 +162,23 @@ class DeviceResolver:
         if device_id is None:
             device_id = self._pending_keys.get(key)
         if device_id is not None:
+            if key in self._recent:
+                self._recent.move_to_end(key)
             return device_id
 
         a_type = advertisement.address_type
+        stored = await self._devices.get_by_fingerprint(key)
+        if stored is not None:
+            self._pending_keys[key] = stored["id"]
+            self._pending_recent.append(
+                (key, fingerprint, a_type, stored["id"])
+            )
+            return stored["id"]
+
         fused = self._best_match(fingerprint, a_type)
         if fused is not None:
+            if advertisement.address:
+                await self._devices.touch_address(fused, advertisement.address)
             self._pending_keys[key] = fused
             self._pending_recent.append((key, fingerprint, a_type, fused))
             return fused

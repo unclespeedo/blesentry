@@ -83,3 +83,36 @@ is a go/no-go on P4-3's numbers, never a silent switch.
 3. Re-run `uv run scripts/capture_scan.py --duration 900 --out capture.json`
    to regenerate/extend the corpus; commit the result under
    `tests/fixtures/` (keep `adapter_id` distinct per backend).
+
+## Fusion resolver limits (#19)
+
+The resolver joins rotated addresses into device identities by
+weighted signal scoring. Its deliberate conservatism and its known
+gaps, from the adversarial review:
+
+- **Impersonation inheritance.** Advertisements are unauthenticated.
+  A spoofer replaying a known device's name/payload/uuids from a
+  rotating-type address can be fused INTO that known identity,
+  inheriting its status and polluting its history — where exact-key
+  identity would have flagged a new device. Mitigation candidates
+  (contradiction detection, fusion audit trail) are follow-up work;
+  labeling and alert design (P2) must not treat fused identity as
+  authenticated.
+- **Provenance-null captures disable the twin veto.** The
+  stable-address mismatch veto needs address_type on both sides;
+  CoreBluetooth captures carry none, so twin products can fuse in
+  Mac-corpus replays. Pi/BlueZ data carries provenance and is the
+  deployment path.
+- **Payload variance under-joins.** Apple Continuity payload bytes
+  vary advertisement-to-advertisement, so real cross-rotation fusion
+  of unnamed Apple devices rarely clears the threshold — the rotation
+  cloud remains largely unfused (a conservative failure: it inflates
+  device rows, never hides devices). Strengthening signals
+  (Continuity-type structure matching, same-address-in-window) is a
+  policy decision pending maintainer sign-off.
+- **Restart amnesia and window bounds.** Fusion memory is
+  process-local (bounded recent window; exact keys recover from the
+  database). A rotation spanning a restart, or a device absent longer
+  than the window, opens a new device row. An advertisement flood can
+  flush the window (availability of fusion, not correctness — ties to
+  the #85 flood posture).

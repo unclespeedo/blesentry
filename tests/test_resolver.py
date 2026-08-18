@@ -318,3 +318,79 @@ async def test_rpa_rotation_still_fuses_after_veto(devices) -> None:
         ),
     )
     assert id_a == id_b
+
+
+# ---------------------------------------------------------------------------
+# Panel fixes: durable exact-key recovery, fused-address currency,
+# scoring edge cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_exact_key_recovers_across_restart(devices) -> None:
+    """A fresh resolver (restart) must find the durable row, not fork."""
+    first = DeviceResolver(devices)
+    ad = _ad(local_name="Sensor")
+    (id_a,) = await _resolve_cycle(first, ad)
+    restarted = DeviceResolver(devices)
+    (id_b,) = await _resolve_cycle(restarted, ad)
+    assert id_a == id_b
+    assert len(await devices.list_devices()) == 1
+
+
+@pytest.mark.asyncio
+async def test_fused_rotation_updates_stored_address(devices) -> None:
+    resolver = DeviceResolver(devices)
+    (device_id,) = await _resolve_cycle(
+        resolver,
+        _ad(
+            address="5E:11:11:11:11:11",
+            address_type="rpa",
+            local_name="Tag",
+            manufacturer_data={"76": "aabbcc"},
+        ),
+    )
+    await _resolve_cycle(
+        resolver,
+        _ad(
+            address="43:22:22:22:22:22",
+            address_type="rpa",
+            local_name="Tag",
+            manufacturer_data={"76": "aabbcc"},
+        ),
+    )
+    row = await devices.get(device_id)
+    assert row is not None and row["address"] == "43:22:22:22:22:22"
+
+
+def test_empty_local_name_awards_nothing() -> None:
+    a = Fingerprint.from_advertisement(
+        _ad(
+            address="11:11:11:11:11:11",
+            local_name="",
+            manufacturer_data={"76": "aabbcc"},
+        )
+    )
+    b = Fingerprint.from_advertisement(
+        _ad(
+            address="22:22:22:22:22:22",
+            local_name="",
+            manufacturer_data={"76": "aabbcc"},
+        )
+    )
+    assert fusion_score(a, b) < 0.55
+
+
+def test_equal_address_uses_either_sides_provenance() -> None:
+    a = Fingerprint.from_advertisement(
+        _ad(address="F0:11:11:11:11:11", address_type=None)
+    )
+    b = Fingerprint.from_advertisement(
+        _ad(address="F0:11:11:11:11:11", address_type="random_static")
+    )
+    assert (
+        fusion_score(
+            a, b, address_type=None, other_address_type="random_static"
+        )
+        == 0.6
+    )
