@@ -271,3 +271,25 @@ async def test_known_device_not_rewritten_every_cycle(repos) -> None:
         device_id=rows[0]["id"], since="2025-01-01T00:00:00.000Z"
     )
     assert len(rssi) == 2
+
+
+@pytest.mark.asyncio
+async def test_cache_survives_rollback_unpoisoned(repos) -> None:
+    """A rolled-back cycle must not leave phantom ids in the cache."""
+    devices, observations = repos
+    cache: dict[str, int] = {}
+    good = _ad(address="AA:00:00:00:00:01")
+    bad = _ad(address="AA:00:00:00:00:02")
+    object.__setattr__(bad, "timestamp", float("nan"))
+    failing = MockScanner(scenarios=[[good, bad]])
+    with pytest.raises(ValueError):
+        await run_cycle(
+            failing, devices, observations, duration=1.0, device_cache=cache
+        )
+    assert cache == {}
+    clean = MockScanner(scenarios=[[good]])
+    stats = await run_cycle(
+        clean, devices, observations, duration=1.0, device_cache=cache
+    )
+    assert stats.observations == 1
+    assert len(await devices.list_devices()) == 1

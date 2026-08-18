@@ -91,25 +91,38 @@ async def run_cycle(
 ) -> CycleStats:
     """Run one scan window and persist everything heard atomically.
 
-    The whole cycle commits in ONE transaction (#84): on abrupt death
-    at most one cycle (~15s) of observations is lost — at or inside
-    the durability trade already accepted by docs/schema.md.
+    The whole cycle commits in ONE transaction (#84): on process
+    death at most one cycle (~15s) of observations is lost — at or
+    inside the durability trade already accepted by docs/schema.md
+    (power loss can additionally lose commits since the last WAL
+    checkpoint, as schema.md documents).
+
+    New device ids are staged and merged into ``device_cache`` only
+    after the transaction commits — a rolled-back cycle must never
+    poison the cache with ids whose rows do not exist (panel-verified
+    failure mode: a permanent FK crash-loop for any caller that
+    tolerates per-cycle errors).
     """
     advertisements = await scanner.scan(duration=duration)
     cache = device_cache if device_cache is not None else {}
+    if observations.connection is not devices.connection:
+        raise ValueError(
+            "repositories must share one connection for cycle atomicity"
+        )
     device_ids: set[int] = set()
     persisted = 0
+    pending: dict[str, int] = {}
     async with transaction(devices.connection):
         for ad in advertisements:
             key = fingerprint_key(Fingerprint.from_advertisement(ad))
             device_id = cache.get(key)
             if device_id is None:
+                device_id = pending.get(key)
+            if device_id is None:
                 device_id = await devices.upsert(
                     fingerprint=key, address=ad.address
                 )
-                if len(cache) >= _MAX_CACHE_ENTRIES:
-                    cache.clear()
-                cache[key] = device_id
+                pending[key] = device_id
             await observations.append(
                 device_id=device_id,
                 rssi=ad.rssi,
@@ -120,6 +133,9 @@ async def run_cycle(
             )
             device_ids.add(device_id)
             persisted += 1
+    if len(cache) + len(pending) > _MAX_CACHE_ENTRIES:
+        cache.clear()
+    cache.update(pending)
     return CycleStats(
         heard=len(advertisements),
         devices=len(device_ids),

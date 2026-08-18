@@ -46,12 +46,16 @@ async def transaction(
     or rolls back). Rollback triggers on ``BaseException`` so task
     cancellation between BEGIN and COMMIT never abandons an open
     transaction on the connection.
+
+    Contract: all transaction() users of one connection must run in a
+    SINGLE asyncio task — nesting detection is connection-global, so
+    interleaved tasks would corrupt each other's units of work. The
+    P2 bot handler gets its own connection (requirement recorded on
+    the notifier issue).
     """
-    try:
+    outermost = not conn.in_transaction
+    if outermost:
         await conn.execute("BEGIN")
-        outermost = True
-    except aiosqlite.OperationalError:
-        outermost = False
     try:
         yield
     except BaseException:
