@@ -12,6 +12,7 @@ instances must be stable, hashable identity keys.
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from types import MappingProxyType
 
@@ -159,3 +160,45 @@ def test_fingerprint_derived_for_entire_corpus() -> None:
         for record in records
     }
     assert len(fingerprints) == len(records)
+
+
+# ---------------------------------------------------------------------------
+# Serialization (#74): frozen containers must dump as plain list/dict
+# with zero pydantic warnings
+# ---------------------------------------------------------------------------
+
+
+def test_advertisement_json_dump_plain_and_warning_free() -> None:
+    ad = _sample_ad(
+        service_uuids=["180d"],
+        manufacturer_data={"76": "010203"},
+        service_data={"180f": "0a"},
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        dumped = ad.model_dump(mode="json")
+    assert dumped["service_uuids"] == ["180d"]
+    assert type(dumped["service_uuids"]) is list
+    assert dumped["manufacturer_data"] == {"76": "010203"}
+    assert type(dumped["manufacturer_data"]) is dict
+    assert type(dumped["service_data"]) is dict
+
+
+def test_advertisement_python_dump_warning_free() -> None:
+    ad = _sample_ad()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        dumped = ad.model_dump(mode="python")
+    assert type(dumped["manufacturer_data"]) is dict
+
+
+def test_advertisement_model_dump_json_round_trips() -> None:
+    ad = _sample_ad(
+        service_uuids=["180d", "180f"],
+        manufacturer_data={"76": "0102"},
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        raw = ad.model_dump_json()
+    revived = Advertisement.model_validate(json.loads(raw))
+    assert revived == ad
