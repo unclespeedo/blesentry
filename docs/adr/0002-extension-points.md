@@ -6,9 +6,9 @@
 -->
 # ADR-0002: Extension-Point Architecture (Scanner / Notifier / Storage seams)
 
-- **Status:** Proposed
-- **Date:** 2026-08-16
-- **Deciders:** Ryan Speed (human sign-off pending)
+- **Status:** Accepted
+- **Date:** 2026-08-16 (accepted 2026-08-17)
+- **Deciders:** Ryan Speed
 
 ## Context
 
@@ -52,6 +52,11 @@ class Scanner(Protocol):
 
 `scan()` uses a **fail-fast** contract at the protocol level:
 
+- **Configuration errors** (unknown adapter name, passive mode
+  requested without `or_patterns`, backend unavailable) — the
+  implementation **raises** at construction or on the first
+  `scan()`, never degrades.  A sentinel that cannot scan must never
+  look like a quiet site.
 - **Hardware failure** (adapter removed, HCI error, transport
   failure) — the implementation **raises** an exception.  Callers
   (the scan loop in P1-8) are expected to handle transient errors
@@ -61,15 +66,19 @@ class Scanner(Protocol):
   advertisements returns an empty `list`.  This is *not* an error;
   it is the normal case during quiet periods or when no BLE devices
   are within range.
+- **One malformed advertisement** — the only sanctioned
+  degradation.  A single advertisement that fails normalization is
+  logged and skipped (data-level degradation); the scan itself
+  still succeeds and returns the rest.
 
 **Wedge detection is implementation-specific**, not part of the
 protocol contract.  BlueZ D-Bus can silently return nothing (a
 "wedge") — this looks identical to a quiet scan at the protocol
 level.  Each implementation decides how to detect wedges:
-`BleakScanner`, for example, timestamps the last advertisement
-received and raises if the scan window completes with zero results
-*and* no D-Bus activity was observed.  A raw-HCI backend would use
-different heuristics.  The recovery ladder (P4-6) starts with a
+`BleakScanner` could, for example, timestamp the last advertisement
+received and raise if the scan window completes with zero results
+*and* no D-Bus activity was observed (planned under P4-6; not yet
+implemented).  A raw-HCI backend would use different heuristics.  The recovery ladder (P4-6) starts with a
 retry, then progresses through adapter reset and bluetooth.service
 restart.
 
