@@ -256,9 +256,14 @@ async def test_known_device_not_rewritten_every_cycle(repos) -> None:
             [_ad(rssi=-61, timestamp=1755400015.0)],
         ]
     )
-    await run_cycle(scanner, devices, observations, duration=1.0)
+    cache: dict[str, int] = {}
+    await run_cycle(
+        scanner, devices, observations, duration=1.0, device_cache=cache
+    )
     first = (await devices.list_devices())[0]["updated_at"]
-    await run_cycle(scanner, devices, observations, duration=1.0)
+    await run_cycle(
+        scanner, devices, observations, duration=1.0, device_cache=cache
+    )
     rows = await devices.list_devices()
     assert len(rows) == 1
     assert rows[0]["updated_at"] == first

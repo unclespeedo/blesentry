@@ -2,11 +2,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""SQLite connection bootstrap and ordered-SQL-file migration runner."""
+"""SQLite connection bootstrap, transactions, and migration runner."""
 
 from __future__ import annotations
 
 import hashlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
@@ -32,6 +34,33 @@ _CONNECT_PRAGMAS = (
 
 class MigrationError(RuntimeError):
     """Raised when a migration is mutated, or cannot be applied."""
+
+
+@asynccontextmanager
+async def transaction(
+    conn: aiosqlite.Connection,
+) -> AsyncIterator[None]:
+    """Ambient unit-of-work (#84): BEGIN/COMMIT owned by the outermost.
+
+    Nested uses join the open transaction (only the outermost commits
+    or rolls back). Rollback triggers on ``BaseException`` so task
+    cancellation between BEGIN and COMMIT never abandons an open
+    transaction on the connection.
+    """
+    try:
+        await conn.execute("BEGIN")
+        outermost = True
+    except aiosqlite.OperationalError:
+        outermost = False
+    try:
+        yield
+    except BaseException:
+        if outermost:
+            await conn.execute("ROLLBACK")
+        raise
+    else:
+        if outermost:
+            await conn.execute("COMMIT")
 
 
 async def connect(path: str | Path) -> aiosqlite.Connection:

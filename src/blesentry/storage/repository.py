@@ -14,6 +14,8 @@ from typing import TypedDict
 
 import aiosqlite
 
+from blesentry.storage.database import transaction
+
 
 class DeviceRow(TypedDict):
     """Shape of a row returned by :class:`DeviceRepository`."""
@@ -53,6 +55,11 @@ class DeviceRepository:
         self._conn = conn
         self._site = site_id
 
+    @property
+    def connection(self) -> aiosqlite.Connection:
+        """The underlying connection, for ambient transactions (#84)."""
+        return self._conn
+
     async def upsert(
         self,
         *,
@@ -69,8 +76,7 @@ class DeviceRepository:
 
         Returns the device ``id`` (new or existing).
         """
-        await self._conn.execute("BEGIN")
-        try:
+        async with transaction(self._conn):
             cur = await self._conn.execute(
                 "INSERT INTO devices "
                 "(site_id, fingerprint, address, label, "
@@ -104,11 +110,7 @@ class DeviceRepository:
             await cur.close()
             if row is None:
                 raise RuntimeError("RETURNING produced no row")
-            await self._conn.execute("COMMIT")
             return int(row[0])
-        except Exception:
-            await self._conn.execute("ROLLBACK")
-            raise
 
     async def get(self, device_id: int) -> DeviceRow | None:
         """Return a device row, or ``None`` if not found."""
@@ -171,6 +173,11 @@ class ObservationRepository:
         self._conn = conn
         self._site = site_id
 
+    @property
+    def connection(self) -> aiosqlite.Connection:
+        """The underlying connection, for ambient transactions (#84)."""
+        return self._conn
+
     async def append(
         self,
         *,
@@ -183,22 +190,13 @@ class ObservationRepository:
     ) -> int:
         """Append one RSSI observation for a device.
 
-        Validates that ``device_id`` belongs to this site
-        atomically within the same transaction as the insert.
+        Caller contract: ``device_id`` must come from this site's
+        :class:`DeviceRepository` (the FK enforces existence; the
+        redundant per-append ownership probe was dropped in #84 —
+        cross-site misuse is a caller bug, not a runtime check).
         Returns the new observation ``id``.
         """
-        await self._conn.execute("BEGIN")
-        try:
-            cur = await self._conn.execute(
-                "SELECT 1 FROM devices WHERE id = ? AND site_id = ?",
-                (device_id, self._site),
-            )
-            owns = await cur.fetchone()
-            await cur.close()
-            if owns is None:
-                raise ValueError(
-                    f"device {device_id} not found in site {self._site!r}"
-                )
+        async with transaction(self._conn):
             cur = await self._conn.execute(
                 "INSERT INTO observations "
                 "(site_id, device_id, rssi, "
@@ -220,11 +218,7 @@ class ObservationRepository:
             await cur.close()
             if row is None:
                 raise RuntimeError("RETURNING produced no row")
-            await self._conn.execute("COMMIT")
             return int(row[0])
-        except Exception:
-            await self._conn.execute("ROLLBACK")
-            raise
 
     async def query_recent_rssi(
         self,

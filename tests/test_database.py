@@ -316,8 +316,9 @@ async def test_transaction_commits_on_success(tmp_path) -> None:
             "INSERT INTO devices (site_id, fingerprint) VALUES ('s','f')"
         )
     cur = await conn.execute("SELECT COUNT(*) FROM devices")
-    assert (await cur.fetchone())[0] == 1
+    row = await cur.fetchone()
     await cur.close()
+    assert row is not None and row[0] == 1
     await conn.close()
 
 
@@ -328,13 +329,13 @@ async def test_transaction_rolls_back_on_error(tmp_path) -> None:
     with pytest.raises(RuntimeError):
         async with transaction(conn):
             await conn.execute(
-                "INSERT INTO devices (site_id, fingerprint) "
-                "VALUES ('s','f')"
+                "INSERT INTO devices (site_id, fingerprint) VALUES ('s','f')"
             )
             raise RuntimeError("boom")
     cur = await conn.execute("SELECT COUNT(*) FROM devices")
-    assert (await cur.fetchone())[0] == 0
+    row = await cur.fetchone()
     await cur.close()
+    assert row is not None and row[0] == 0
     await conn.close()
 
 
@@ -346,13 +347,13 @@ async def test_transaction_rolls_back_on_cancellation(tmp_path) -> None:
     with pytest.raises(asyncio.CancelledError):
         async with transaction(conn):
             await conn.execute(
-                "INSERT INTO devices (site_id, fingerprint) "
-                "VALUES ('s','f')"
+                "INSERT INTO devices (site_id, fingerprint) VALUES ('s','f')"
             )
             raise asyncio.CancelledError()
     cur = await conn.execute("SELECT COUNT(*) FROM devices")
-    assert (await cur.fetchone())[0] == 0
+    row = await cur.fetchone()
     await cur.close()
+    assert row is not None and row[0] == 0
     await conn.close()
 
 
@@ -369,6 +370,7 @@ async def test_transactions_nest_outermost_wins(tmp_path) -> None:
                 )
             raise RuntimeError("outer fails after inner exits")
     cur = await conn.execute("SELECT COUNT(*) FROM devices")
-    assert (await cur.fetchone())[0] == 0
+    row = await cur.fetchone()
     await cur.close()
+    assert row is not None and row[0] == 0
     await conn.close()
