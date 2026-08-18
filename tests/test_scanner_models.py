@@ -36,14 +36,14 @@ def _sample_ad(**overrides: object) -> Advertisement:
 @pytest.mark.parametrize(
     "record",
     _corpus(),
-    ids=lambda r: f"mac={r['mac'][:8]}",
+    ids=lambda r: f"address={r['address'][:8]}",
 )
 def test_corpus_record_parses_as_advertisement(
     record: dict[str, object],
 ) -> None:
     """Every fixture-corpus record deserializes into an Advertisement."""
     adv = Advertisement.model_validate(record)
-    assert adv.mac == record["mac"]
+    assert adv.address == record["address"]
     assert adv.rssi == record["rssi"]
     assert adv.timestamp == record["timestamp"]
     assert adv.adapter_id == record["adapter_id"]
@@ -73,7 +73,7 @@ def test_no_manufacturer_data_defaults_to_empty() -> None:
 def test_missing_optional_fields_default() -> None:
     """Only identity + observation fields are required; the rest default."""
     adv = Advertisement(
-        mac="00:11:22:33:44:55",
+        address="00:11:22:33:44:55",
         rssi=-70,
         timestamp=1.0,
         adapter_id="bluez-linux",
@@ -89,7 +89,7 @@ def test_empty_mac_rejected() -> None:
     """A blank source address is never a legal advertisement."""
     with pytest.raises(ValidationError):
         Advertisement(
-            mac="",
+            address="",
             rssi=-70,
             timestamp=1.0,
             adapter_id="bluez-linux",
@@ -121,7 +121,7 @@ def test_fingerprint_derived_from_advertisement() -> None:
     """Fingerprint carries the stable identity components of a scan."""
     adv = _sample_ad()
     fp = Fingerprint.from_advertisement(adv)
-    assert fp.mac == adv.mac
+    assert fp.address == adv.address
     assert set(fp.service_uuids) == set(adv.service_uuids)
     assert set(fp.manufacturer_data) == set(adv.manufacturer_data.items())
     assert fp.local_name == adv.local_name
@@ -147,8 +147,12 @@ def test_fingerprint_is_hashable() -> None:
 
 def test_fingerprint_distinguishes_different_devices() -> None:
     """Different identity components yield different fingerprints."""
-    fp_a = Fingerprint.from_advertisement(_sample_ad(mac="00:11:22:33:44:55"))
-    fp_b = Fingerprint.from_advertisement(_sample_ad(mac="66:77:88:99:AA:BB"))
+    fp_a = Fingerprint.from_advertisement(
+        _sample_ad(address="00:11:22:33:44:55")
+    )
+    fp_b = Fingerprint.from_advertisement(
+        _sample_ad(address="66:77:88:99:AA:BB")
+    )
     assert fp_a != fp_b
 
 
@@ -245,9 +249,9 @@ def test_local_name_octet_cap_enforced() -> None:
         _sample_ad(local_name="é" * 125)
 
 
-def test_mac_length_bounded() -> None:
+def test_address_length_bounded() -> None:
     with pytest.raises(ValidationError):
-        _sample_ad(mac="A" * 65)
+        _sample_ad(address="A" * 65)
 
 
 def test_service_uuid_entry_size_bounded() -> None:
@@ -263,3 +267,24 @@ def test_mapping_value_size_bounded() -> None:
 def test_service_uuid_surrogate_rejected() -> None:
     with pytest.raises(ValidationError):
         _sample_ad(service_uuids=["ok", "bad\ud800"])
+
+
+# ---------------------------------------------------------------------------
+# Provenance fields (#56): address_type and adv_type
+# ---------------------------------------------------------------------------
+
+
+def test_address_type_defaults_none_and_accepts_values() -> None:
+    assert _sample_ad().address_type is None
+    ad = _sample_ad(address_type="rpa")
+    assert ad.address_type == "rpa"
+
+
+def test_adv_type_defaults_none_and_accepts_values() -> None:
+    assert _sample_ad().adv_type is None
+    assert _sample_ad(adv_type="ADV_IND").adv_type == "ADV_IND"
+
+
+def test_fingerprint_uses_address_field() -> None:
+    fp = Fingerprint.from_advertisement(_sample_ad(address="AB:CD"))
+    assert fp.address == "AB:CD"
