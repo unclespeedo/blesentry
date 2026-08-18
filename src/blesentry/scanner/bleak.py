@@ -6,21 +6,26 @@
 
 Implements the Scanner protocol using the bleak library. On macOS,
 uses CoreBluetooth (active scanning only — CoreBluetooth limitation).
-On Linux, uses BlueZ via D-Bus (passive scanning with or_patterns).
+On Linux, uses BlueZ via D-Bus (passive scanning, which requires
+``or_patterns`` — see docs/risks.md).
 
-Both backends are normalized into Advertisement objects.
-
-Log-and-degrade on D-Bus hiccups: errors are logged and result in
-empty scan results, never exceptions propagate to callers.
+Error contract (ADR-0002, #63): fail fast. Configuration errors raise
+at construction; scan-level failures (D-Bus, adapter loss) propagate
+to the caller. A sentinel that cannot scan must never look like a
+quiet site. The only sanctioned degradation is per-advertisement:
+a single malformed advertisement is logged and skipped.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 import time
+from collections.abc import Sequence
 
 from bleak import BleakScanner as _BleakScanner
+from bleak.args.bluez import BlueZScannerArgs, OrPatternLike
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 
@@ -34,22 +39,43 @@ class BleakScanner:
 
     Implements the Scanner protocol. On macOS, uses CoreBluetooth
     (which only supports active scanning). On Linux, uses BlueZ
-    via D-Bus with passive scanning enabled.
+    via D-Bus with passive scanning.
 
     Args:
-        adapter_id: Identifier for the BLE adapter (e.g., "bluez-linux",
-            "corebluetooth-macos"). Used to tag Advertisement objects.
-            On Linux, also selects the physical adapter (e.g., "hci0").
+        adapter_id: Semantic label stamped on every ``Advertisement``
+            (e.g. ``"bluez-linux"``, ``"macos-corebluetooth"`` — the
+            corpus convention from ``scripts/capture_scan.py``). Never
+            passed to bleak.
+        adapter: BlueZ adapter device name (e.g. ``"hci0"``), or
+            ``None`` for the system default. Linux only; ignored on
+            macOS.
+        or_patterns: BlueZ advertisement-monitor patterns. Required on
+            Linux — passive scanning raises without them (docs/
+            risks.md) — so construction fails fast when they are
+            missing. Ignored on macOS.
+
+    Raises:
+        ValueError: on Linux when ``or_patterns`` is missing or empty.
     """
 
-    def __init__(self, adapter_id: str) -> None:
-        """Initialize the BleakScanner.
-
-        Args:
-            adapter_id: Unique identifier for this scanner's BLE adapter.
-                On Linux, this is passed to BlueZ to select the adapter.
-        """
+    def __init__(
+        self,
+        adapter_id: str,
+        *,
+        adapter: str | None = None,
+        or_patterns: Sequence[OrPatternLike] | None = None,
+    ) -> None:
+        """Validate configuration for this platform and store it."""
         self.adapter_id = adapter_id
+        self._adapter = adapter
+        self._or_patterns = (
+            list(or_patterns) if or_patterns is not None else None
+        )
+        if sys.platform != "darwin" and not self._or_patterns:
+            raise ValueError(
+                "BlueZ passive scanning requires or_patterns "
+                "(see docs/risks.md); pass or_patterns=[...]"
+            )
 
     async def scan(
         self,
@@ -57,55 +83,65 @@ class BleakScanner:
     ) -> list[Advertisement]:
         """Run a BLE scan for *duration* seconds.
 
-        Uses bleak's discover method with return_adv=True to get
-        a dict mapping device address to (BLEDevice, AdvertisementData)
-        tuples. Converts to Advertisement objects. On any error, logs
-        the issue and returns an empty list.
-
         Platform differences:
         - macOS: active scanning (CoreBluetooth limitation)
-        - Linux: passive scanning with BlueZ
+        - Linux: passive scanning with BlueZ ``or_patterns``
 
         Args:
             duration: How long to scan, in seconds.
 
         Returns:
-            Advertised BLE devices heard during the window.
+            Advertised BLE devices heard during the window. A quiet
+            window is an empty list; that is a successful scan.
+
+        Raises:
+            BleakError, OSError: on scanner or transport failure —
+                errors propagate so the caller (P1-8 scan loop) can
+                escalate instead of mistaking failure for silence.
         """
-        try:
-            scanner = self._create_scanner()
-            devices = await scanner.discover(
-                timeout=duration,
-                return_adv=True,
-            )
+        results = await self._run_scan(duration)
+        advertisements = []
+        for device, adv_data in results.values():
+            ad = self._convert_device(device, adv_data)
+            if ad is not None:
+                advertisements.append(ad)
+        return advertisements
 
-            advertisements = []
-            for device, adv_data in devices.values():
-                ad = self._convert_device(device, adv_data)
-                if ad is not None:
-                    advertisements.append(ad)
+    async def _run_scan(
+        self,
+        duration: float,
+    ) -> dict[str, tuple[BLEDevice, AdvertisementData]]:
+        """Drive one scan window on a configured scanner instance.
 
-            return advertisements
-        except Exception:
-            logger.exception("BLE scan failed, degrading to empty result")
-            return []
+        The only method that touches bleak's runtime; behaviour tests
+        mock this seam and contract tests cover what it calls. Never
+        use ``_BleakScanner.discover`` here — it is a classmethod that
+        builds a fresh default scanner, discarding the configuration
+        from ``_create_scanner``.
+        """
+        scanner = self._create_scanner()
+        async with scanner:
+            await asyncio.sleep(duration)
+        return scanner.discovered_devices_and_advertisement_data
 
     def _create_scanner(self) -> _BleakScanner:
-        """Create a platform-appropriate BleakScanner.
+        """Create a platform-appropriate, fully configured scanner.
 
-        On macOS, CoreBluetooth only supports active scanning.
-        On Linux, BlueZ supports passive scanning with or_patterns.
+        On macOS, CoreBluetooth only supports active scanning. On
+        Linux, BlueZ scans passively with ``or_patterns`` on the
+        configured adapter.
 
         Returns:
-            Configured BleakScanner instance.
+            Configured BleakScanner instance (not started).
         """
         if sys.platform == "darwin":
             return _BleakScanner(scanning_mode="active")
-        else:
-            return _BleakScanner(
-                scanning_mode="passive",
-                bluez={"adapter": self.adapter_id},
-            )
+        if not self._or_patterns:
+            raise ValueError("BlueZ passive scanning requires or_patterns")
+        bluez_args: BlueZScannerArgs = {"or_patterns": self._or_patterns}
+        if self._adapter is not None:
+            bluez_args["adapter"] = self._adapter
+        return _BleakScanner(scanning_mode="passive", bluez=bluez_args)
 
     def _convert_device(
         self,
@@ -119,7 +155,9 @@ class BleakScanner:
             adv_data: The AdvertisementData from the discovery.
 
         Returns:
-            Advertisement object, or None if conversion fails.
+            Advertisement object, or None if this one advertisement is
+            malformed (logged and skipped — data-level degradation
+            only; scanner-level failures raise in ``scan``).
         """
         try:
             manufacturer_data: dict[str, str] = {}

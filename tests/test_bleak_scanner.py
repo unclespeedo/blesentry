@@ -2,23 +2,53 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""BleakScanner adapter tests (P1-3).
+"""BleakScanner adapter tests (P1-3, reworked for #67).
 
-TDD: failing tests first, then implementation. The BleakScanner
-implements the Scanner protocol using the bleak library for real
-BLE scanning on macOS (CoreBluetooth) and Linux (BlueZ).
+Two layers, split so mock drift cannot hide API breakage again:
+
+- Behaviour tests mock ``BleakScanner._run_scan`` — a seam we own —
+  and verify conversion, fail-fast propagation, and configuration
+  validation.
+- Contract tests exercise the *real* bleak library: introspection
+  everywhere, real construction on Linux (CI), so a bleak API change
+  fails in CI instead of on the Pi. Construction is skipped on macOS
+  because creating the CoreBluetooth backend can trigger the TCC
+  Bluetooth permission prompt.
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import inspect
+import sys
+from collections.abc import Sequence
+from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
+from bleak import BleakScanner as _RealBleakScanner
+from bleak.args.bluez import BlueZScannerArgs, OrPattern, OrPatternLike
+from bleak.assigned_numbers import AdvertisementDataType
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 
 from blesentry.scanner import Advertisement
 from blesentry.scanner.bleak import BleakScanner
+
+OR_PATTERNS = [OrPattern(0, AdvertisementDataType.FLAGS, b"\x06")]
+
+
+def _scanner(
+    adapter_id: str = "test-adapter",
+    *,
+    adapter: str | None = None,
+    or_patterns: Sequence[OrPatternLike] | None = None,
+) -> BleakScanner:
+    """Build an adapter that is valid on every platform."""
+    return BleakScanner(
+        adapter_id,
+        adapter=adapter,
+        or_patterns=OR_PATTERNS if or_patterns is None else or_patterns,
+    )
 
 
 def _make_device(
@@ -49,118 +79,121 @@ def _make_adv_data(
     )
 
 
+def _patch_run_scan(
+    scanner: BleakScanner,
+    results: dict[str, tuple[BLEDevice, AdvertisementData]],
+) -> AsyncMock:
+    """Mock the bleak seam with scripted scan results."""
+    mock = AsyncMock(return_value=results)
+    scanner._run_scan = mock  # type: ignore[method-assign]
+    return mock
+
+
+# ---------------------------------------------------------------------------
+# Construction / configuration validation (fail-fast contract, #63)
+# ---------------------------------------------------------------------------
+
+
 def test_bleak_scanner_implements_scanner_protocol() -> None:
-    """BleakScanner is a structural subtype of Scanner."""
     assert hasattr(BleakScanner, "scan")
 
 
-@pytest.mark.asyncio
-async def test_bleak_scanner_instantiates() -> None:
-    """BleakScanner can be instantiated with an adapter_id."""
-    scanner = BleakScanner(adapter_id="test-adapter")
+def test_bleak_scanner_instantiates() -> None:
+    scanner = _scanner()
     assert scanner.adapter_id == "test-adapter"
 
 
-@pytest.mark.asyncio
-async def test_bleak_scanner_scan_returns_list() -> None:
-    """scan() returns a list of Advertisement objects."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(return_value={})
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert isinstance(result, list)
+def test_missing_or_patterns_raises_on_linux(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On Linux, constructing without or_patterns fails fast."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    with pytest.raises(ValueError, match="or_patterns"):
+        BleakScanner(adapter_id="bluez-linux")
+
+
+def test_empty_or_patterns_raises_on_linux(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    with pytest.raises(ValueError, match="or_patterns"):
+        BleakScanner(adapter_id="bluez-linux", or_patterns=[])
+
+
+def test_or_patterns_optional_on_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CoreBluetooth ignores or_patterns; construction succeeds."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+    BleakScanner(adapter_id="macos-corebluetooth")
+
+
+# ---------------------------------------------------------------------------
+# Behaviour: conversion and result shaping (mocked at the _run_scan seam)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_bleak_scanner_handles_empty_discovery() -> None:
-    """Empty discovery returns empty list."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(return_value={})
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert result == []
+async def test_scan_returns_empty_list_on_quiet_window() -> None:
+    """A quiet scan is a successful scan: empty list, no error."""
+    scanner = _scanner()
+    _patch_run_scan(scanner, {})
+    assert await scanner.scan(duration=1.0) == []
 
 
 @pytest.mark.asyncio
-async def test_bleak_scanner_converts_advertisement() -> None:
-    """Discovered devices are converted to Advertisement objects."""
-    scanner = BleakScanner(adapter_id="test-adapter")
+async def test_scan_passes_duration_to_run_scan() -> None:
+    scanner = _scanner()
+    mock = _patch_run_scan(scanner, {})
+    await scanner.scan(duration=2.5)
+    mock.assert_awaited_once_with(2.5)
+
+
+@pytest.mark.asyncio
+async def test_scan_converts_advertisement() -> None:
+    scanner = _scanner()
     device = _make_device("AA:BB:CC:DD:EE:FF", "Test Device")
     adv_data = _make_adv_data(rssi=-65, local_name="Test Device")
+    _patch_run_scan(scanner, {device.address: (device, adv_data)})
 
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(
-            return_value={device.address: (device, adv_data)}
-        )
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert len(result) == 1
-        assert isinstance(result[0], Advertisement)
-        assert result[0].mac == "AA:BB:CC:DD:EE:FF"
-        assert result[0].rssi == -65
-        assert result[0].local_name == "Test Device"
-        assert result[0].adapter_id == "test-adapter"
+    result = await scanner.scan(duration=1.0)
+    assert len(result) == 1
+    assert isinstance(result[0], Advertisement)
+    assert result[0].mac == "AA:BB:CC:DD:EE:FF"
+    assert result[0].rssi == -65
+    assert result[0].local_name == "Test Device"
+    assert result[0].adapter_id == "test-adapter"
 
 
 @pytest.mark.asyncio
-async def test_bleak_scanner_handles_multiple_devices() -> None:
-    """Multiple discovered devices are all converted."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    devices = {}
+async def test_scan_converts_multiple_devices() -> None:
+    scanner = _scanner()
+    results = {}
     for i in range(3):
         device = _make_device(f"AA:BB:CC:DD:EE:{i:02X}", f"Device {i}")
         adv_data = _make_adv_data(rssi=-60 - i, local_name=f"Device {i}")
-        devices[device.address] = (device, adv_data)
+        results[device.address] = (device, adv_data)
+    _patch_run_scan(scanner, results)
 
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(return_value=devices)
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert len(result) == 3
-        assert all(isinstance(ad, Advertisement) for ad in result)
+    result = await scanner.scan(duration=1.0)
+    assert len(result) == 3
+    assert all(isinstance(ad, Advertisement) for ad in result)
 
 
 @pytest.mark.asyncio
-async def test_bleak_scanner_logs_and_degrades_on_error() -> None:
-    """D-Bus errors are logged and result in empty list, not exception."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(
-            side_effect=Exception("D-Bus error")
-        )
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert result == []
-
-
-@pytest.mark.asyncio
-async def test_bleak_scanner_handles_device_without_name() -> None:
-    """Devices with no name get None for local_name."""
-    scanner = BleakScanner(adapter_id="test-adapter")
+async def test_scan_handles_device_without_name() -> None:
+    scanner = _scanner()
     device = _make_device("AA:BB:CC:DD:EE:FF", None)
     adv_data = _make_adv_data(rssi=-70, local_name=None)
+    _patch_run_scan(scanner, {device.address: (device, adv_data)})
 
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(
-            return_value={device.address: (device, adv_data)}
-        )
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert result[0].local_name is None
+    result = await scanner.scan(duration=1.0)
+    assert result[0].local_name is None
 
 
 @pytest.mark.asyncio
-async def test_bleak_scanner_handles_manufacturer_data() -> None:
-    """Manufacturer data bytes are converted to hex strings."""
-    scanner = BleakScanner(adapter_id="test-adapter")
+async def test_scan_converts_manufacturer_data_to_hex() -> None:
+    scanner = _scanner()
     device = _make_device("AA:BB:CC:DD:EE:FF", "Test")
     adv_data = _make_adv_data(
         rssi=-65,
@@ -168,132 +201,145 @@ async def test_bleak_scanner_handles_manufacturer_data() -> None:
         manufacturer_data={76: b"\x01\x02\x03"},
         tx_power=-4,
     )
+    _patch_run_scan(scanner, {device.address: (device, adv_data)})
 
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(
-            return_value={device.address: (device, adv_data)}
-        )
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert result[0].manufacturer_data == {"76": "010203"}
-        assert result[0].tx_power == -4
+    result = await scanner.scan(duration=1.0)
+    assert result[0].manufacturer_data == {"76": "010203"}
+    assert result[0].tx_power == -4
 
 
 @pytest.mark.asyncio
-async def test_bleak_scanner_handles_service_data() -> None:
-    """Service data bytes are converted to hex strings."""
-    scanner = BleakScanner(adapter_id="test-adapter")
+async def test_scan_converts_service_data_to_hex() -> None:
+    scanner = _scanner()
+    device = _make_device("AA:BB:CC:DD:EE:FF", "Test")
+    adv_data = _make_adv_data(rssi=-65, service_data={"180D": b"\x01\x02"})
+    _patch_run_scan(scanner, {device.address: (device, adv_data)})
+
+    result = await scanner.scan(duration=1.0)
+    assert result[0].service_data == {"180D": "0102"}
+
+
+@pytest.mark.asyncio
+async def test_scan_passes_service_uuids_through() -> None:
+    scanner = _scanner()
+    device = _make_device("AA:BB:CC:DD:EE:FF", "Test")
+    adv_data = _make_adv_data(rssi=-65, service_uuids=["180D", "180F"])
+    _patch_run_scan(scanner, {device.address: (device, adv_data)})
+
+    result = await scanner.scan(duration=1.0)
+    assert result[0].service_uuids == ("180D", "180F")
+
+
+@pytest.mark.asyncio
+async def test_scan_converts_empty_containers() -> None:
+    scanner = _scanner()
     device = _make_device("AA:BB:CC:DD:EE:FF", "Test")
     adv_data = _make_adv_data(
         rssi=-65,
-        service_data={"180D": b"\x01\x02"},
+        manufacturer_data={},
+        service_data={},
+        service_uuids=[],
+    )
+    _patch_run_scan(scanner, {device.address: (device, adv_data)})
+
+    result = await scanner.scan(duration=1.0)
+    assert result[0].manufacturer_data == {}
+    assert result[0].service_data == {}
+    assert result[0].service_uuids == ()
+
+
+# ---------------------------------------------------------------------------
+# Behaviour: error contract (fail fast; degrade per-advertisement only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scan_failure_propagates() -> None:
+    """Scanner-level failure raises — never a silent empty list."""
+    scanner = _scanner()
+    scanner._run_scan = AsyncMock(  # type: ignore[method-assign]
+        side_effect=OSError("D-Bus error")
+    )
+    with pytest.raises(OSError, match="D-Bus error"):
+        await scanner.scan(duration=1.0)
+
+
+@pytest.mark.asyncio
+async def test_malformed_advertisement_is_skipped_not_fatal() -> None:
+    """One bad advertisement is dropped; the rest still convert."""
+    scanner = _scanner()
+    good = _make_device("AA:BB:CC:DD:EE:01", "Good")
+    good_adv = _make_adv_data(rssi=-60, local_name="Good")
+    bad = _make_device("AA:BB:CC:DD:EE:02", "Bad")
+    _patch_run_scan(
+        scanner,
+        {
+            good.address: (good, good_adv),
+            # not an AdvertisementData: attribute access raises
+            bad.address: (bad, cast(AdvertisementData, object())),
+        },
     )
 
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(
-            return_value={device.address: (device, adv_data)}
-        )
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert result[0].service_data == {"180D": "0102"}
+    result = await scanner.scan(duration=1.0)
+    assert [ad.mac for ad in result] == ["AA:BB:CC:DD:EE:01"]
 
 
-@pytest.mark.asyncio
-async def test_bleak_scanner_handles_service_uuids() -> None:
-    """Service UUIDs are passed through correctly."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    device = _make_device("AA:BB:CC:DD:EE:FF", "Test")
-    adv_data = _make_adv_data(
-        rssi=-65,
-        service_uuids=["180D", "180F"],
+# ---------------------------------------------------------------------------
+# Contract tests: the real bleak API. Introspection runs everywhere;
+# construction runs on Linux (CI), where backend __init__ has no side
+# effects. These are the tests that catch #67-class drift.
+# ---------------------------------------------------------------------------
+
+
+def test_contract_discover_is_a_classmethod() -> None:
+    """Documents why _run_scan never calls discover().
+
+    A classmethod constructs a fresh default scanner via cls(**kwargs)
+    and would discard everything _create_scanner configured — the #67
+    root cause.
+    """
+    attr = inspect.getattr_static(_RealBleakScanner, "discover")
+    assert isinstance(attr, classmethod)
+
+
+def test_contract_results_property_exists() -> None:
+    attr = inspect.getattr_static(
+        _RealBleakScanner, "discovered_devices_and_advertisement_data"
     )
-
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(
-            return_value={device.address: (device, adv_data)}
-        )
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert result[0].service_uuids == ("180D", "180F")
+    assert isinstance(attr, property)
 
 
-@pytest.mark.asyncio
-async def test_bleak_scanner_passes_return_adv_true() -> None:
-    """discover() is called with return_adv=True."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(return_value={})
-        mock_cls.return_value = mock_instance
-        await scanner.scan(duration=2.5)
-        mock_instance.discover.assert_called_once_with(
-            timeout=2.5, return_adv=True
-        )
+def test_contract_constructor_accepts_our_arguments() -> None:
+    sig = inspect.signature(_RealBleakScanner.__init__)
+    assert "scanning_mode" in sig.parameters
+    assert "bluez" in sig.parameters
 
 
-@pytest.mark.asyncio
-async def test_bleak_scanner_passes_timeout() -> None:
-    """Duration is passed as timeout to discover()."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(return_value={})
-        mock_cls.return_value = mock_instance
-        await scanner.scan(duration=5.0)
-        mock_instance.discover.assert_called_once_with(
-            timeout=5.0, return_adv=True
-        )
+def test_contract_bluez_args_accepts_our_keys() -> None:
+    keys = BlueZScannerArgs.__annotations__
+    assert "adapter" in keys
+    assert "or_patterns" in keys
 
 
-@pytest.mark.asyncio
-async def test_bleak_scanner_converts_empty_manufacturer_data() -> None:
-    """Empty manufacturer data results in empty dict."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    device = _make_device("AA:BB:CC:DD:EE:FF", "Test")
-    adv_data = _make_adv_data(rssi=-65, manufacturer_data={})
-
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(
-            return_value={device.address: (device, adv_data)}
-        )
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert result[0].manufacturer_data == {}
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="CoreBluetooth backend construction can prompt for "
+    "Bluetooth permission; Linux construction is side-effect free",
+)
+def test_contract_create_scanner_constructs_on_linux() -> None:
+    """The exact production configuration constructs without error."""
+    scanner = _scanner(adapter="hci0")
+    real = scanner._create_scanner()
+    assert isinstance(real, _RealBleakScanner)
 
 
-@pytest.mark.asyncio
-async def test_bleak_scanner_converts_empty_service_data() -> None:
-    """Empty service data results in empty dict."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    device = _make_device("AA:BB:CC:DD:EE:FF", "Test")
-    adv_data = _make_adv_data(rssi=-65, service_data={})
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="BlueZ backend is Linux-only",
+)
+def test_contract_bleak_rejects_passive_without_or_patterns() -> None:
+    """Bleak's own guard — the raise docs/risks.md documents (#67)."""
+    from bleak.exc import BleakError
 
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(
-            return_value={device.address: (device, adv_data)}
-        )
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert result[0].service_data == {}
-
-
-@pytest.mark.asyncio
-async def test_bleak_scanner_converts_empty_service_uuids() -> None:
-    """Empty service UUIDs results in empty tuple."""
-    scanner = BleakScanner(adapter_id="test-adapter")
-    device = _make_device("AA:BB:CC:DD:EE:FF", "Test")
-    adv_data = _make_adv_data(rssi=-65, service_uuids=[])
-
-    with patch("blesentry.scanner.bleak._BleakScanner") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.discover = AsyncMock(
-            return_value={device.address: (device, adv_data)}
-        )
-        mock_cls.return_value = mock_instance
-        result = await scanner.scan(duration=1.0)
-        assert result[0].service_uuids == ()
+    with pytest.raises(BleakError):
+        _RealBleakScanner(scanning_mode="passive")
