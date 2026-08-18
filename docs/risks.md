@@ -103,16 +103,20 @@ gaps, from the adversarial review:
   CoreBluetooth captures carry none, so twin products can fuse in
   Mac-corpus replays. Pi/BlueZ data carries provenance and is the
   deployment path.
-- **Payload variance under-joins.** Apple Continuity payload bytes
-  vary advertisement-to-advertisement, so real cross-rotation fusion
-  of unnamed Apple devices rarely clears the threshold — the rotation
-  cloud remains largely unfused (a conservative failure: it inflates
-  device rows, never hides devices). Strengthening signals
-  (Continuity-type structure matching, same-address-in-window) is a
-  policy decision pending maintainer sign-off.
-- **Restart amnesia and window bounds.** Fusion memory is
-  process-local (bounded recent window; exact keys recover from the
-  database). A rotation spanning a restart, or a device absent longer
-  than the window, opens a new device row. An advertisement flood can
+- **Payload variance under-joins (partially mitigated by policy,
+  2026-08-18).** Apple Continuity payload bytes vary, so weighted
+  fusion of unnamed Apple devices rarely clears the threshold. Two
+  approved strengtheners now apply: HAP (HomeKit type-0x06) stable
+  device ids are parsed as authoritative identity (equal ids fuse at
+  1.0; differing ids veto — covering provenance-null captures), and
+  an exact address match within the resolver's temporally-local
+  window fuses regardless of provenance (two radios cannot share an
+  address concurrently). Non-HomeKit unnamed rotations still mostly
+  stay unfused — conservative by design until walk-test tuning.
+- **Restart amnesia (mitigated) and window bounds.** Exact keys
+  recover from the database, and the resolver seeds its window from
+  the newest stored devices at startup, so restart-spanning rotations
+  mostly re-join. A device absent longer than the window still opens
+  a new device row. An advertisement flood can
   flush the window (availability of fusion, not correctness — ties to
   the #85 flood posture).

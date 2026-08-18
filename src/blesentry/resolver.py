@@ -40,6 +40,31 @@ _W_ROTATING_ADDRESS = 0.05
 
 _STABLE_TYPES = frozenset({"public", "random_static"})
 
+_APPLE_COMPANY = "76"
+_HAP_TYPE = 0x06
+
+
+def hap_device_id(fingerprint: Fingerprint) -> str | None:
+    """Extract the stable HomeKit (HAP) device id, if advertised.
+
+    Apple manufacturer data of Continuity type 0x06 is a HAP pairing
+    advertisement: type (1), subtype/length (1), AIL flags (1), then a
+    6-byte device id that is stable per accessory — authoritative
+    identity for HomeKit gear (e.g. the site's Eve smart plugs),
+    unaffected by the state counter that changes across sightings.
+    """
+    for company, payload_hex in fingerprint.manufacturer_data:
+        if company != _APPLE_COMPANY:
+            continue
+        try:
+            payload = bytes.fromhex(payload_hex)
+        except ValueError:
+            return None
+        if len(payload) >= 9 and payload[0] == _HAP_TYPE:
+            return payload[3:9].hex()
+    return None
+
+
 # Exact-key cache bound (matches the #84 cache sizing rationale).
 _MAX_KEY_CACHE = 100_000
 
@@ -87,6 +112,12 @@ def fusion_score(
         and candidate.address != other.address
     ):
         return 0.0
+    hap_a = hap_device_id(candidate)
+    hap_b = hap_device_id(other)
+    if hap_a is not None and hap_b is not None:
+        # Authoritative per-accessory identity: equal ids fuse,
+        # differing ids veto (covers provenance-null captures too).
+        return 1.0 if hap_a == hap_b else 0.0
     score = 0.0
     if candidate.manufacturer_data and other.manufacturer_data:
         if candidate.manufacturer_data == other.manufacturer_data:
@@ -104,13 +135,11 @@ def fusion_score(
     if candidate.local_name and candidate.local_name == other.local_name:
         score += _W_NAME
     if candidate.address and candidate.address == other.address:
-        if (
-            address_type in _STABLE_TYPES
-            or other_address_type in _STABLE_TYPES
-        ):
-            score += _W_STABLE_ADDRESS
-        else:
-            score += _W_ROTATING_ADDRESS
+        # Same address within the resolver's temporally-local window
+        # is near-certain same-device regardless of provenance: two
+        # radios cannot share an address concurrently (2026-08-18
+        # fusion-policy decision).
+        score += _W_STABLE_ADDRESS
     return score
 
 
@@ -232,3 +261,31 @@ class DeviceResolver:
         """Discard staged identities after a rolled-back transaction."""
         self._pending_keys.clear()
         self._pending_recent.clear()
+
+    async def seed(self) -> None:
+        """Warm fusion memory from the newest stored devices.
+
+        Restores rotation-join continuity across process restarts
+        (2026-08-18 fusion-policy decision): the founding fingerprints
+        of the most recently updated devices become window candidates.
+        Stored keys carry no live provenance; address_type seeds None,
+        which the same-address and HAP rules do not need.
+        """
+        for row in await self._devices.list_recent(self._recent_window):
+            try:
+                data = json.loads(row["fingerprint"])
+            except ValueError:
+                continue
+            if not isinstance(data, dict) or data.get("v") != 2:
+                continue
+            fingerprint = Fingerprint(
+                address=data.get("address"),
+                service_uuids=frozenset(data.get("service_uuids") or []),
+                manufacturer_data=frozenset(
+                    (k, v) for k, v in (data.get("manufacturer_data") or [])
+                ),
+                local_name=data.get("local_name"),
+            )
+            key = row["fingerprint"]
+            self._key_cache[key] = row["id"]
+            self._recent[key] = (fingerprint, None, row["id"])

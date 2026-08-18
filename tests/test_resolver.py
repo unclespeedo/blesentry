@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from blesentry.resolver import DeviceResolver, fusion_score
+from blesentry.resolver import DeviceResolver, fusion_score, hap_device_id
 from blesentry.scanner import Advertisement, Fingerprint
 from blesentry.storage.database import apply_migrations, connect, transaction
 from blesentry.storage.repository import DeviceRepository
@@ -181,21 +181,10 @@ async def test_stable_address_changed_payload_fuses(devices) -> None:
     assert len(await devices.list_devices()) == 1
 
 
-@pytest.mark.asyncio
-async def test_rpa_address_match_alone_does_not_fuse(devices) -> None:
-    """An address match on rotating provenance is a weak signal."""
-    resolver = DeviceResolver(devices)
-    (id_a,) = await _resolve_cycle(
-        resolver,
-        _ad(address="5E:11:11:11:11:11", manufacturer_data={"76": "01"}),
-    )
-    (id_b,) = await _resolve_cycle(
-        resolver,
-        _ad(address="5E:11:11:11:11:11", manufacturer_data={"76": "02"}),
-    )
-    # same RPA re-observed before rotation: exact address+key differ,
-    # weak address signal + company-only must stay below threshold
-    assert id_a != id_b
+# (former test_rpa_address_match_alone_does_not_fuse inverted by the
+# 2026-08-18 fusion-policy decision: an exact address match within the
+# window is near-certain same-device — see
+# test_same_address_in_window_fuses_despite_payload_change)
 
 
 @pytest.mark.asyncio
@@ -394,3 +383,111 @@ def test_equal_address_uses_either_sides_provenance() -> None:
         )
         == 0.6
     )
+
+
+# ---------------------------------------------------------------------------
+# Strengthened fusion (maintainer decision 2026-08-18): HAP stable IDs,
+# same-address-within-window, startup seeding
+# ---------------------------------------------------------------------------
+
+
+def test_hap_device_id_extracted() -> None:
+    # HAP adv: type 06, STL 31 (subtype 1, len 17), AIL, then 6-byte id
+    fp = Fingerprint.from_advertisement(
+        _ad(manufacturer_data={"76": "0631001e2a3b4c5d6e0a01020304"})
+    )
+    assert hap_device_id(fp) == "1e2a3b4c5d6e"
+
+
+def test_hap_id_absent_for_non_hap_payloads() -> None:
+    fp = Fingerprint.from_advertisement(
+        _ad(manufacturer_data={"76": "1005011234aa"})
+    )
+    assert hap_device_id(fp) is None
+
+
+def test_matching_hap_ids_fuse_across_rotation() -> None:
+    a = Fingerprint.from_advertisement(
+        _ad(
+            address="5E:11:11:11:11:11",
+            manufacturer_data={"76": "0631001e2a3b4c5d6e0a01020304"},
+        )
+    )
+    b = Fingerprint.from_advertisement(
+        _ad(
+            address="43:22:22:22:22:22",
+            manufacturer_data={"76": "0631071e2a3b4c5d6e0b02030405"},
+        )
+    )
+    # state bytes differ, device id identical -> authoritative match
+    assert fusion_score(a, b) >= 1.0
+
+
+def test_differing_hap_ids_veto_fusion() -> None:
+    """Differing HAP ids veto.
+
+    Two Eve plugs: same name, different HAP ids — never fuse, even
+    without address provenance (closes the macOS-capture gap).
+    """
+    a = Fingerprint.from_advertisement(
+        _ad(
+            address="11:11:11:11:11:11",
+            local_name="Eve",
+            manufacturer_data={"76": "0631001e2a3b4c5d6e0a01020304"},
+        )
+    )
+    b = Fingerprint.from_advertisement(
+        _ad(
+            address="22:22:22:22:22:22",
+            local_name="Eve",
+            manufacturer_data={"76": "063100ffeeddccbbaa0a01020304"},
+        )
+    )
+    assert fusion_score(a, b) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_same_address_in_window_fuses_despite_payload_change(
+    devices,
+) -> None:
+    """Same address within the window fuses.
+
+    One iPhone flipping its Nearby status byte within an RPA lifetime
+    must not fork identities (panel major, policy-approved).
+    """
+    resolver = DeviceResolver(devices)
+    (id_a,) = await _resolve_cycle(
+        resolver,
+        _ad(address="5E:11:11:11:11:11", manufacturer_data={"76": "01"}),
+    )
+    (id_b,) = await _resolve_cycle(
+        resolver,
+        _ad(address="5E:11:11:11:11:11", manufacturer_data={"76": "02"}),
+    )
+    assert id_a == id_b
+
+
+@pytest.mark.asyncio
+async def test_seed_restores_fusion_memory_across_restart(devices) -> None:
+    first = DeviceResolver(devices)
+    (id_a,) = await _resolve_cycle(
+        first,
+        _ad(
+            address="5E:11:11:11:11:11",
+            address_type="rpa",
+            local_name="Tag",
+            manufacturer_data={"76": "aabbcc"},
+        ),
+    )
+    restarted = DeviceResolver(devices)
+    await restarted.seed()
+    (id_b,) = await _resolve_cycle(
+        restarted,
+        _ad(
+            address="43:22:22:22:22:22",
+            address_type="rpa",
+            local_name="Tag",
+            manufacturer_data={"76": "aabbcc"},
+        ),
+    )
+    assert id_a == id_b

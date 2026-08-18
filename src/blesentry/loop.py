@@ -135,6 +135,7 @@ async def run_loop(
     """
     cycles = 0
     resolver = DeviceResolver(devices)
+    await resolver.seed()
     while max_cycles is None or cycles < max_cycles:
         stats = await run_cycle(
             scanner, devices, observations, duration, resolver

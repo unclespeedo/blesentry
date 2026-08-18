@@ -135,6 +135,31 @@ class DeviceRepository:
             updated_at=row[7],
         )
 
+    async def list_recent(self, limit: int) -> list[DeviceRow]:
+        """Return the most recently updated devices, newest first."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, fingerprint, address, label, "
+            "description, created_at, updated_at "
+            "FROM devices WHERE site_id = ? "
+            "ORDER BY updated_at DESC, id DESC LIMIT ?",
+            (self._site, limit),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            DeviceRow(
+                id=r[0],
+                site_id=r[1],
+                fingerprint=r[2],
+                address=r[3],
+                label=r[4],
+                description=r[5],
+                created_at=r[6],
+                updated_at=r[7],
+            )
+            for r in rows
+        ]
+
     async def touch_address(self, device_id: int, address: str) -> None:
         """Record a fused rotation's current address (#19).
 
