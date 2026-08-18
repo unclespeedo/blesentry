@@ -112,20 +112,11 @@ async def run_scan(
 
 
 def format_json(advertisements: list[Advertisement]) -> str:
-    """Render advertisements as a JSON array for scripting.
-
-    Advertisement freezes its containers as tuple/MappingProxyType,
-    which pydantic's JSON serializer rejects — convert to plain
-    list/dict here (model-level serializers tracked separately).
-    """
-    records = []
-    for ad in advertisements:
-        record = ad.model_dump(mode="python")
-        record["service_uuids"] = list(record["service_uuids"])
-        record["manufacturer_data"] = dict(record["manufacturer_data"])
-        record["service_data"] = dict(record["service_data"])
-        records.append(record)
-    return json.dumps(records, indent=2)
+    """Render advertisements as a JSON array for scripting."""
+    return json.dumps(
+        [ad.model_dump(mode="json") for ad in advertisements],
+        indent=2,
+    )
 
 
 def format_table(advertisements: list[Advertisement]) -> str:
