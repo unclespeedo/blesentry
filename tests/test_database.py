@@ -269,10 +269,33 @@ async def test_migration_0002_preserves_v1_data(tmp_path) -> None:
         "VALUES ('s', 'fp', 'AA:BB:CC:DD:EE:FF')"
     )
     await conn.commit()
+    await conn.execute(
+        "INSERT INTO observations "
+        "(site_id, device_id, rssi, observed_at) "
+        "VALUES ('s', 1, -60, '2025-01-01T00:00:00.000Z')"
+    )
+    await conn.commit()
     applied = await apply_migrations(conn)
     assert "0002_address_provenance.sql" in applied
     cur = await conn.execute("SELECT address FROM devices")
     row = await cur.fetchone()
     await cur.close()
     assert row is not None and row[0] == "AA:BB:CC:DD:EE:FF"
+    cur = await conn.execute("PRAGMA foreign_key_check")
+    assert await cur.fetchall() == []
+    await cur.close()
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='devices'"
+    )
+    names = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_devices_address" in names
+    assert "idx_devices_mac" not in names
+    cur = await conn.execute(
+        "SELECT address_type FROM observations WHERE id = 1"
+    )
+    old = await cur.fetchone()
+    await cur.close()
+    assert old is not None and old[0] is None
     await conn.close()

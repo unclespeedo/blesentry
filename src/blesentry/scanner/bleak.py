@@ -196,7 +196,8 @@ class BleakScanner:
         the Device1 properties bleak carries in ``device.details``;
         for ``random`` the subtype is encoded in the top two bits of
         the most significant octet (11 static, 01 resolvable private,
-        00 non-resolvable). CoreBluetooth exposes no address type
+        00 non-resolvable; 10 is reserved and falls back to the
+        unrefined 'random'). CoreBluetooth exposes no address type
         (its 'address' is a host-local UUID) — returns None there.
         ``adv_type`` (the PDU type) is not exposed by either D-Bus or
         CoreBluetooth; the field stays None until a raw-HCI backend.
@@ -219,5 +220,5 @@ class BleakScanner:
         if top_two == 0b01:
             return "rpa"
         if top_two == 0b00:
-            return "non_resolvable_rpa"
+            return "non_resolvable"
         return "random"

@@ -365,7 +365,7 @@ def test_address_type_public_passthrough() -> None:
     [
         ("F0", "random_static"),
         ("5E", "rpa"),
-        ("2C", "non_resolvable_rpa"),
+        ("2C", "non_resolvable"),
     ],
 )
 def test_address_type_random_refined_by_top_bits(

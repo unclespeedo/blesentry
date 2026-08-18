@@ -20,6 +20,11 @@ exclusively by the migration runner — never by hand.
   statements yourself.
 - Add a new migration by appending the next-numbered `NNNN_*.sql` file. Do
   not edit an already-shipped file.
+- **Schema-changing deploys:** stop the collector, deploy, then start it
+  (startup migrates). A still-running old collector fails loudly after a
+  migration renames columns under it, and a migration that cannot get the
+  write lock raises `MigrationError` leaving the schema untouched — safe
+  to retry once the collector is stopped.
 
 ## Connection pragmas
 
@@ -79,7 +84,7 @@ advertisement heard becomes a row.
 | `rssi` | INTEGER NOT NULL | dBm, typically negative. |
 | `observed_at` | TEXT NOT NULL | When the advertisement was heard. Indexed with `site_id` and `device_id` for the P1-6 recent-window queries. |
 | `adapter_id` | TEXT NULL | Which radio adapter heard it (from the `Advertisement` model). |
-| `address_type` | TEXT NULL | Authoritative provenance at reception (`public` / `random_static` / `rpa` / `non_resolvable_rpa`); null where the OS does not report it. Added in `0002` (#56). |
+| `address_type` | TEXT NULL | Authoritative provenance at reception (`public` / `random_static` / `rpa` / `non_resolvable`, plus unrefined `random` for the reserved 0b10 bit pattern); NULL where the OS does not report it (CoreBluetooth) — and NULL on every row predating `0002`: treat those as heuristic-grade regardless of adapter. Added in `0002` (#56). |
 | `adv_type` | TEXT NULL | PDU type when a backend exposes it; null on both current backends. Added in `0002` (#56). |
 
 ### `presence_events`

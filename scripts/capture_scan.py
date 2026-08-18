@@ -16,8 +16,10 @@ Normalized record schema (each element of the JSON array):
 
     address            source address; on macOS/CoreBluetooth this is the
                        peripheral identifier, not a real MAC (docs/risks.md)
-    address_type       public/random_static/rpa/non_resolvable_rpa, or
-                       null where the OS does not report it (macOS)
+    address_type       always null from this script (its raw bleak
+                       callbacks predate provenance wiring); use
+                       'blesentry scan --json' for provenance-bearing
+                       captures on BlueZ
     adv_type           PDU type when a backend exposes it (null on both
                        current backends)
     rssi               last reported signal strength, dBm
