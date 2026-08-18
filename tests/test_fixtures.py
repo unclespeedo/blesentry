@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
+CORPUS = FIXTURES / "corpus-macos-corebluetooth.json"
 REQUIRED_FIELDS = {
     "mac",
     "rssi",
@@ -76,3 +77,46 @@ def test_corpus_records_match_schema(path: Path) -> None:
         assert isinstance(record["timestamp"], (int, float))
         assert isinstance(record["adapter_id"], str)
         assert record["adapter_id"]
+
+
+# ---------------------------------------------------------------------------
+# Hygiene (#82): committed corpora must be sanitized per
+# tests/fixtures/README.md — no embedded site addresses, synthetic epoch
+# ---------------------------------------------------------------------------
+
+
+def _apple_tlvs(hex_payload: str):
+    data = bytes.fromhex(hex_payload)
+    i = 0
+    while i + 2 <= len(data):
+        t, ln = data[i], data[i + 1]
+        yield t, data[i + 2 : i + 2 + ln]
+        i += 2 + ln
+
+
+def test_corpus_airplay_tlvs_carry_no_site_addresses() -> None:
+    records = json.loads(CORPUS.read_text(encoding="utf-8"))
+    checked = 0
+    for record in records:
+        payload = record.get("manufacturer_data", {}).get("76")
+        if not payload:
+            continue
+        for tlv_type, body in _apple_tlvs(payload):
+            if tlv_type == 0x09 and len(body) >= 8:
+                ip = tuple(body[2:6])
+                port = int.from_bytes(body[6:8], "big")
+                assert ip[:3] == (192, 0, 2), (
+                    "AirPlay TLV must use TEST-NET-1 per fixtures README"
+                )
+                assert port == 0
+                checked += 1
+    assert checked > 0, "corpus should contain AirPlay TLVs to check"
+
+
+def test_corpus_timestamps_are_epoch_shifted() -> None:
+    records = json.loads(CORPUS.read_text(encoding="utf-8"))
+    stamps = [r["timestamp"] for r in records]
+    assert stamps == sorted(stamps)
+    assert stamps[0] == 1600000000.0, (
+        "corpus epoch must be the synthetic base per fixtures README"
+    )
