@@ -33,13 +33,13 @@ from blesentry.storage.repository import (
 
 
 def _ad(
-    mac: str = "AA:BB:CC:DD:EE:FF",
+    address: str = "AA:BB:CC:DD:EE:FF",
     rssi: int = -65,
     local_name: str | None = "Device",
     timestamp: float = 1755400000.0,
 ) -> Advertisement:
     return Advertisement(
-        mac=mac,
+        address=address,
         rssi=rssi,
         local_name=local_name,
         service_uuids=["180d"],
@@ -84,7 +84,7 @@ def test_fingerprint_key_is_deterministic() -> None:
 def test_fingerprint_key_differs_for_different_devices() -> None:
     key_a = fingerprint_key(Fingerprint.from_advertisement(_ad()))
     key_b = fingerprint_key(
-        Fingerprint.from_advertisement(_ad(mac="11:22:33:44:55:66"))
+        Fingerprint.from_advertisement(_ad(address="11:22:33:44:55:66"))
     )
     assert key_a != key_b
 
@@ -98,7 +98,7 @@ def test_fingerprint_key_differs_for_different_devices() -> None:
 async def test_cycle_persists_devices_and_observations(repos) -> None:
     devices, observations = repos
     scanner = MockScanner(
-        scenarios=[[_ad(), _ad(mac="11:22:33:44:55:66", rssi=-80)]]
+        scenarios=[[_ad(), _ad(address="11:22:33:44:55:66", rssi=-80)]]
     )
     stats = await run_cycle(scanner, devices, observations, duration=1.0)
     assert stats == CycleStats(heard=2, devices=2, observations=2)
@@ -192,3 +192,35 @@ async def test_loop_cancellation_propagates_mid_pause(repos) -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
     assert len(await devices.list_devices()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Provenance persistence (#56): address_type flows to observations,
+# fingerprint keys are versioned
+# ---------------------------------------------------------------------------
+
+
+def test_fingerprint_key_is_versioned() -> None:
+    key = fingerprint_key(Fingerprint.from_advertisement(_ad()))
+    assert '"v": 2' in key or '"v":2' in key
+
+
+@pytest.mark.asyncio
+async def test_cycle_persists_address_type(repos) -> None:
+    devices, observations = repos
+    ad = Advertisement(
+        address="F0:11:22:33:44:55",
+        address_type="random_static",
+        adv_type="ADV_IND",
+        rssi=-50,
+        timestamp=1755400000.0,
+        adapter_id="mock",
+    )
+    scanner = MockScanner(scenarios=[[ad]])
+    await run_cycle(scanner, devices, observations, duration=1.0)
+    rows = await devices.list_devices()
+    obs = await observations.get(1)
+    assert obs is not None
+    assert obs["address_type"] == "random_static"
+    assert obs["adv_type"] == "ADV_IND"
+    assert rows[0]["address"] == "F0:11:22:33:44:55"

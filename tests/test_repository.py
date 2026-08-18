@@ -52,7 +52,7 @@ async def test_upsert_creates_new_device(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-aaa", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-aaa", address="AA:BB:CC:DD:EE:FF"
     )
     assert device_id >= 1
 
@@ -61,10 +61,10 @@ async def test_upsert_same_fingerprint_returns_same_id(
     device_repo: DeviceRepository,
 ) -> None:
     first = await device_repo.upsert(
-        fingerprint="fp-x", mac="11:22:33:44:55:66"
+        fingerprint="fp-x", address="11:22:33:44:55:66"
     )
     second = await device_repo.upsert(
-        fingerprint="fp-x", mac="11:22:33:44:55:66"
+        fingerprint="fp-x", address="11:22:33:44:55:66"
     )
     assert first == second
 
@@ -73,12 +73,12 @@ async def test_upsert_updates_mac_on_fingerprint_match(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-rot", mac="AA:00:00:00:00:01"
+        fingerprint="fp-rot", address="AA:00:00:00:00:01"
     )
-    await device_repo.upsert(fingerprint="fp-rot", mac="AA:00:00:00:00:02")
+    await device_repo.upsert(fingerprint="fp-rot", address="AA:00:00:00:00:02")
     device = await device_repo.get(device_id)
     assert device is not None
-    assert device["mac"] == "AA:00:00:00:00:02"
+    assert device["address"] == "AA:00:00:00:00:02"
 
 
 async def test_upsert_stores_label_and_description(
@@ -86,7 +86,7 @@ async def test_upsert_stores_label_and_description(
 ) -> None:
     device_id = await device_repo.upsert(
         fingerprint="fp-label",
-        mac="AA:BB:CC:DD:EE:FF",
+        address="AA:BB:CC:DD:EE:FF",
         label="Ryan's Phone",
         description="iPhone 15 Pro",
     )
@@ -101,17 +101,17 @@ async def test_upsert_preserves_metadata_on_partial_update(
 ) -> None:
     device_id = await device_repo.upsert(
         fingerprint="fp-persist",
-        mac="AA:BB:CC:DD:EE:FF",
+        address="AA:BB:CC:DD:EE:FF",
         label="Keep Me",
         description="Keep This Too",
     )
     await device_repo.upsert(
         fingerprint="fp-persist",
-        mac="AA:BB:CC:DD:EE:02",
+        address="AA:BB:CC:DD:EE:02",
     )
     device = await device_repo.get(device_id)
     assert device is not None
-    assert device["mac"] == "AA:BB:CC:DD:EE:02"
+    assert device["address"] == "AA:BB:CC:DD:EE:02"
     assert device["label"] == "Keep Me"
     assert device["description"] == "Keep This Too"
 
@@ -120,7 +120,7 @@ async def test_upsert_sets_site_id(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-s", mac="00:11:22:33:44:55"
+        fingerprint="fp-s", address="00:11:22:33:44:55"
     )
     device = await device_repo.get(device_id)
     assert device is not None
@@ -131,7 +131,7 @@ async def test_upsert_sets_created_and_updated_at(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-ts", mac="00:11:22:33:44:55"
+        fingerprint="fp-ts", address="00:11:22:33:44:55"
     )
     device = await device_repo.get(device_id)
     assert device is not None
@@ -147,7 +147,7 @@ async def test_upsert_in_file_database(
         await apply_migrations(conn)
         repo = DeviceRepository(conn, SITE)
         device_id = await repo.upsert(
-            fingerprint="fp-file", mac="DE:AD:BE:EF:00:01"
+            fingerprint="fp-file", address="DE:AD:BE:EF:00:01"
         )
         device = await repo.get(device_id)
         assert device is not None
@@ -163,7 +163,7 @@ async def test_upsert_survives_reopen(tmp_path: Path) -> None:
         await apply_migrations(conn)
         repo = DeviceRepository(conn, SITE)
         device_id = await repo.upsert(
-            fingerprint="fp-dur", mac="DE:AD:BE:EF:00:01"
+            fingerprint="fp-dur", address="DE:AD:BE:EF:00:01"
         )
     finally:
         await conn.close()
@@ -174,7 +174,7 @@ async def test_upsert_survives_reopen(tmp_path: Path) -> None:
         device = await repo2.get(device_id)
         assert device is not None
         assert device["fingerprint"] == "fp-dur"
-        assert device["mac"] == "DE:AD:BE:EF:00:01"
+        assert device["address"] == "DE:AD:BE:EF:00:01"
     finally:
         await conn2.close()
 
@@ -184,12 +184,12 @@ async def test_upsert_preserves_mac_on_omission(
 ) -> None:
     device_id = await device_repo.upsert(
         fingerprint="fp-mac-persist",
-        mac="AA:BB:CC:DD:EE:FF",
+        address="AA:BB:CC:DD:EE:FF",
     )
     await device_repo.upsert(fingerprint="fp-mac-persist")
     device = await device_repo.get(device_id)
     assert device is not None
-    assert device["mac"] == "AA:BB:CC:DD:EE:FF"
+    assert device["address"] == "AA:BB:CC:DD:EE:FF"
 
 
 # -- DeviceRepository: get --
@@ -199,13 +199,13 @@ async def test_get_existing_device(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-get", mac="AA:BB:CC:DD:EE:01"
+        fingerprint="fp-get", address="AA:BB:CC:DD:EE:01"
     )
     device = await device_repo.get(device_id)
     assert device is not None
     assert device["id"] == device_id
     assert device["fingerprint"] == "fp-get"
-    assert device["mac"] == "AA:BB:CC:DD:EE:01"
+    assert device["address"] == "AA:BB:CC:DD:EE:01"
 
 
 async def test_get_nonexistent_device_returns_none(
@@ -228,9 +228,9 @@ async def test_list_devices_empty_by_default(
 async def test_list_devices_returns_all(
     device_repo: DeviceRepository,
 ) -> None:
-    await device_repo.upsert(fingerprint="fp-1", mac="AA:00:00:00:00:01")
-    await device_repo.upsert(fingerprint="fp-2", mac="AA:00:00:00:00:02")
-    await device_repo.upsert(fingerprint="fp-3", mac="AA:00:00:00:00:03")
+    await device_repo.upsert(fingerprint="fp-1", address="AA:00:00:00:00:01")
+    await device_repo.upsert(fingerprint="fp-2", address="AA:00:00:00:00:02")
+    await device_repo.upsert(fingerprint="fp-3", address="AA:00:00:00:00:03")
     devices = await device_repo.list_devices()
     assert len(devices) == 3
     fps = {d["fingerprint"] for d in devices}
@@ -242,8 +242,8 @@ async def test_list_devices_filtered_by_site_id(
     db: aiosqlite.Connection,
 ) -> None:
     other = DeviceRepository(db, "other-site")
-    await device_repo.upsert(fingerprint="fp-a", mac="AA:00:00:00:00:01")
-    await other.upsert(fingerprint="fp-b", mac="BB:00:00:00:00:01")
+    await device_repo.upsert(fingerprint="fp-a", address="AA:00:00:00:00:01")
+    await other.upsert(fingerprint="fp-b", address="BB:00:00:00:00:01")
     devices = await device_repo.list_devices()
     assert len(devices) == 1
     assert devices[0]["fingerprint"] == "fp-a"
@@ -257,7 +257,7 @@ async def test_append_creates_observation(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-app", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-app", address="AA:BB:CC:DD:EE:FF"
     )
     obs_id = await obs_repo.append(
         device_id=device_id,
@@ -273,7 +273,7 @@ async def test_append_returns_unique_ids(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-uid", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-uid", address="AA:BB:CC:DD:EE:FF"
     )
     id1 = await obs_repo.append(
         device_id=device_id,
@@ -295,7 +295,7 @@ async def test_append_stores_all_fields(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-fields", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-fields", address="AA:BB:CC:DD:EE:FF"
     )
     obs_id = await obs_repo.append(
         device_id=device_id,
@@ -317,7 +317,7 @@ async def test_append_without_adapter_id(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-no-adapter", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-no-adapter", address="AA:BB:CC:DD:EE:FF"
     )
     obs_id = await obs_repo.append(
         device_id=device_id,
@@ -338,7 +338,7 @@ async def test_append_in_file_database(
         devs = DeviceRepository(conn, SITE)
         obs = ObservationRepository(conn, SITE)
         device_id = await devs.upsert(
-            fingerprint="fp-file-obs", mac="DE:AD:BE:EF:00:01"
+            fingerprint="fp-file-obs", address="DE:AD:BE:EF:00:01"
         )
         obs_id = await obs.append(
             device_id=device_id,
@@ -362,7 +362,7 @@ async def test_observation_survives_reopen(
         obs = ObservationRepository(conn, SITE)
         device_id = await devs.upsert(
             fingerprint="fp-obs-dur",
-            mac="DE:AD:BE:EF:00:01",
+            address="DE:AD:BE:EF:00:01",
         )
         obs_id = await obs.append(
             device_id=device_id,
@@ -392,7 +392,7 @@ async def test_query_recent_rssi_empty_when_no_observations(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-empty", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-empty", address="AA:BB:CC:DD:EE:FF"
     )
     results = await obs_repo.query_recent_rssi(
         device_id=device_id, since=_ts(0, 0)
@@ -405,7 +405,7 @@ async def test_query_recent_rssi_returns_in_order(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-order", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-order", address="AA:BB:CC:DD:EE:FF"
     )
     await obs_repo.append(
         device_id=device_id,
@@ -439,7 +439,7 @@ async def test_query_recent_rssi_filters_by_since(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-since", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-since", address="AA:BB:CC:DD:EE:FF"
     )
     await obs_repo.append(
         device_id=device_id,
@@ -471,8 +471,8 @@ async def test_query_recent_rssi_excludes_other_devices(
     obs_repo: ObservationRepository,
     device_repo: DeviceRepository,
 ) -> None:
-    d1 = await device_repo.upsert(fingerprint="fp-d1", mac="AA:00:00:00:00:01")
-    d2 = await device_repo.upsert(fingerprint="fp-d2", mac="AA:00:00:00:00:02")
+    d1 = await device_repo.upsert(fingerprint="fp-d1", address="AA:00:00:00:00:01")
+    d2 = await device_repo.upsert(fingerprint="fp-d2", address="AA:00:00:00:00:02")
     await obs_repo.append(
         device_id=d1,
         rssi=-50,
@@ -498,10 +498,10 @@ async def test_query_recent_rssi_excludes_other_sites(
     other_obs = ObservationRepository(db, "other-site")
     other_devs = DeviceRepository(db, "other-site")
     device_id = await device_repo.upsert(
-        fingerprint="fp-site", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-site", address="AA:BB:CC:DD:EE:FF"
     )
     other_id = await other_devs.upsert(
-        fingerprint="fp-site", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-site", address="AA:BB:CC:DD:EE:FF"
     )
     await obs_repo.append(
         device_id=device_id,
@@ -527,7 +527,7 @@ async def test_query_recent_rssi_handles_duplicate_appends(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-dup", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-dup", address="AA:BB:CC:DD:EE:FF"
     )
     ts = _ts(10, 0)
     await obs_repo.append(
@@ -555,7 +555,7 @@ async def test_append_rejects_cross_site_device(
 ) -> None:
     other_devs = DeviceRepository(db, "other-site")
     other_id = await other_devs.upsert(
-        fingerprint="fp-xsite", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-xsite", address="AA:BB:CC:DD:EE:FF"
     )
     with pytest.raises(ValueError, match="not found in site"):
         await obs_repo.append(
@@ -586,7 +586,7 @@ async def test_obs_get_existing(
     device_repo: DeviceRepository,
 ) -> None:
     device_id = await device_repo.upsert(
-        fingerprint="fp-obs-get", mac="AA:BB:CC:DD:EE:FF"
+        fingerprint="fp-obs-get", address="AA:BB:CC:DD:EE:FF"
     )
     obs_id = await obs_repo.append(
         device_id=device_id,

@@ -27,12 +27,12 @@ from blesentry.scanner.mock import MockScanner
 
 
 def _ad(
-    mac: str = "AA:BB:CC:DD:EE:FF",
+    address: str = "AA:BB:CC:DD:EE:FF",
     rssi: int = -65,
     local_name: str | None = "Test Device",
 ) -> Advertisement:
     return Advertisement(
-        mac=mac,
+        address=address,
         rssi=rssi,
         local_name=local_name,
         service_uuids=["180d"],
@@ -109,7 +109,7 @@ def test_parse_or_pattern_rejects_malformed(raw: str) -> None:
 
 @pytest.mark.asyncio
 async def test_run_scan_returns_advertisements() -> None:
-    scanner = MockScanner(scenarios=[[_ad(), _ad(mac="11:22:33:44:55:66")]])
+    scanner = MockScanner(scenarios=[[_ad(), _ad(address="11:22:33:44:55:66")]])
     ads = await run_scan(scanner, duration=1.0)
     assert len(ads) == 2
 
@@ -126,10 +126,10 @@ async def test_run_scan_empty_window() -> None:
 
 
 def test_format_json_round_trips() -> None:
-    ads = [_ad(), _ad(mac="11:22:33:44:55:66", local_name=None)]
+    ads = [_ad(), _ad(address="11:22:33:44:55:66", local_name=None)]
     parsed = json.loads(format_json(ads))
     assert len(parsed) == 2
-    assert parsed[0]["mac"] == "AA:BB:CC:DD:EE:FF"
+    assert parsed[0]["address"] == "AA:BB:CC:DD:EE:FF"
     assert parsed[0]["rssi"] == -65
     assert parsed[1]["local_name"] is None
 
@@ -147,8 +147,8 @@ def test_format_table_contains_devices() -> None:
 
 def test_format_table_sorts_by_rssi_strongest_first() -> None:
     ads = [
-        _ad(mac="11:11:11:11:11:11", rssi=-90),
-        _ad(mac="22:22:22:22:22:22", rssi=-40),
+        _ad(address="11:11:11:11:11:11", rssi=-90),
+        _ad(address="22:22:22:22:22:22", rssi=-40),
     ]
     out = format_table(ads)
     assert out.index("22:22:22:22:22:22") < out.index("11:11:11:11:11:11")

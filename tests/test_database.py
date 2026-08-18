@@ -230,3 +230,19 @@ async def test_mutated_migration_is_detected(tmp_path: Path) -> None:
             await apply_migrations(db, migrations_dir=tmp_path)
     finally:
         await db.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0002_applies_address_provenance(tmp_path) -> None:
+    conn = await connect(tmp_path / "m2.db")
+    applied = await apply_migrations(conn)
+    assert "0002_address_provenance.sql" in applied
+    cur = await conn.execute("PRAGMA table_info(observations)")
+    cols = {row[1] for row in await cur.fetchall()}
+    await cur.close()
+    assert {"address_type", "adv_type"} <= cols
+    cur = await conn.execute("PRAGMA table_info(devices)")
+    dcols = {row[1] for row in await cur.fetchall()}
+    await cur.close()
+    assert "address" in dcols and "mac" not in dcols
+    await conn.close()

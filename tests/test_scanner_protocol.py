@@ -86,8 +86,8 @@ async def test_scan_consumes_in_order() -> None:
     scanner = MockScanner(scenarios=[batch_a, batch_b])
     result_a = await scanner.scan(duration=1.0)
     result_b = await scanner.scan(duration=1.0)
-    assert result_a[0].mac == batch_a[0].mac
-    assert result_b[0].mac == batch_b[0].mac
+    assert result_a[0].address == batch_a[0].address
+    assert result_b[0].address == batch_b[0].address
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ async def test_scenario_device_appears() -> None:
     scan2 = await scanner.scan(duration=5.0)
     assert scan1 == []
     assert len(scan2) == 1
-    assert scan2[0].mac == device.mac
+    assert scan2[0].address == device.address
 
 
 @pytest.mark.asyncio
@@ -133,9 +133,9 @@ async def test_scenario_mac_rotation() -> None:
     scanner = MockScanner(scenarios=[[old_mac], [new_mac]])
     scan1 = await scanner.scan(duration=5.0)
     scan2 = await scanner.scan(duration=5.0)
-    assert scan1[0].mac == old_mac.mac
-    assert scan2[0].mac == new_mac.mac
-    assert scan1[0].mac != scan2[0].mac
+    assert scan1[0].address == old_mac.address
+    assert scan2[0].address == new_mac.address
+    assert scan1[0].address != scan2[0].address
 
 
 @pytest.mark.asyncio
