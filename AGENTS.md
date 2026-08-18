@@ -39,6 +39,12 @@ protection requires the `checks` and `dco` jobs) and on main.
 ## Hard Prohibitions
 - Never claim issues labeled `needs:hardware` or `needs:human-decision`.
 - Never handle, request, or commit secrets (tokens, S3 creds).
+- This repo is PUBLIC. Never post site-identifying operational data to
+  issues, PRs, or commits: WiFi SSIDs, device MAC addresses, household
+  device inventories, IP addresses, clock-time schedules, coordinates.
+  Evidence uses counts, durations, and redacted identifiers; full
+  fidelity stays local. Scrub mistakes by delete-and-repost, never
+  edit (edit history is public).
 - Never SSH to or target the Pi. Never create tags or GitHub Releases.
 - Never modify ROADMAP.md, ADRs, or this file without a `needs-human` PR.
 - Never widen an issue's scope. Found adjacent work? Open a new issue,
