@@ -164,15 +164,19 @@ class DeviceRepository:
         """Record a fused rotation's current address (#19).
 
         Semantically consistent with ``updated_at`` = identity/metadata
-        changed: a rotation IS an identity event, and it is per-rotation
-        (~minutes), not per-sighting, so #84's write savings hold.
+        changed: the UPDATE is conditional on the address actually
+        changing (``IS NOT`` is NULL-safe), so a chatty device minting
+        new payload keys at a fixed address costs zero writes — the
+        #84 savings hold per-rotation, not per-sighting. A wrong-site
+        or stale ``device_id`` is a silent no-op (caller contract, as
+        with append).
         """
         async with transaction(self._conn):
             await self._conn.execute(
                 "UPDATE devices SET address = ?, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
-                "WHERE id = ? AND site_id = ?",
-                (address, device_id, self._site),
+                "WHERE id = ? AND site_id = ? AND address IS NOT ?",
+                (address, device_id, self._site, address),
             )
 
     async def get(self, device_id: int) -> DeviceRow | None:

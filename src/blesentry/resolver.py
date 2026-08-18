@@ -287,7 +287,10 @@ class DeviceResolver:
                 if not isinstance(data, dict) or data.get("v") != 2:
                     continue
                 fingerprint = Fingerprint(
-                    address=data.get("address"),
+                    # prefer the touched current address over the
+                    # founding-key address: the same-address signal
+                    # must survive a restart within an RPA lifetime
+                    address=row["address"] or data.get("address"),
                     service_uuids=frozenset(data.get("service_uuids") or []),
                     manufacturer_data=frozenset(
                         (k, v)

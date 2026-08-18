@@ -517,3 +517,55 @@ async def test_seed_eviction_discards_oldest_not_newest(devices) -> None:
     await _resolve_cycle(small, _ad(address="11:11:11:11:11:11"))
     remaining = {fp.local_name for fp, _, _ in small._recent.values()}
     assert "S2" in remaining, "newest seed must survive eviction"
+
+
+@pytest.mark.asyncio
+async def test_touch_skips_write_when_address_unchanged(devices) -> None:
+    """Chatty same-address fusion must not churn updated_at (#84)."""
+    resolver = DeviceResolver(devices)
+    (device_id,) = await _resolve_cycle(
+        resolver,
+        _ad(address="5E:11:11:11:11:11", manufacturer_data={"76": "01"}),
+    )
+    row = await devices.get(device_id)
+    assert row is not None
+    before = row["updated_at"]
+    await _resolve_cycle(
+        resolver,
+        _ad(address="5E:11:11:11:11:11", manufacturer_data={"76": "02"}),
+    )
+    row = await devices.get(device_id)
+    assert row is not None and row["updated_at"] == before
+
+
+@pytest.mark.asyncio
+async def test_seed_scores_against_current_address(devices) -> None:
+    """Restart inside an RPA lifetime keeps the same-address join."""
+    first = DeviceResolver(devices)
+    (id_a,) = await _resolve_cycle(
+        first,
+        _ad(
+            address="5E:11:11:11:11:11",
+            local_name="Tag",
+            manufacturer_data={"76": "01"},
+        ),
+    )
+    # rotation fuses (payload+name = 0.75), touching the row's
+    # address to the new RPA
+    await _resolve_cycle(
+        first,
+        _ad(
+            address="43:22:22:22:22:22",
+            local_name="Tag",
+            manufacturer_data={"76": "01"},
+        ),
+    )
+    assert len(await devices.list_devices()) == 1
+    restarted = DeviceResolver(devices)
+    await restarted.seed()
+    # same current RPA, new payload key: must join via same-address
+    (id_b,) = await _resolve_cycle(
+        restarted,
+        _ad(address="43:22:22:22:22:22", manufacturer_data={"76": "03"}),
+    )
+    assert id_b == id_a

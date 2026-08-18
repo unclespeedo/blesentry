@@ -294,3 +294,15 @@ async def test_cache_survives_rollback_unpoisoned(repos) -> None:
     )
     assert stats.observations == 1
     assert len(await devices.list_devices()) == 1
+
+
+@pytest.mark.asyncio
+async def test_migration_0003_recency_index_exists(repos) -> None:
+    devices, _ = repos
+    cur = await devices.connection.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='devices'"
+    )
+    names = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_devices_site_updated" in names
