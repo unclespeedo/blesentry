@@ -33,6 +33,15 @@ Observed and documented behaviour of the capture path on macOS:
 
 Documented behaviour of bleak over D-Bus on Linux:
 
+- **Passive mode requires bluetoothd `--experimental`.** Verified live
+  on the Pi (BlueZ 5.82, Trixie, 2026-08-17): the AdvertisementMonitor
+  D-Bus API is gated behind the experimental flag, and bleak raises
+  `passive scanning on Linux requires BlueZ >= 5.56 with --experimental
+  enabled` at scan start without it. Fix is a systemd drop-in
+  (`bluetooth.service.d/experimental.conf` overriding ExecStart) —
+  installed by `scripts/provision/firstrun.sh.template` and required
+  by the P3-1 unit. With the flag enabled, a 12 s passive window heard
+  20 devices using the scan CLI's default FLAGS `or_patterns`.
 - **Passive mode requires `or_patterns`.** `scanning_mode="passive"` uses the
   `AdvertisementMonitor1` D-Bus interface and bleak *raises* if
   `bluez={"or_patterns": [...]}` is not supplied. Passive scanning also does
