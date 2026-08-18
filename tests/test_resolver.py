@@ -232,3 +232,89 @@ async def test_abort_discards_staged_identities(devices) -> None:
     (device_id,) = await _resolve_cycle(resolver, ad)
     assert len(await devices.list_devices()) == 1
     assert device_id > 0
+
+
+# ---------------------------------------------------------------------------
+# Ground truth (maintainer report): TWO physical Eve devices in range.
+# Identical twin products must never fuse across distinct stable
+# addresses — the stable-address mismatch veto.
+# ---------------------------------------------------------------------------
+
+
+def test_stable_address_mismatch_vetoes_fusion_score() -> None:
+    a = Fingerprint.from_advertisement(
+        _ad(
+            address="F9:11:11:11:11:11",
+            address_type="random_static",
+            local_name="Eve",
+            service_uuids=["180d"],
+            manufacturer_data={"76": "aabbcc"},
+        )
+    )
+    b = Fingerprint.from_advertisement(
+        _ad(
+            address="E9:22:22:22:22:22",
+            address_type="random_static",
+            local_name="Eve",
+            service_uuids=["180d"],
+            manufacturer_data={"76": "aabbcc"},
+        )
+    )
+    assert (
+        fusion_score(
+            a,
+            b,
+            address_type="random_static",
+            other_address_type="random_static",
+        )
+        == 0.0
+    )
+
+
+@pytest.mark.asyncio
+async def test_identical_twin_devices_stay_distinct(devices) -> None:
+    """Two factory-identical sensors on different static addresses."""
+    resolver = DeviceResolver(devices)
+    eve_one = _ad(
+        address="F9:11:11:11:11:11",
+        address_type="random_static",
+        local_name="Eve",
+        service_uuids=["180d"],
+        manufacturer_data={"76": "aabbcc"},
+    )
+    eve_two = _ad(
+        address="E9:22:22:22:22:22",
+        address_type="random_static",
+        local_name="Eve",
+        service_uuids=["180d"],
+        manufacturer_data={"76": "aabbcc"},
+    )
+    (id_one,) = await _resolve_cycle(resolver, eve_one)
+    (id_two,) = await _resolve_cycle(resolver, eve_two)
+    assert id_one != id_two
+    assert len(await devices.list_devices()) == 2
+
+
+@pytest.mark.asyncio
+async def test_rpa_rotation_still_fuses_after_veto(devices) -> None:
+    """The veto must not break the rotation join it exists beside."""
+    resolver = DeviceResolver(devices)
+    (id_a,) = await _resolve_cycle(
+        resolver,
+        _ad(
+            address="5E:11:11:11:11:11",
+            address_type="rpa",
+            local_name="Tag",
+            manufacturer_data={"76": "aabbcc"},
+        ),
+    )
+    (id_b,) = await _resolve_cycle(
+        resolver,
+        _ad(
+            address="43:22:22:22:22:22",
+            address_type="rpa",
+            local_name="Tag",
+            manufacturer_data={"76": "aabbcc"},
+        ),
+    )
+    assert id_a == id_b

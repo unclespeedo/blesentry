@@ -69,13 +69,24 @@ def fusion_score(
     other: Fingerprint,
     *,
     address_type: str | None = None,
+    other_address_type: str | None = None,
 ) -> float:
     """Score two fingerprints' likelihood of being one device.
 
-    ``address_type`` is the provenance of *candidate*'s address (the
-    live advertisement side); stored candidates contribute address
-    weight only when the live side's provenance is stable.
+    ``address_type`` / ``other_address_type`` are each side's address
+    provenance. STABLE-ADDRESS MISMATCH VETO: two fingerprints whose
+    addresses are both known-stable and different can never be one
+    device — identical twin products (two factory-default sensors
+    with the same name/payload/uuids; ground-truth case at the test
+    site) must stay distinct, or an intruder's identical product
+    disappears inside a known identity.
     """
+    if (
+        address_type in _STABLE_TYPES
+        and other_address_type in _STABLE_TYPES
+        and candidate.address != other.address
+    ):
+        return 0.0
     score = 0.0
     if candidate.manufacturer_data and other.manufacturer_data:
         if candidate.manufacturer_data == other.manufacturer_data:
@@ -125,9 +136,13 @@ class DeviceResolver:
         self._min_score = min_score
         self._recent_window = recent_window
         self._key_cache: dict[str, int] = {}
-        self._recent: OrderedDict[str, tuple[Fingerprint, int]] = OrderedDict()
+        self._recent: OrderedDict[str, tuple[Fingerprint, str | None, int]] = (
+            OrderedDict()
+        )
         self._pending_keys: dict[str, int] = {}
-        self._pending_recent: list[tuple[str, Fingerprint, int]] = []
+        self._pending_recent: list[
+            tuple[str, Fingerprint, str | None, int]
+        ] = []
 
     @property
     def connection(self):
@@ -149,17 +164,18 @@ class DeviceResolver:
         if device_id is not None:
             return device_id
 
-        fused = self._best_match(fingerprint, advertisement.address_type)
+        a_type = advertisement.address_type
+        fused = self._best_match(fingerprint, a_type)
         if fused is not None:
             self._pending_keys[key] = fused
-            self._pending_recent.append((key, fingerprint, fused))
+            self._pending_recent.append((key, fingerprint, a_type, fused))
             return fused
 
         device_id = await self._devices.upsert(
             fingerprint=key, address=advertisement.address
         )
         self._pending_keys[key] = device_id
-        self._pending_recent.append((key, fingerprint, device_id))
+        self._pending_recent.append((key, fingerprint, a_type, device_id))
         return device_id
 
     def _best_match(
@@ -167,13 +183,18 @@ class DeviceResolver:
     ) -> int | None:
         best_id: int | None = None
         best_score = 0.0
-        pending_view = ((fp, did) for _, fp, did in self._pending_recent)
-        for candidate_fp, candidate_id in (
+        pending_view = (
+            (fp, at, did) for _, fp, at, did in self._pending_recent
+        )
+        for candidate_fp, candidate_type, candidate_id in (
             *self._recent.values(),
             *pending_view,
         ):
             score = fusion_score(
-                fingerprint, candidate_fp, address_type=address_type
+                fingerprint,
+                candidate_fp,
+                address_type=address_type,
+                other_address_type=candidate_type,
             )
             if score > best_score:
                 best_score = score
@@ -187,8 +208,8 @@ class DeviceResolver:
         if len(self._key_cache) + len(self._pending_keys) > _MAX_KEY_CACHE:
             self._key_cache.clear()
         self._key_cache.update(self._pending_keys)
-        for key, fingerprint, device_id in self._pending_recent:
-            self._recent[key] = (fingerprint, device_id)
+        for key, fingerprint, a_type, device_id in self._pending_recent:
+            self._recent[key] = (fingerprint, a_type, device_id)
             self._recent.move_to_end(key)
         while len(self._recent) > self._recent_window:
             self._recent.popitem(last=False)
