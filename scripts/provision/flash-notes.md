@@ -104,3 +104,34 @@ Also check: is `firstrun.sh` gone and `cmdline.txt` restored? If
 
 Validated result 2026-08-17: 20 devices heard in a 12 s passive
 window on BlueZ 5.82 with the CLI's default `or_patterns`.
+
+## 8. Collector service (do this once per provisioned card)
+
+Installs the boot-enabled collector enforcing the operational
+invariants: scan on every boot with no network dependency, restart
+on failure indefinitely, deploy-restart authorization (so the latest
+deployed code is always the running code), persistent bounded
+journals.
+
+1. Copy `install-service.sh.template` (this directory) and fill in
+   every `{{PLACEHOLDER}}` (username, site id); save the result as
+   `/Volumes/bootfs/install-service.sh`.
+2. Append to the single line in `/Volumes/bootfs/cmdline.txt`
+   (leading space, no newline before it — same hook as step 3;
+   it fires ONLY under `kernel-command-line.target`):
+
+       systemd.run=/boot/firmware/install-service.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target
+
+3. Pre-boot verification (do not skip):
+
+       bash -n /Volumes/bootfs/install-service.sh
+       grep -c '{{' /Volumes/bootfs/install-service.sh   # exactly 0
+       grep -c systemd.run /Volumes/bootfs/cmdline.txt   # exactly 1
+       wc -l /Volumes/bootfs/cmdline.txt                 # exactly 1 line
+
+4. Eject, boot. Expect two boots (install -> self-reboot -> service
+   running). Verify by reading `install-service.log` on the boot
+   partition: it ends with `install complete` and the script has
+   removed itself. On failure the script keeps itself and the log,
+   removes the boot hook (no retry loop), and the log names the
+   failed step.

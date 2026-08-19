@@ -40,7 +40,7 @@ ssh "$HOST" "$UV; cd '$REMOTE_DIR' && \"\$UV\" sync"
 ssh "$HOST" '
   if systemctl list-unit-files blesentry.service --no-legend \
       2>/dev/null | grep -q blesentry; then
-    if sudo -n systemctl restart blesentry 2>/dev/null; then
+    if sudo -n systemctl restart blesentry.service 2>/dev/null; then
       echo "deploy: blesentry.service restarted"
     else
       echo "deploy: WARNING: blesentry.service exists but passwordless" \
