@@ -118,6 +118,7 @@ async def run_loop(
     duration: float,
     pause: float,
     max_cycles: int | None = None,
+    resolver: DeviceResolver | None = None,
 ) -> int:
     """Scan continuously: window, persist, pause, repeat.
 
@@ -129,12 +130,16 @@ async def run_loop(
         pause: Sleep between windows in seconds.
         max_cycles: Stop after this many cycles (None = forever).
             Bounded runs are for tests and timeboxed captures.
+        resolver: Pre-built resolver — the seam through which config
+            (P1-9) supplies tuned thresholds. Must be built over the
+            same ``devices`` repo. ``None`` builds a default resolver.
 
     Returns:
         Number of cycles completed.
     """
     cycles = 0
-    resolver = DeviceResolver(devices)
+    if resolver is None:
+        resolver = DeviceResolver(devices)
     await resolver.seed()
     while max_cycles is None or cycles < max_cycles:
         stats = await run_cycle(
