@@ -1,0 +1,106 @@
+#!/bin/bash
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# One-boot installer for the blesentry collector service (P3-1, #32).
+# Fill in every {{PLACEHOLDER}}, save as install-service.sh on the
+# boot partition, and hook it per flash-notes.md section 8 (the
+# systemd.run hook fires ONLY under kernel-command-line.target).
+#
+# OPERATIONAL INVARIANTS (maintainer directive, field-learned):
+#   - the collector starts on EVERY boot with NO network dependency
+#   - it restarts on failure indefinitely
+#   - deploys always restart it (scoped sudoers) so the latest
+#     deployed code is always the running code
+#   - journals persist across reboots (bounded for SD longevity)
+# Transient systemd-run units are BANNED for the collector: they die
+# on reboot and cost a silent multi-hour collection gap in the field.
+#
+# Failure policy: any failed critical step logs loudly, REMOVES the
+# boot hook (so the next boot is normal, not a retry loop), KEEPS
+# this script and the log for diagnosis, and does not reboot.
+[ -w /boot/firmware ] || exit 1
+LOG=/boot/firmware/install-service.log
+exec >>"$LOG" 2>&1
+echo "=== blesentry service install $(date) ==="
+
+fail() {
+  echo "INSTALL FAILED: $1"
+  echo "Script and log preserved for diagnosis; boot hook removed."
+  remove_hook
+  sync
+  exit 1
+}
+
+remove_hook() {
+  sed -i \
+    -e 's| systemd\.run=[^ ]*||' \
+    -e 's| systemd\.run_success_action=[^ ]*||' \
+    -e 's| systemd\.unit=[^ ]*||' \
+    /boot/firmware/cmdline.txt
+}
+
+# The database parent directory must exist before first start —
+# sqlite does not create parents; a missing dir is a crash loop.
+mkdir -p /home/{{USERNAME}}/blesentry-data \
+  || fail "data dir creation"
+chown {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}/blesentry-data \
+  || fail "data dir ownership"
+
+cat > /etc/systemd/system/blesentry.service <<'UNIT' || fail "unit write"
+[Unit]
+Description=blesentry BLE presence collector
+# Needs the Bluetooth stack; deliberately does NOT need the network.
+# bluetoothd active does not guarantee hci0 is up yet — a first-cycle
+# scanner error on a cold boot is expected and healed by Restart=.
+After=bluetooth.service
+Wants=bluetooth.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User={{USERNAME}}
+Environment=HOME=/home/{{USERNAME}}
+WorkingDirectory=/home/{{USERNAME}}/blesentry
+ExecStart=/home/{{USERNAME}}/.local/bin/uv run blesentry run \
+  --db /home/{{USERNAME}}/blesentry-data/blesentry.db \
+  --site-id {{SITE_ID}} --window 10 --pause 5
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload || fail "daemon-reload"
+systemctl enable blesentry.service || fail "enable"
+[ "$(systemctl is-enabled blesentry.service)" = "enabled" ] \
+  || fail "enable verification"
+echo "service enabled: verified"
+
+# Deploys must restart the service so the latest code always runs
+# (scripts/deploy.sh); stop/start are granted for the documented
+# schema-migration deploy procedure (docs/schema.md). Validated with
+# visudo before going live — a bad sudoers file locks out admin.
+SUDO_TMP=$(mktemp) || fail "sudoers tmpfile"
+cat > "$SUDO_TMP" <<'SUDO' || fail "sudoers write"
+{{USERNAME}} ALL=(root) NOPASSWD: /usr/bin/systemctl restart blesentry.service, /usr/bin/systemctl stop blesentry.service, /usr/bin/systemctl start blesentry.service
+SUDO
+visudo -cf "$SUDO_TMP" || fail "sudoers validation"
+install -m 440 -o root -g root "$SUDO_TMP" \
+  /etc/sudoers.d/blesentry-service || fail "sudoers install"
+rm -f "$SUDO_TMP"
+echo "deploy-restart sudoers installed (visudo-validated)"
+
+mkdir -p /var/log/journal || fail "journal dir"
+mkdir -p /etc/systemd/journald.conf.d || fail "journald conf dir"
+printf '[Journal]\nStorage=persistent\nSystemMaxUse=64M\n' \
+  > /etc/systemd/journald.conf.d/blesentry.conf || fail "journald conf"
+echo "persistent journald configured"
+
+rm -f /boot/firmware/install-service.sh
+remove_hook
+sync
+echo "=== install complete; rebooting into normal operation ==="
+exit 0
