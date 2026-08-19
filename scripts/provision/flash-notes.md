@@ -125,6 +125,7 @@ journals.
 3. Pre-boot verification (do not skip):
 
        bash -n /Volumes/bootfs/install-service.sh
+       grep -c '{{' /Volumes/bootfs/install-service.sh   # exactly 0
        grep -c systemd.run /Volumes/bootfs/cmdline.txt   # exactly 1
        wc -l /Volumes/bootfs/cmdline.txt                 # exactly 1 line
 

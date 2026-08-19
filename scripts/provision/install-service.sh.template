@@ -99,8 +99,15 @@ printf '[Journal]\nStorage=persistent\nSystemMaxUse=64M\n' \
   > /etc/systemd/journald.conf.d/blesentry.conf || fail "journald conf"
 echo "persistent journald configured"
 
-rm -f /boot/firmware/install-service.sh
+# Remove the boot hook and VERIFY it is gone BEFORE deleting this
+# script. Order matters: if the sed ever fails, a success reboot with
+# the hook still present would point systemd.run at a now-deleted file
+# and strand the card at kernel-command-line.target. Verify-then-delete
+# keeps the script recoverable and aborts (no reboot) on any doubt.
 remove_hook
+grep -qE 'systemd\.(run|unit)' /boot/firmware/cmdline.txt \
+  && fail "boot hook removal (cmdline still references the hook)"
+rm -f /boot/firmware/install-service.sh
 sync
 echo "=== install complete; rebooting into normal operation ==="
 exit 0
