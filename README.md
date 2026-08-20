@@ -66,6 +66,10 @@ restarts `blesentry.service` when it exists (P3-1), and smoke-checks
 the install. Idempotent — a no-op re-run takes ~3 seconds.
 `BLESENTRY_HOST` / `BLESENTRY_DIR` override the defaults.
 
+At a busy site the defaults will alert on every lingering device. Turn it
+down with the `[presence]` section — start by raising `rssi_threshold` to
+alert only on nearby devices. See `docs/tuning.md` for the recipe.
+
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under
 [AGENTS.md](AGENTS.md). This project's instances observe real sites — read

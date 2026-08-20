@@ -28,6 +28,7 @@ from typing import Any, NamedTuple
 from bleak.exc import BleakError
 
 from blesentry.notifier.protocol import Notifier
+from blesentry.presence import PresenceTracker
 from blesentry.scanner.models import Advertisement
 from blesentry.scanner.patterns import DEFAULT_OR_PATTERNS, parse_or_pattern
 from blesentry.scanner.protocol import Scanner
@@ -40,11 +41,14 @@ class _RunSettings(NamedTuple):
     Resolver thresholds are ``None`` in flag mode (the loop then builds
     a default resolver) and populated in config mode. ``notifier`` is the
     config-selected backend (``NullNotifier`` in flag mode — alerting is
-    a config-only concern).
+    a config-only concern). ``presence`` is always a ready tracker: the
+    ``[presence]`` thresholds in config mode, or the P2-1 defaults in flag
+    mode (it needs no repository, so it is built here like the scanner).
     """
 
     scanner: Scanner
     notifier: Notifier
+    presence: PresenceTracker
     db: str
     site_id: str
     window: float
@@ -224,6 +228,7 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
             raise ValueError("--config cannot be combined with --db/--site-id")
         from blesentry.config import (
             build_notifier,
+            build_presence,
             build_scanner,
             load_config,
         )
@@ -232,6 +237,7 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
         return _RunSettings(
             scanner=build_scanner(cfg.scanner),
             notifier=build_notifier(cfg.notifier),
+            presence=build_presence(cfg.presence),
             db=str(cfg.storage.db),
             site_id=cfg.site_id,
             window=cfg.scan.window,
@@ -247,6 +253,9 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
     return _RunSettings(
         scanner=_build_scanner(args),
         notifier=NullNotifier(),
+        # Flag mode has no config file to carry thresholds; the P2-1
+        # defaults (PRESENT after 3 windows, -80 dBm gate) apply.
+        presence=PresenceTracker(),
         db=args.db,
         site_id=args.site_id,
         window=args.window,
@@ -312,7 +321,6 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     from blesentry.drain import run_drain
     from blesentry.loop import run_loop
     from blesentry.notifier.null import NullNotifier
-    from blesentry.presence import PresenceTracker
     from blesentry.resolver import DeviceResolver
     from blesentry.storage.database import apply_migrations, connect
     from blesentry.storage.repository import (
@@ -369,9 +377,10 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                 max_cycles=settings.max_cycles,
                 resolver=resolver,
                 # Presence runs on the scan connection so transitions
-                # commit atomically with their observations (#84).
-                # Thresholds are defaults; config wiring is P2-2 (#23).
-                presence=PresenceTracker(),
+                # commit atomically with their observations (#84). The
+                # tracker's thresholds come from [presence] in config
+                # mode, or the P2-1 defaults in flag mode (P2-2, #23).
+                presence=settings.presence,
                 presence_events=PresenceEventRepository(
                     scan_conn, settings.site_id
                 ),

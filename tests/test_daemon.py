@@ -122,6 +122,38 @@ def test_flag_mode_uses_null_notifier(tmp_path: Path) -> None:
     assert isinstance(settings.notifier, NullNotifier)
 
 
+def test_flag_mode_uses_default_presence(tmp_path: Path) -> None:
+    from blesentry.presence import PresenceState, PresenceTracker
+
+    settings = _resolve_run_settings(
+        _args("--db", str(tmp_path / "x.db"), "--site-id", "s")
+    )
+    assert isinstance(settings.presence, PresenceTracker)
+    # Default gate is -80: a -50 device reaches PRESENT after 3 windows.
+    settings.presence.update({1: -50})
+    settings.presence.update({1: -50})
+    [transition] = settings.presence.update({1: -50})
+    assert transition.state is PresenceState.PRESENT
+
+
+async def test_config_presence_thresholds_wired(tmp_path: Path) -> None:
+    # The [presence] section reaches the daemon's tracker: a tighter RSSI
+    # gate (the firehose lever for a dense site) is honoured end-to-end.
+    from blesentry.presence import PresenceState
+
+    cfg = _write_config(
+        tmp_path / "c.toml",
+        'site_id = "s"\n[storage]\ndb = "x.db"\n'
+        '[scanner]\nbackend = "mock"\n'
+        "[presence]\nappear_windows = 1\nrssi_threshold = -70\n",
+    )
+    settings = _resolve_run_settings(_args("--config", str(cfg)))
+    assert settings.presence.update({1: -75}) == []  # below the -70 gate
+    [transition] = settings.presence.update({1: -65})  # above the gate
+    assert transition.state is PresenceState.PRESENT
+    await settings.notifier.aclose()
+
+
 def _write_config(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
