@@ -34,12 +34,17 @@ from blesentry.storage.repository import DeviceRepository, OutboxRepository
 
 logger = logging.getLogger(__name__)
 
+# Sentinel label for a device the operator acknowledged but did not name
+# (P2-6 /ignore). Any non-null label closes the unknown-device alert gate.
+IGNORED_LABEL = "(ignored)"
+
 HELP_TEXT = (
     "commands:\n"
     "  /status — uptime, device count, outbox depth, db size\n"
     "  /list — list known devices\n"
     "  /label <id> <name> — name a device\n"
     "  /unlabel <id> — clear a device's name\n"
+    "  /ignore <id> — acknowledge a device, no more alerts\n"
     "  /describe <id> <text> — set a device note\n"
     "  /help — this message"
 )
@@ -157,6 +162,20 @@ async def _unlabel(args: str, ctx: CommandContext) -> str:
     )
 
 
+async def _ignore(args: str, ctx: CommandContext) -> str:
+    device_id = _device_id(args.strip())
+    if device_id is None:
+        return "usage: /ignore <device-id>"
+    ok = await ctx.devices.set_label(
+        device_id, label=IGNORED_LABEL, actor=f"tg:{ctx.command.user_id}"
+    )
+    return (
+        f"ignoring device {device_id} — no more alerts"
+        if ok
+        else f"no device {device_id}"
+    )
+
+
 async def _describe(args: str, ctx: CommandContext) -> str:
     token, _, description = args.partition(" ")
     description = description.strip()
@@ -176,6 +195,7 @@ _HANDLERS: dict[str, Callable[[str, CommandContext], Awaitable[str]]] = {
     "devices": _list,
     "label": _label,
     "unlabel": _unlabel,
+    "ignore": _ignore,
     "describe": _describe,
     "set_description": _describe,
 }

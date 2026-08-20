@@ -21,6 +21,7 @@ import pytest
 
 from blesentry.commands import (
     HELP_TEXT,
+    IGNORED_LABEL,
     CommandContext,
     _format_duration,
     _format_size,
@@ -267,6 +268,22 @@ async def test_describe_usage(
     devices: DeviceRepository, outbox: OutboxRepository
 ) -> None:
     assert "usage" in await _reply("/describe 5", devices, outbox)
+
+
+async def test_ignore_sets_sentinel_label(
+    devices: DeviceRepository, outbox: OutboxRepository
+) -> None:
+    device_id = await devices.upsert(fingerprint="fp")
+    reply = await _reply(f"/ignore {device_id}", devices, outbox)
+    assert "no more alerts" in reply
+    row = await devices.get(device_id)
+    assert row is not None and row["label"] == IGNORED_LABEL
+
+
+async def test_ignore_usage(
+    devices: DeviceRepository, outbox: OutboxRepository
+) -> None:
+    assert "usage" in await _reply("/ignore", devices, outbox)
 
 
 # --- run_command_loop over MockNotifier ------------------------------
