@@ -8,6 +8,13 @@ The default config selects ``backend = "none"``: a daemon that runs
 without alerting. This null object satisfies the seam so the loop never
 needs to branch on "is a notifier configured" — sends are discarded
 (reported successful, so nothing queues forever) and no commands arrive.
+
+Consequence to be aware of: the daemon always runs the drain, so with
+``backend = "none"`` an enqueued alert is *discarded* and its outbox row
+is marked DELIVERED. That is the deliberate default (the alternative —
+letting messages accumulate forever — is worse on the SD-card target,
+and retention is out of scope until #107). Configure a real backend to
+actually deliver.
 """
 
 from __future__ import annotations
