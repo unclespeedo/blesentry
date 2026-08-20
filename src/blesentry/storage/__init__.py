@@ -15,6 +15,7 @@ from blesentry.storage.repository import (
     DeviceRepository,
     ObservationRepository,
     OutboxRepository,
+    PresenceEventRepository,
 )
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "MigrationError",
     "ObservationRepository",
     "OutboxRepository",
+    "PresenceEventRepository",
     "apply_migrations",
     "connect",
     "transaction",

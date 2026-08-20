@@ -20,15 +20,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import NamedTuple
 
+from blesentry.presence import PresenceTracker
 from blesentry.resolver import DeviceResolver, fingerprint_key
 from blesentry.scanner.protocol import Scanner
 from blesentry.storage.database import transaction
 from blesentry.storage.repository import (
     DeviceRepository,
     ObservationRepository,
+    PresenceEventRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,6 +66,10 @@ async def run_cycle(
     observations: ObservationRepository,
     duration: float,
     resolver: DeviceResolver | None = None,
+    *,
+    presence: PresenceTracker | None = None,
+    presence_events: PresenceEventRepository | None = None,
+    now: Callable[[], float] = time.time,
 ) -> CycleStats:
     """Run one scan window and persist everything heard atomically.
 
@@ -76,14 +84,44 @@ async def run_cycle(
     rolled-back cycle can never poison resolver memory (the #84
     lesson). Pass one resolver across cycles (run_loop does) or
     rotation fusion resets every call.
+
+    Presence (P2-1): when a ``presence`` tracker and ``presence_events``
+    repository are given (both or neither), each window's per-device
+    best RSSI advances the tracker and its ABSENT/PRESENT transitions
+    are written to ``presence_events`` *inside the cycle transaction* —
+    a transition and the observations that caused it commit together.
+
+    The tracker is in-memory and ``update`` mutates it before COMMIT
+    (unlike the resolver, which stages). This is safe ONLY because the
+    contract is fail-loud: a rolled-back cycle re-raises out of
+    ``run_loop``, the process exits, and it restarts with a fresh
+    tracker — it never continues from a half-applied window. A caller
+    that catches ``run_cycle`` exceptions to keep scanning MUST discard
+    the tracker, or a transition emitted in memory but rolled back in
+    the DB would be lost. On a fresh start the tracker is empty (not
+    seeded), so a device that was PRESENT before a restart re-emits
+    PRESENT once it re-clears ``appear_windows`` — an at-least-once
+    duplicate the alert layer (P2-6) must tolerate; seeding is a
+    follow-up (#112).
     """
     advertisements = await scanner.scan(duration=duration)
     if observations.connection is not devices.connection:
         raise ValueError(
             "repositories must share one connection for cycle atomicity"
         )
+    if (presence is None) != (presence_events is None):
+        # Fail loud rather than silently tracking nothing (ADR-0002).
+        raise ValueError("presence and presence_events must be given together")
+    if (
+        presence_events is not None
+        and presence_events.connection is not devices.connection
+    ):
+        raise ValueError(
+            "presence_events must share the cycle connection for atomicity"
+        )
     r = resolver if resolver is not None else DeviceResolver(devices)
     device_ids: set[int] = set()
+    heard: dict[int, int] = {}
     persisted = 0
     try:
         async with transaction(devices.connection):
@@ -98,7 +136,17 @@ async def run_cycle(
                     adv_type=ad.adv_type,
                 )
                 device_ids.add(device_id)
+                if device_id not in heard or ad.rssi > heard[device_id]:
+                    heard[device_id] = ad.rssi
                 persisted += 1
+            if presence is not None and presence_events is not None:
+                occurred_at = iso_utc(now())
+                for transition in presence.update(heard):
+                    await presence_events.append(
+                        device_id=transition.device_id,
+                        event_type=transition.state.value,
+                        occurred_at=occurred_at,
+                    )
     except BaseException:
         r.abort()
         raise
@@ -119,6 +167,9 @@ async def run_loop(
     pause: float,
     max_cycles: int | None = None,
     resolver: DeviceResolver | None = None,
+    presence: PresenceTracker | None = None,
+    presence_events: PresenceEventRepository | None = None,
+    now: Callable[[], float] = time.time,
 ) -> int:
     """Scan continuously: window, persist, pause, repeat.
 
@@ -133,6 +184,11 @@ async def run_loop(
         resolver: Pre-built resolver — the seam through which config
             (P1-9) supplies tuned thresholds. Must be built over the
             same ``devices`` repo. ``None`` builds a default resolver.
+        presence: Pre-built presence tracker, carried across cycles
+            (P2-1). ``None`` disables presence tracking.
+        presence_events: Repository for presence transitions; required
+            when ``presence`` is given, on the same connection.
+        now: Clock for stamping presence transitions (injectable).
 
     Returns:
         Number of cycles completed.
@@ -143,7 +199,14 @@ async def run_loop(
     await resolver.seed()
     while max_cycles is None or cycles < max_cycles:
         stats = await run_cycle(
-            scanner, devices, observations, duration, resolver
+            scanner,
+            devices,
+            observations,
+            duration,
+            resolver,
+            presence=presence,
+            presence_events=presence_events,
+            now=now,
         )
         cycles += 1
         logger.info(

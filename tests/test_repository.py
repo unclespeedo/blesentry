@@ -16,6 +16,7 @@ from blesentry.storage import apply_migrations, connect
 from blesentry.storage.repository import (
     DeviceRepository,
     ObservationRepository,
+    PresenceEventRepository,
 )
 
 SITE = "test-site"
@@ -693,3 +694,48 @@ async def test_set_description_unknown_device_is_noop(
     device_repo: DeviceRepository,
 ) -> None:
     assert await device_repo.set_description(999, description="x") is False
+
+
+# -- PresenceEventRepository (P2-1) --
+
+
+@pytest.fixture
+def presence_repo(db: aiosqlite.Connection) -> PresenceEventRepository:
+    return PresenceEventRepository(db, SITE)
+
+
+async def test_presence_append_and_list(
+    device_repo: DeviceRepository, presence_repo: PresenceEventRepository
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-pe")
+    await presence_repo.append(
+        device_id=device_id, event_type="PRESENT", occurred_at=_ts(10, 0)
+    )
+    await presence_repo.append(
+        device_id=device_id, event_type="ABSENT", occurred_at=_ts(10, 5)
+    )
+    events = await presence_repo.list_for_device(device_id)
+    assert [(e["event_type"], e["occurred_at"]) for e in events] == [
+        ("PRESENT", _ts(10, 0)),
+        ("ABSENT", _ts(10, 5)),
+    ]
+
+
+async def test_presence_is_site_scoped(db: aiosqlite.Connection) -> None:
+    site_a = DeviceRepository(db, "site-a")
+    device_id = await site_a.upsert(fingerprint="fp")
+    await PresenceEventRepository(db, "site-a").append(
+        device_id=device_id, event_type="PRESENT", occurred_at=_ts(1, 0)
+    )
+    other = PresenceEventRepository(db, "site-b")
+    assert await other.list_for_device(device_id) == []
+
+
+async def test_presence_rejects_bad_event_type(
+    device_repo: DeviceRepository, presence_repo: PresenceEventRepository
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp")
+    with pytest.raises(Exception):  # noqa: B017 - schema CHECK constraint
+        await presence_repo.append(
+            device_id=device_id, event_type="MAYBE", occurred_at=_ts(1, 0)
+        )
