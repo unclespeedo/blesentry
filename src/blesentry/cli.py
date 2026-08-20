@@ -307,6 +307,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     database consistent) — deliberate, and it never re-interrupts the
     in-flight cleanup that would otherwise orphan the child tasks.
     """
+    from blesentry.alerts import UnknownDeviceAlerter
     from blesentry.commands import run_command_loop
     from blesentry.drain import run_drain
     from blesentry.loop import run_loop
@@ -373,6 +374,13 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                 presence=PresenceTracker(),
                 presence_events=PresenceEventRepository(
                     scan_conn, settings.site_id
+                ),
+                # Unknown-device alerts (P2-6): enqueued on the scan
+                # connection (atomic with the presence event), delivered
+                # by the drain, answered by the command loop.
+                alerter=UnknownDeviceAlerter(
+                    devices,
+                    OutboxRepository(scan_conn, settings.site_id),
                 ),
             ),
             run_drain(

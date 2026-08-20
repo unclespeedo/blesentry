@@ -25,6 +25,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import NamedTuple
 
+from blesentry.alerts import UnknownDeviceAlerter
 from blesentry.presence import PresenceTracker
 from blesentry.resolver import DeviceResolver, fingerprint_key
 from blesentry.scanner.protocol import Scanner
@@ -69,6 +70,7 @@ async def run_cycle(
     *,
     presence: PresenceTracker | None = None,
     presence_events: PresenceEventRepository | None = None,
+    alerter: UnknownDeviceAlerter | None = None,
     now: Callable[[], float] = time.time,
 ) -> CycleStats:
     """Run one scan window and persist everything heard atomically.
@@ -112,6 +114,8 @@ async def run_cycle(
     if (presence is None) != (presence_events is None):
         # Fail loud rather than silently tracking nothing (ADR-0002).
         raise ValueError("presence and presence_events must be given together")
+    if alerter is not None and presence is None:
+        raise ValueError("alerter requires presence to be given")
     if (
         presence_events is not None
         and presence_events.connection is not devices.connection
@@ -141,12 +145,17 @@ async def run_cycle(
                 persisted += 1
             if presence is not None and presence_events is not None:
                 occurred_at = iso_utc(now())
-                for transition in presence.update(heard):
+                transitions = presence.update(heard)
+                for transition in transitions:
                     await presence_events.append(
                         device_id=transition.device_id,
                         event_type=transition.state.value,
                         occurred_at=occurred_at,
                     )
+                # Alert enqueue is atomic with the presence event that
+                # triggered it (same cycle transaction).
+                if alerter is not None:
+                    await alerter.handle(transitions)
     except BaseException:
         r.abort()
         raise
@@ -169,6 +178,7 @@ async def run_loop(
     resolver: DeviceResolver | None = None,
     presence: PresenceTracker | None = None,
     presence_events: PresenceEventRepository | None = None,
+    alerter: UnknownDeviceAlerter | None = None,
     now: Callable[[], float] = time.time,
 ) -> int:
     """Scan continuously: window, persist, pause, repeat.
@@ -188,6 +198,8 @@ async def run_loop(
             (P2-1). ``None`` disables presence tracking.
         presence_events: Repository for presence transitions; required
             when ``presence`` is given, on the same connection.
+        alerter: Unknown-device alerter (P2-6); enqueues an alert when
+            an unlabeled device becomes PRESENT. ``None`` disables it.
         now: Clock for stamping presence transitions (injectable).
 
     Returns:
@@ -206,6 +218,7 @@ async def run_loop(
             resolver,
             presence=presence,
             presence_events=presence_events,
+            alerter=alerter,
             now=now,
         )
         cycles += 1
