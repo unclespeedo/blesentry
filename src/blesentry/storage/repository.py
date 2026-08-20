@@ -381,10 +381,12 @@ class OutboxRepository:
     drain loop (P2-4); this class owns enqueue and the ordered reads.
 
     FIFO ordering relies on SQLite's monotonically increasing rowid
-    (``id``), which holds while rows are only appended.  When P2-4
-    begins deleting delivered rows, it must switch ``id`` to
-    ``AUTOINCREMENT`` (a migration) so a reused rowid can never rewind
-    the order or alias a message id a caller still holds.
+    (``id``), which holds while rows are only appended.  P2-4 keeps this
+    invariant: it *marks* terminal rows (DELIVERED / FAILED) rather than
+    deleting them, so rowids are never reused and no ``AUTOINCREMENT``
+    migration is needed.  A future retention pass that deletes terminal
+    rows must revisit this (switch ``id`` to ``AUTOINCREMENT``) before a
+    reused rowid can rewind the order or alias a live message id.
     """
 
     def __init__(self, conn: aiosqlite.Connection, site_id: str) -> None:
@@ -447,3 +449,69 @@ class OutboxRepository:
         if row is None:
             return None
         return _to_outbox_row(row)
+
+    async def head_pending(self) -> OutboxRow | None:
+        """Return the oldest PENDING message, or ``None`` if none.
+
+        The strict FIFO head the drain loop (P2-4) works from — returned
+        regardless of ``next_attempt_at`` so the drain, not a query,
+        decides whether the head is due yet.  Terminal rows (DELIVERED,
+        FAILED) and IN_FLIGHT are skipped.
+        """
+        cur = await self._conn.execute(
+            "SELECT id, site_id, status, attempt_count, "
+            "next_attempt_at, payload, last_error, created_at "
+            "FROM outbox WHERE site_id = ? AND status = 'PENDING' "
+            "ORDER BY id LIMIT 1",
+            (self._site,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return _to_outbox_row(row)
+
+    async def mark_delivered(self, outbox_id: int) -> None:
+        """Mark a message DELIVERED (terminal success)."""
+        async with transaction(self._conn):
+            await self._conn.execute(
+                "UPDATE outbox SET status = 'DELIVERED' "
+                "WHERE id = ? AND site_id = ?",
+                (outbox_id, self._site),
+            )
+
+    async def mark_failed(self, outbox_id: int, error: str) -> None:
+        """Mark a message FAILED (terminal dead-letter).
+
+        For permanent delivery failures and unusable payloads — removed
+        from the PENDING queue so it can never block delivery of the
+        messages behind it, with ``last_error`` kept for diagnosis.
+        """
+        async with transaction(self._conn):
+            await self._conn.execute(
+                "UPDATE outbox SET status = 'FAILED', last_error = ? "
+                "WHERE id = ? AND site_id = ?",
+                (error, outbox_id, self._site),
+            )
+
+    async def reschedule(
+        self,
+        outbox_id: int,
+        *,
+        next_attempt_at: str,
+        error: str,
+    ) -> None:
+        """Defer a retriable failure: bump attempt, set the next time.
+
+        The message stays PENDING (nothing is dropped on repeated
+        failure); ``attempt_count`` increments and ``next_attempt_at``
+        gates when the drain will try again (backoff is the caller's).
+        """
+        async with transaction(self._conn):
+            await self._conn.execute(
+                "UPDATE outbox SET "
+                "attempt_count = attempt_count + 1, "
+                "next_attempt_at = ?, last_error = ? "
+                "WHERE id = ? AND site_id = ?",
+                (next_attempt_at, error, outbox_id, self._site),
+            )

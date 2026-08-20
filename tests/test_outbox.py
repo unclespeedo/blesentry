@@ -160,3 +160,93 @@ async def test_get_is_site_scoped(db: aiosqlite.Connection) -> None:
     site_b = OutboxRepository(db, "site-b")
     outbox_id = await site_a.enqueue(payload="x")
     assert await site_b.get(outbox_id) is None
+
+
+# -- drain-side transitions (P2-4 consumes these) --
+
+
+async def test_head_pending_returns_lowest_id_pending(
+    outbox: OutboxRepository,
+) -> None:
+    first = await outbox.enqueue(payload="a")
+    await outbox.enqueue(payload="b")
+    head = await outbox.head_pending()
+    assert head is not None
+    assert head["id"] == first
+    assert head["payload"] == "a"
+
+
+async def test_head_pending_is_none_when_empty(
+    outbox: OutboxRepository,
+) -> None:
+    assert await outbox.head_pending() is None
+
+
+async def test_head_pending_skips_terminal_rows(
+    outbox: OutboxRepository,
+) -> None:
+    delivered = await outbox.enqueue(payload="done")
+    still_queued = await outbox.enqueue(payload="queued")
+    await outbox.mark_delivered(delivered)
+    head = await outbox.head_pending()
+    assert head is not None
+    assert head["id"] == still_queued
+
+
+async def test_mark_delivered(outbox: OutboxRepository) -> None:
+    outbox_id = await outbox.enqueue(payload="x")
+    await outbox.mark_delivered(outbox_id)
+    row = await outbox.get(outbox_id)
+    assert row is not None
+    assert row["status"] == "DELIVERED"
+    assert await outbox.head_pending() is None
+
+
+async def test_mark_failed_records_error(outbox: OutboxRepository) -> None:
+    outbox_id = await outbox.enqueue(payload="x")
+    await outbox.mark_failed(outbox_id, "forbidden")
+    row = await outbox.get(outbox_id)
+    assert row is not None
+    assert row["status"] == "FAILED"
+    assert row["last_error"] == "forbidden"
+    assert await outbox.head_pending() is None
+
+
+async def test_reschedule_stays_pending_with_backoff(
+    outbox: OutboxRepository,
+) -> None:
+    outbox_id = await outbox.enqueue(payload="x")
+    await outbox.reschedule(
+        outbox_id,
+        next_attempt_at="2030-01-01T00:00:00.000Z",
+        error="boom",
+    )
+    row = await outbox.get(outbox_id)
+    assert row is not None
+    assert row["status"] == "PENDING"
+    assert row["attempt_count"] == 1
+    assert row["next_attempt_at"] == "2030-01-01T00:00:00.000Z"
+    assert row["last_error"] == "boom"
+
+
+async def test_reschedule_accumulates_attempt_count(
+    outbox: OutboxRepository,
+) -> None:
+    outbox_id = await outbox.enqueue(payload="x")
+    await outbox.reschedule(outbox_id, next_attempt_at="t1", error="e1")
+    await outbox.reschedule(outbox_id, next_attempt_at="t2", error="e2")
+    row = await outbox.get(outbox_id)
+    assert row is not None
+    assert row["attempt_count"] == 2
+
+
+async def test_transitions_are_site_scoped(
+    db: aiosqlite.Connection,
+) -> None:
+    site_a = OutboxRepository(db, "site-a")
+    site_b = OutboxRepository(db, "site-b")
+    outbox_id = await site_a.enqueue(payload="x")
+    await site_b.mark_delivered(outbox_id)  # wrong site → no-op
+    row = await site_a.get(outbox_id)
+    assert row is not None
+    assert row["status"] == "PENDING"

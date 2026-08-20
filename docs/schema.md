@@ -113,7 +113,7 @@ delivers. Nothing is ever fire-and-forget.
 | `status` | TEXT NOT NULL | `PENDING` (default) → `IN_FLIGHT` → `DELIVERED`; `FAILED` on repeated error. CHECK constraint. |
 | `attempt_count` | INTEGER NOT NULL | Delivery attempts so far, default 0. |
 | `next_attempt_at` | TEXT NULL | Backoff/jitter scheduling (`P2-4`); null when not scheduled. Indexed with `status` (`idx_outbox_claim`). |
-| `payload` | TEXT NOT NULL | Opaque JSON — the storage layer never interprets it. |
+| `payload` | TEXT NOT NULL | Opaque to storage. By convention (P2-4) it is a JSON-serialized `notifier.models.OutboundMessage`; the drain loop deserializes it, and a producer (P2-6/P2-8) enqueues `OutboundMessage(...).model_dump_json()`. An unparseable payload is dead-lettered. |
 | `last_error` | TEXT NULL | Most recent delivery failure detail. |
 | `created_at` | TEXT NOT NULL | |
 
