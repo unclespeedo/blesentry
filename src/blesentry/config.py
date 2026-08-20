@@ -24,13 +24,21 @@ path-qualified message. A sentinel that cannot start must say why.
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
+    from blesentry.notifier.protocol import Notifier
     from blesentry.scanner.protocol import Scanner
 
 __all__ = [
@@ -38,10 +46,13 @@ __all__ = [
     "Config",
     "ConfigError",
     "MockScannerConfig",
+    "NoneNotifierConfig",
     "NotifierConfig",
     "ResolverConfig",
     "ScanConfig",
     "StorageConfig",
+    "TelegramNotifierConfig",
+    "build_notifier",
     "build_scanner",
     "load_config",
 ]
@@ -97,15 +108,39 @@ class ResolverConfig(_Section):
     recent_window: int = Field(default=512, ge=1)
 
 
-class NotifierConfig(_Section):
-    """Notifier backend selector — a validated stub for Phase 1.
-
-    The Notifier seam has no implementation yet (deferred to P2-5), so
-    ``"none"`` is the only accepted backend; any other value fails fast.
-    P2-5 widens this to the Telegram backend.
-    """
+class NoneNotifierConfig(_Section):
+    """The disabled backend — a daemon that runs without alerting."""
 
     backend: Literal["none"] = "none"
+
+
+class TelegramNotifierConfig(_Section):
+    """Telegram backend (ADR-0003): long-poll ``getUpdates``, no webhook.
+
+    ``bot_token`` is a secret — a :class:`~pydantic.SecretStr`, so it
+    never lands in a repr, log line, or traceback — supplied via the
+    environment (``BLESENTRY_NOTIFIER__BOT_TOKEN``) or a gitignored
+    local file, never the committed config (SECURITY.md, ADR-0003).
+    ``chat_id`` and ``user_id`` are the single authorized operator pair
+    the ADR-0003 auth rule matches against.
+    """
+
+    backend: Literal["telegram"]
+    bot_token: SecretStr = Field(min_length=1)
+    chat_id: int
+    user_id: int
+    # Long-poll hold time for getUpdates; the outbound HTTP request the
+    # daemon parks on behind CGNAT (ADR-0003).
+    poll_timeout: float = Field(default=30.0, gt=0)
+
+
+# Backend is the discriminator, mirroring ScannerConfig: the concrete
+# options model — and thus which keys are legal — is chosen by the
+# ``backend`` string (ADR-0002's "config maps a string key to a class").
+NotifierConfig = Annotated[
+    NoneNotifierConfig | TelegramNotifierConfig,
+    Field(discriminator="backend"),
+]
 
 
 class BleakScannerConfig(_Section):
@@ -158,7 +193,26 @@ class Config(BaseSettings):
     scan: ScanConfig = ScanConfig()
     scanner: ScannerConfig = BleakScannerConfig()
     resolver: ResolverConfig = ResolverConfig()
-    notifier: NotifierConfig = NotifierConfig()
+    notifier: NotifierConfig = NoneNotifierConfig()
+
+
+def _safe_message(err: Mapping[str, object]) -> str:
+    """Return a pydantic error message with any echoed input scrubbed.
+
+    Standard pydantic messages state the *expected* shape, never the
+    input — safe to render verbatim. The exception is a discriminated
+    union's ``union_tag_invalid``, which embeds the offending tag
+    (``notifier.backend`` here) in its message. This seam carries the
+    bot-token secret, so the tag is redacted while the (static, safe)
+    expected-tags guidance is kept. The secret itself is a ``SecretStr``
+    and never reaches an error message.
+    """
+    msg = str(err["msg"])
+    ctx = err.get("ctx") or {}
+    tag = ctx.get("tag") if isinstance(ctx, dict) else None
+    if tag:
+        msg = msg.replace(str(tag), "***")
+    return msg
 
 
 def _format_errors(exc: ValidationError) -> str:
@@ -166,7 +220,7 @@ def _format_errors(exc: ValidationError) -> str:
     lines = []
     for err in exc.errors():
         loc = ".".join(str(part) for part in err["loc"]) or "(root)"
-        lines.append(f"  {loc}: {err['msg']}")
+        lines.append(f"  {loc}: {_safe_message(err)}")
     return "\n".join(lines)
 
 
@@ -253,3 +307,32 @@ def build_scanner(scanner: ScannerConfig) -> Scanner:
         adapter=scanner.adapter,
         or_patterns=[parse_or_pattern(p) for p in raw],
     )
+
+
+def build_notifier(notifier: NotifierConfig) -> Notifier:
+    """Construct the configured Notifier backend (ADR-0002 selection).
+
+    Backends are imported lazily so the ``none`` path never drags the
+    Telegram HTTP stack into the import graph — important on the 512 MB
+    target. The secret is unwrapped from its :class:`~pydantic.SecretStr`
+    only here, at the boundary where the transport actually needs it.
+
+    Args:
+        notifier: The validated notifier section from :class:`Config`.
+
+    Returns:
+        A ready-to-use Notifier implementation.
+    """
+    if isinstance(notifier, TelegramNotifierConfig):
+        from blesentry.notifier.telegram import TelegramNotifier
+
+        return TelegramNotifier(
+            bot_token=notifier.bot_token.get_secret_value(),
+            chat_id=notifier.chat_id,
+            user_id=notifier.user_id,
+            poll_timeout=notifier.poll_timeout,
+        )
+
+    from blesentry.notifier.null import NullNotifier
+
+    return NullNotifier()
