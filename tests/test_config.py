@@ -1,0 +1,296 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+"""Config system tests (P1-9): TOML + pydantic-settings.
+
+The config is the point where ADR-0002's modularity contract becomes
+real: swapping a scanner backend is a config edit. These tests pin the
+three DoD guarantees — an example config that loads, fail-fast on every
+class of invalid input, and every Phase-1 knob wired through to the
+component that consumes it.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from blesentry.config import (
+    BleakScannerConfig,
+    Config,
+    ConfigError,
+    MockScannerConfig,
+    build_scanner,
+    load_config,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+EXAMPLE_CONFIG = REPO_ROOT / "config.example.toml"
+
+
+@pytest.fixture(autouse=True)
+def _clear_blesentry_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strip inherited BLESENTRY_* so the env overlay never leaks in.
+
+    ``load_config`` intentionally lets environment variables fill fields
+    the file omits; a stray var in CI/dev would otherwise flip an
+    assertion. Tests that want env overlay set their own var after this.
+    """
+    import os
+
+    for key in list(os.environ):
+        if key.startswith("BLESENTRY_"):
+            monkeypatch.delenv(key, raising=False)
+
+
+def _write(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "config.toml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+MINIMAL = """
+site_id = "example-site"
+
+[storage]
+db = "/var/lib/blesentry/blesentry.db"
+"""
+
+FULL = """
+site_id = "example-site"
+
+[storage]
+db = "/var/lib/blesentry/blesentry.db"
+
+[scan]
+window = 12.0
+pause = 3.0
+max_cycles = 100
+
+[scanner]
+backend = "bleak"
+adapter_id = "bluez-linux"
+adapter = "hci0"
+or_patterns = ["0:01:06", "0:01:1a"]
+
+[resolver]
+min_score = 0.7
+recent_window = 256
+
+[notifier]
+backend = "none"
+"""
+
+
+# ---------------------------------------------------------------------------
+# Happy path: defaults and full wiring
+# ---------------------------------------------------------------------------
+
+
+def test_minimal_config_applies_defaults(tmp_path: Path) -> None:
+    cfg = load_config(_write(tmp_path, MINIMAL))
+    assert cfg.site_id == "example-site"
+    assert cfg.storage.db == Path("/var/lib/blesentry/blesentry.db")
+    # Every optional section falls back to a sane default.
+    assert cfg.scan.window > 0
+    assert cfg.scan.pause >= 0
+    assert cfg.scan.max_cycles is None
+    assert isinstance(cfg.scanner, BleakScannerConfig)
+    assert cfg.scanner.backend == "bleak"
+    assert cfg.resolver.min_score == 0.55
+    assert cfg.resolver.recent_window == 512
+    assert cfg.notifier.backend == "none"
+
+
+def test_full_config_wires_every_knob(tmp_path: Path) -> None:
+    cfg = load_config(_write(tmp_path, FULL))
+    assert cfg.scan.window == 12.0
+    assert cfg.scan.pause == 3.0
+    assert cfg.scan.max_cycles == 100
+    assert isinstance(cfg.scanner, BleakScannerConfig)
+    assert cfg.scanner.adapter_id == "bluez-linux"
+    assert cfg.scanner.adapter == "hci0"
+    assert cfg.scanner.or_patterns == ["0:01:06", "0:01:1a"]
+    assert cfg.resolver.min_score == 0.7
+    assert cfg.resolver.recent_window == 256
+
+
+def test_config_type_is_base_settings(tmp_path: Path) -> None:
+    # pydantic-settings gives env overlay for omitted fields for free.
+    from pydantic_settings import BaseSettings
+
+    assert issubclass(Config, BaseSettings)
+
+
+def test_env_fills_omitted_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = '[storage]\ndb = "/tmp/x.db"\n'
+    monkeypatch.setenv("BLESENTRY_SITE_ID", "env-site")
+    cfg = load_config(_write(tmp_path, body))
+    assert cfg.site_id == "env-site"
+
+
+# ---------------------------------------------------------------------------
+# Scanner backend selection (ADR-0002 discriminated union)
+# ---------------------------------------------------------------------------
+
+
+def test_mock_backend_selected(tmp_path: Path) -> None:
+    body = (
+        'site_id = "s"\n[storage]\ndb = "/tmp/x.db"\n'
+        '[scanner]\nbackend = "mock"\ncorpus = "/tmp/corpus.json"\n'
+    )
+    cfg = load_config(_write(tmp_path, body))
+    assert isinstance(cfg.scanner, MockScannerConfig)
+    assert cfg.scanner.corpus == Path("/tmp/corpus.json")
+
+
+def test_unknown_scanner_backend_rejected(tmp_path: Path) -> None:
+    body = (
+        'site_id = "s"\n[storage]\ndb = "/tmp/x.db"\n'
+        '[scanner]\nbackend = "carrier-pigeon"\n'
+    )
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, body))
+
+
+# ---------------------------------------------------------------------------
+# Fail-fast on every class of invalid input (DoD: clear errors)
+# ---------------------------------------------------------------------------
+
+
+def test_missing_file_is_config_error(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_path / "nope.toml")
+    assert "not found" in str(exc.value).lower()
+
+
+def test_malformed_toml_is_config_error(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError) as exc:
+        load_config(_write(tmp_path, "site_id = \nthis is not toml"))
+    assert "toml" in str(exc.value).lower()
+
+
+def test_unknown_top_level_key_rejected(tmp_path: Path) -> None:
+    body = MINIMAL + '\ntypo_knob = "oops"\n'
+    with pytest.raises(ConfigError) as exc:
+        load_config(_write(tmp_path, body))
+    assert "typo_knob" in str(exc.value)
+
+
+def test_unknown_nested_key_rejected(tmp_path: Path) -> None:
+    body = MINIMAL + "\n[resolver]\nmin_scor = 0.5\n"
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, body))
+
+
+def test_missing_required_site_id(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError) as exc:
+        load_config(_write(tmp_path, '[storage]\ndb = "/tmp/x.db"\n'))
+    assert "site_id" in str(exc.value)
+
+
+def test_missing_required_db(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError) as exc:
+        load_config(_write(tmp_path, 'site_id = "s"\n'))
+    assert "db" in str(exc.value)
+
+
+def test_wrong_type_rejected(tmp_path: Path) -> None:
+    body = (
+        'site_id = "s"\n[storage]\ndb = "/tmp/x.db"\n[scan]\nwindow = "soon"\n'
+    )
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, body))
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        "[scan]\nwindow = 0\n",
+        "[scan]\npause = -1\n",
+        "[resolver]\nmin_score = -0.1\n",
+        # Above the max achievable fusion score: unreachable, not valid.
+        "[resolver]\nmin_score = 7.0\n",
+        "[resolver]\nrecent_window = 0\n",
+    ],
+)
+def test_out_of_range_values_rejected(tmp_path: Path, section: str) -> None:
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, MINIMAL + "\n" + section))
+
+
+def test_validation_error_does_not_leak_input_value(tmp_path: Path) -> None:
+    # The seam carries P2's notifier secret via env; a validation
+    # failure must not preserve the offending value in the raised
+    # error or its cause chain (which a traceback would print).
+    secret = "s3cr3t-token-value"
+    body = MINIMAL + f'\n[notifier]\nbackend = "{secret}"\n'
+    with pytest.raises(ConfigError) as exc:
+        load_config(_write(tmp_path, body))
+    assert secret not in str(exc.value)
+    assert exc.value.__cause__ is None
+
+
+def test_invalid_notifier_backend_rejected(tmp_path: Path) -> None:
+    body = MINIMAL + '\n[notifier]\nbackend = "telegram"\n'
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, body))
+
+
+# ---------------------------------------------------------------------------
+# build_scanner: config -> concrete Scanner (ADR-0002 lazy registry)
+# ---------------------------------------------------------------------------
+
+
+async def test_build_mock_scanner_empty() -> None:
+    scanner = build_scanner(MockScannerConfig(backend="mock"))
+    assert await scanner.scan(duration=0.0) == []
+
+
+async def test_build_mock_scanner_from_corpus(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus.json"
+    corpus.write_text(
+        '[{"address": "AA:BB:CC:DD:EE:FF", "rssi": -50, '
+        '"timestamp": 1755400000.0, "adapter_id": "mock"}]',
+        encoding="utf-8",
+    )
+    scanner = build_scanner(MockScannerConfig(backend="mock", corpus=corpus))
+    ads = await scanner.scan(duration=0.0)
+    assert len(ads) == 1
+    assert ads[0].rssi == -50
+
+
+def test_build_bleak_scanner_carries_adapter_id() -> None:
+    from blesentry.scanner.bleak import BleakScanner
+
+    scanner = build_scanner(
+        BleakScannerConfig(adapter_id="bluez-linux", adapter="hci0")
+    )
+    assert isinstance(scanner, BleakScanner)
+    assert scanner.adapter_id == "bluez-linux"
+
+
+def test_build_bleak_scanner_rejects_bad_or_pattern() -> None:
+    cfg = BleakScannerConfig(or_patterns=["not-a-pattern"])
+    with pytest.raises(ValueError):
+        build_scanner(cfg)
+
+
+# ---------------------------------------------------------------------------
+# The committed example config (DoD: example config committed)
+# ---------------------------------------------------------------------------
+
+
+def test_example_config_exists() -> None:
+    assert EXAMPLE_CONFIG.is_file(), "config.example.toml must be committed"
+
+
+def test_example_config_loads_clean() -> None:
+    cfg = load_config(EXAMPLE_CONFIG)
+    assert cfg.site_id
+    assert cfg.storage.db
+    assert cfg.scanner.backend in {"bleak", "mock"}

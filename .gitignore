@@ -12,7 +12,9 @@ dist/
 *.db-wal
 *.db-shm
 .env
+# live config carries site-identifying facts — keep it local (P1-9)
 config.local.toml
+config.toml
 .DS_Store
 
 # raw BLE captures and logs never get committed (AGENTS.md hygiene)
