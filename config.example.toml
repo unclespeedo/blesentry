@@ -52,6 +52,9 @@ recent_window = 512
 [notifier]
 # Notifier backend selector (ADR-0002). "none" runs the daemon without
 # alerting; "telegram" is the v1 chat platform (ADR-0003).
+# Note: `run` always drains the outbox. With "none", any queued alert is
+# DISCARDED (its outbox row is marked delivered) — configure a real
+# backend to actually deliver.
 backend = "none"
 
 # Telegram backend (ADR-0003): long-poll getUpdates, no webhook — works

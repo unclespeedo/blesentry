@@ -21,10 +21,12 @@ import json
 import logging
 import signal
 import sys
-from typing import NamedTuple
+from collections.abc import Coroutine
+from typing import Any, NamedTuple
 
 from bleak.exc import BleakError
 
+from blesentry.notifier.protocol import Notifier
 from blesentry.scanner.models import Advertisement
 from blesentry.scanner.patterns import DEFAULT_OR_PATTERNS, parse_or_pattern
 from blesentry.scanner.protocol import Scanner
@@ -35,10 +37,13 @@ class _RunSettings(NamedTuple):
     """Effective ``run`` settings, from ``--config`` or explicit flags.
 
     Resolver thresholds are ``None`` in flag mode (the loop then builds
-    a default resolver) and populated in config mode.
+    a default resolver) and populated in config mode. ``notifier`` is the
+    config-selected backend (``NullNotifier`` in flag mode — alerting is
+    a config-only concern).
     """
 
     scanner: Scanner
+    notifier: Notifier
     db: str
     site_id: str
     window: float
@@ -216,11 +221,16 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
     if args.config is not None:
         if args.db is not None or args.site_id is not None:
             raise ValueError("--config cannot be combined with --db/--site-id")
-        from blesentry.config import build_scanner, load_config
+        from blesentry.config import (
+            build_notifier,
+            build_scanner,
+            load_config,
+        )
 
         cfg = load_config(args.config)
         return _RunSettings(
             scanner=build_scanner(cfg.scanner),
+            notifier=build_notifier(cfg.notifier),
             db=str(cfg.storage.db),
             site_id=cfg.site_id,
             window=cfg.scan.window,
@@ -231,8 +241,11 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
         )
     if args.db is None or args.site_id is None:
         raise ValueError("run requires --config, or both --db and --site-id")
+    from blesentry.notifier.null import NullNotifier
+
     return _RunSettings(
         scanner=_build_scanner(args),
+        notifier=NullNotifier(),
         db=args.db,
         site_id=args.site_id,
         window=args.window,
@@ -243,36 +256,91 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
     )
 
 
-async def _run_daemon(args: argparse.Namespace) -> int:
-    """Connect, migrate, and scan-persist until stopped.
+async def _run_supervised(
+    scan: Coroutine[Any, Any, Any],
+    drain: Coroutine[Any, Any, Any],
+) -> int:
+    """Run the scan loop and outbox drain concurrently, fail-loud.
 
-    SIGTERM (systemd's stop signal) cancels the task so the loop
-    unwinds through ``finally`` and the connection closes cleanly —
-    the issue #20 graceful-shutdown contract. A second SIGTERM during
-    shutdown hits the default disposition and kills the process
-    immediately (WAL keeps the database consistent) — deliberate.
+    Whichever task finishes or fails first stops the other: if either
+    raises, the sibling is cancelled and the exception propagates — a
+    dead scan or a silently-dead drain takes the daemon down for the
+    supervisor (systemd, P3-1) to restart, never a half-running
+    sentinel. Cancelling this coroutine (SIGTERM) cancels both children;
+    the ``finally`` always drains their cancellation so no task is
+    orphaned. Returns the scan loop's cycle count.
     """
+    scan_task = asyncio.ensure_future(scan)
+    drain_task = asyncio.ensure_future(drain)
+    children = (scan_task, drain_task)
+    try:
+        await asyncio.wait(children, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for child in children:
+            child.cancel()
+        outcomes = await asyncio.gather(*children, return_exceptions=True)
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException) and not isinstance(
+            outcome, asyncio.CancelledError
+        ):
+            raise outcome
+    return scan_task.result() if not scan_task.cancelled() else 0
+
+
+async def _run_daemon(args: argparse.Namespace) -> int:
+    """Connect, migrate, and scan-persist + drain until stopped.
+
+    The scan loop and the outbox drain run concurrently
+    (:func:`_run_supervised`). The drain gets its OWN connection:
+    ``transaction()`` nesting is connection-global, so sharing the scan
+    loop's connection across the two tasks would corrupt their units of
+    work (#91).
+
+    SIGTERM (systemd's stop signal) cancels the task so both loops
+    unwind through ``finally`` and connections close cleanly — the issue
+    #20 graceful-shutdown contract. The handler removes itself on the
+    first signal, so a second SIGTERM during shutdown hits the default
+    disposition and kills the process immediately (WAL keeps the
+    database consistent) — deliberate, and it never re-interrupts the
+    in-flight cleanup that would otherwise orphan the child tasks.
+    """
+    from blesentry.drain import run_drain
     from blesentry.loop import run_loop
     from blesentry.resolver import DeviceResolver
     from blesentry.storage.database import apply_migrations, connect
     from blesentry.storage.repository import (
         DeviceRepository,
         ObservationRepository,
+        OutboxRepository,
     )
 
     settings = _resolve_run_settings(args)
     logger = logging.getLogger(__name__)
     loop = asyncio.get_running_loop()
     task = asyncio.current_task()
-    if task is not None:
-        loop.add_signal_handler(signal.SIGTERM, task.cancel)
-    conn = None
+    scan_conn = None
+    drain_conn = None
     try:
-        conn = await connect(settings.db)
-        applied = await apply_migrations(conn)
+        if task is not None:
+
+            def _on_sigterm() -> None:
+                # Unwind gracefully on the first SIGTERM; unregister so a
+                # second hits the default disposition (abrupt kill) and
+                # never re-cancels mid-cleanup (which would orphan the
+                # child tasks). Inside the try so aclose still runs if
+                # add_signal_handler ever raises.
+                loop.remove_signal_handler(signal.SIGTERM)
+                task.cancel()
+
+            loop.add_signal_handler(signal.SIGTERM, _on_sigterm)
+        scan_conn = await connect(settings.db)
+        applied = await apply_migrations(scan_conn)
         if applied:
             logger.info("applied migrations: %s", ", ".join(applied))
-        devices = DeviceRepository(conn, settings.site_id)
+        # Dedicated connection for the drain task (#91). Same WAL
+        # database; a second connection is a supported reader/writer.
+        drain_conn = await connect(settings.db)
+        devices = DeviceRepository(scan_conn, settings.site_id)
         resolver = None
         if settings.min_score is not None and (
             settings.recent_window is not None
@@ -282,14 +350,20 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                 min_score=settings.min_score,
                 recent_window=settings.recent_window,
             )
-        cycles = await run_loop(
-            settings.scanner,
-            devices,
-            ObservationRepository(conn, settings.site_id),
-            duration=settings.window,
-            pause=settings.pause,
-            max_cycles=settings.max_cycles,
-            resolver=resolver,
+        cycles = await _run_supervised(
+            run_loop(
+                settings.scanner,
+                devices,
+                ObservationRepository(scan_conn, settings.site_id),
+                duration=settings.window,
+                pause=settings.pause,
+                max_cycles=settings.max_cycles,
+                resolver=resolver,
+            ),
+            run_drain(
+                OutboxRepository(drain_conn, settings.site_id),
+                settings.notifier,
+            ),
         )
         logger.info("stopped after %d cycles", cycles)
     except asyncio.CancelledError:
@@ -299,8 +373,11 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     finally:
         if task is not None:
             loop.remove_signal_handler(signal.SIGTERM)
-        if conn is not None:
-            await conn.close()
+        await settings.notifier.aclose()
+        if scan_conn is not None:
+            await scan_conn.close()
+        if drain_conn is not None:
+            await drain_conn.close()
     return 0
 
 
