@@ -50,5 +50,20 @@ min_score = 0.55
 recent_window = 512
 
 [notifier]
-# Notifier seam is deferred to P2-5; "none" is the only backend for now.
+# Notifier backend selector (ADR-0002). "none" runs the daemon without
+# alerting; "telegram" is the v1 chat platform (ADR-0003).
 backend = "none"
+
+# Telegram backend (ADR-0003): long-poll getUpdates, no webhook — works
+# behind CGNAT/firewalls with zero inbound surface. Alerts and commands
+# flow through one private chat with one authorized operator.
+# [notifier]
+# backend = "telegram"
+# chat_id = 123456789   # the one authorized chat
+# user_id = 123456789   # the one authorized user; BOTH must match inbound
+# poll_timeout = 30.0   # server-side long-poll hold, seconds
+#
+# bot_token is a SECRET — never write it here (this repo is public and a
+# committed token is burned). Inject it via the environment instead:
+#   export BLESENTRY_NOTIFIER__BOT_TOKEN="123456:abc..."
+# or place it in config.local.toml (gitignored). See SECURITY.md.
