@@ -58,6 +58,16 @@ class OutboxRow(TypedDict):
     created_at: str
 
 
+class PresenceEventRow(TypedDict):
+    """Shape of a row returned by :class:`PresenceEventRepository`."""
+
+    id: int
+    site_id: str
+    device_id: int
+    event_type: str
+    occurred_at: str
+
+
 class DeviceRepository:
     """Async repository for the ``devices`` table.
 
@@ -586,3 +596,70 @@ class OutboxRepository:
                 "WHERE id = ? AND site_id = ?",
                 (next_attempt_at, error, outbox_id, self._site),
             )
+
+
+class PresenceEventRepository:
+    """Async repository for the ``presence_events`` table (P2-1).
+
+    Append-only log of ABSENT/PRESENT transitions the presence state
+    machine emits. The alert layer (P2-6) joins these to device labels
+    to decide what warrants an operator alert; this repository only
+    records them.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection, site_id: str) -> None:
+        """Initialise with an open connection and target site."""
+        self._conn = conn
+        self._site = site_id
+
+    @property
+    def connection(self) -> aiosqlite.Connection:
+        """The underlying connection, for ambient transactions (#84)."""
+        return self._conn
+
+    async def append(
+        self,
+        *,
+        device_id: int,
+        event_type: str,
+        occurred_at: str,
+    ) -> int:
+        """Record one presence transition; return its new id.
+
+        ``event_type`` is ``"PRESENT"`` or ``"ABSENT"`` (the schema's
+        CHECK constraint rejects anything else). ``occurred_at`` is the
+        fixed-width UTC time of the scan window that produced it.
+        """
+        async with transaction(self._conn):
+            cur = await self._conn.execute(
+                "INSERT INTO presence_events "
+                "(site_id, device_id, event_type, occurred_at) "
+                "VALUES (?, ?, ?, ?) RETURNING id",
+                (self._site, device_id, event_type, occurred_at),
+            )
+            row = await cur.fetchone()
+            await cur.close()
+            if row is None:
+                raise RuntimeError("RETURNING produced no row")
+            return int(row[0])
+
+    async def list_for_device(self, device_id: int) -> list[PresenceEventRow]:
+        """Return a device's transitions for this site, oldest first."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, device_id, event_type, occurred_at "
+            "FROM presence_events WHERE site_id = ? AND device_id = ? "
+            "ORDER BY occurred_at, id",
+            (self._site, device_id),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            PresenceEventRow(
+                id=r[0],
+                site_id=r[1],
+                device_id=r[2],
+                event_type=r[3],
+                occurred_at=r[4],
+            )
+            for r in rows
+        ]

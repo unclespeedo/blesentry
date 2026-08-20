@@ -311,12 +311,14 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     from blesentry.drain import run_drain
     from blesentry.loop import run_loop
     from blesentry.notifier.null import NullNotifier
+    from blesentry.presence import PresenceTracker
     from blesentry.resolver import DeviceResolver
     from blesentry.storage.database import apply_migrations, connect
     from blesentry.storage.repository import (
         DeviceRepository,
         ObservationRepository,
         OutboxRepository,
+        PresenceEventRepository,
     )
 
     settings = _resolve_run_settings(args)
@@ -365,6 +367,13 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                 pause=settings.pause,
                 max_cycles=settings.max_cycles,
                 resolver=resolver,
+                # Presence runs on the scan connection so transitions
+                # commit atomically with their observations (#84).
+                # Thresholds are defaults; config wiring is P2-2 (#23).
+                presence=PresenceTracker(),
+                presence_events=PresenceEventRepository(
+                    scan_conn, settings.site_id
+                ),
             ),
             run_drain(
                 OutboxRepository(drain_conn, settings.site_id),
