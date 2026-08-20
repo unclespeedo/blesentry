@@ -618,3 +618,78 @@ async def test_obs_get_nonexistent_returns_none(
 ) -> None:
     obs = await obs_repo.get(99999)
     assert obs is None
+
+
+# -- DeviceRepository: labels + audit (P2-8) --
+
+
+async def _audit(
+    db: aiosqlite.Connection, device_id: int
+) -> list[tuple[str, str | None, str | None]]:
+    cur = await db.execute(
+        "SELECT actor, previous_label, new_label FROM label_audit "
+        "WHERE device_id = ? ORDER BY id",
+        (device_id,),
+    )
+    rows = await cur.fetchall()
+    await cur.close()
+    return [(r[0], r[1], r[2]) for r in rows]
+
+
+async def test_set_label_updates_and_audits(
+    device_repo: DeviceRepository, db: aiosqlite.Connection
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-lbl")
+    assert await device_repo.set_label(
+        device_id, label="Front Door", actor="op"
+    )
+    row = await device_repo.get(device_id)
+    assert row is not None and row["label"] == "Front Door"
+    assert await _audit(db, device_id) == [("op", None, "Front Door")]
+
+
+async def test_set_label_records_previous_label(
+    device_repo: DeviceRepository, db: aiosqlite.Connection
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-re", label="Old")
+    await device_repo.set_label(device_id, label="New", actor="op")
+    assert (await _audit(db, device_id))[-1] == ("op", "Old", "New")
+
+
+async def test_set_label_none_clears_and_audits(
+    device_repo: DeviceRepository, db: aiosqlite.Connection
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-un", label="X")
+    assert await device_repo.set_label(device_id, label=None, actor="op")
+    row = await device_repo.get(device_id)
+    assert row is not None and row["label"] is None
+    assert (await _audit(db, device_id))[-1] == ("op", "X", None)
+
+
+async def test_set_label_unknown_device_is_noop(
+    device_repo: DeviceRepository, db: aiosqlite.Connection
+) -> None:
+    assert await device_repo.set_label(999, label="X", actor="op") is False
+    assert await _audit(db, 999) == []
+
+
+async def test_set_label_is_site_scoped(db: aiosqlite.Connection) -> None:
+    site_a = DeviceRepository(db, "site-a")
+    site_b = DeviceRepository(db, "site-b")
+    device_id = await site_a.upsert(fingerprint="fp")
+    assert await site_b.set_label(device_id, label="X", actor="op") is False
+    row = await site_a.get(device_id)
+    assert row is not None and row["label"] is None
+
+
+async def test_set_description(device_repo: DeviceRepository) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-d")
+    assert await device_repo.set_description(device_id, description="note")
+    row = await device_repo.get(device_id)
+    assert row is not None and row["description"] == "note"
+
+
+async def test_set_description_unknown_device_is_noop(
+    device_repo: DeviceRepository,
+) -> None:
+    assert await device_repo.set_description(999, description="x") is False

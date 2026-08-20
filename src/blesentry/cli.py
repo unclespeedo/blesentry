@@ -21,6 +21,7 @@ import json
 import logging
 import signal
 import sys
+import time
 from collections.abc import Coroutine
 from typing import Any, NamedTuple
 
@@ -258,21 +259,21 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
 
 async def _run_supervised(
     scan: Coroutine[Any, Any, Any],
-    drain: Coroutine[Any, Any, Any],
+    *others: Coroutine[Any, Any, Any],
 ) -> int:
-    """Run the scan loop and outbox drain concurrently, fail-loud.
+    """Run the scan loop and its sibling tasks concurrently, fail-loud.
 
-    Whichever task finishes or fails first stops the other: if either
-    raises, the sibling is cancelled and the exception propagates — a
-    dead scan or a silently-dead drain takes the daemon down for the
-    supervisor (systemd, P3-1) to restart, never a half-running
-    sentinel. Cancelling this coroutine (SIGTERM) cancels both children;
-    the ``finally`` always drains their cancellation so no task is
-    orphaned. Returns the scan loop's cycle count.
+    ``others`` are the outbox drain and (when a real notifier is
+    configured) the command loop. Whichever task finishes or fails first
+    stops the rest: if any raises, the siblings are cancelled and the
+    exception propagates — a dead scan, drain, or command loop takes the
+    daemon down for the supervisor (systemd, P3-1) to restart, never a
+    half-running sentinel. Cancelling this coroutine (SIGTERM) cancels
+    all children; the ``finally`` always drains their cancellation so no
+    task is orphaned. Returns the scan loop's cycle count.
     """
     scan_task = asyncio.ensure_future(scan)
-    drain_task = asyncio.ensure_future(drain)
-    children = (scan_task, drain_task)
+    children = [scan_task, *(asyncio.ensure_future(c) for c in others)]
     try:
         await asyncio.wait(children, return_when=asyncio.FIRST_COMPLETED)
     finally:
@@ -290,11 +291,13 @@ async def _run_supervised(
 async def _run_daemon(args: argparse.Namespace) -> int:
     """Connect, migrate, and scan-persist + drain until stopped.
 
-    The scan loop and the outbox drain run concurrently
-    (:func:`_run_supervised`). The drain gets its OWN connection:
-    ``transaction()`` nesting is connection-global, so sharing the scan
-    loop's connection across the two tasks would corrupt their units of
-    work (#91).
+    The scan loop, the outbox drain, and (when a real notifier is
+    configured) the inbound command loop run concurrently
+    (:func:`_run_supervised`). Each task that writes gets its OWN
+    connection: ``transaction()`` nesting is connection-global, so
+    sharing one connection across tasks would corrupt their units of
+    work (#91). The command loop is skipped for the ``none`` backend,
+    which has no inbound side.
 
     SIGTERM (systemd's stop signal) cancels the task so both loops
     unwind through ``finally`` and connections close cleanly — the issue
@@ -304,8 +307,10 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     database consistent) — deliberate, and it never re-interrupts the
     in-flight cleanup that would otherwise orphan the child tasks.
     """
+    from blesentry.commands import run_command_loop
     from blesentry.drain import run_drain
     from blesentry.loop import run_loop
+    from blesentry.notifier.null import NullNotifier
     from blesentry.resolver import DeviceResolver
     from blesentry.storage.database import apply_migrations, connect
     from blesentry.storage.repository import (
@@ -320,6 +325,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     task = asyncio.current_task()
     scan_conn = None
     drain_conn = None
+    cmd_conn = None
     try:
         if task is not None:
 
@@ -350,7 +356,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                 min_score=settings.min_score,
                 recent_window=settings.recent_window,
             )
-        cycles = await _run_supervised(
+        coros = [
             run_loop(
                 settings.scanner,
                 devices,
@@ -364,7 +370,21 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                 OutboxRepository(drain_conn, settings.site_id),
                 settings.notifier,
             ),
-        )
+        ]
+        # The command loop consumes the notifier's inbound side; the
+        # null backend has none, so skip it. Its own connection (#91).
+        if not isinstance(settings.notifier, NullNotifier):
+            cmd_conn = await connect(settings.db)
+            coros.append(
+                run_command_loop(
+                    settings.notifier,
+                    DeviceRepository(cmd_conn, settings.site_id),
+                    OutboxRepository(cmd_conn, settings.site_id),
+                    db_path=settings.db,
+                    started_at=time.monotonic(),
+                )
+            )
+        cycles = await _run_supervised(*coros)
         logger.info("stopped after %d cycles", cycles)
     except asyncio.CancelledError:
         if task is not None:
@@ -378,6 +398,8 @@ async def _run_daemon(args: argparse.Namespace) -> int:
             await scan_conn.close()
         if drain_conn is not None:
             await drain_conn.close()
+        if cmd_conn is not None:
+            await cmd_conn.close()
     return 0
 
 
