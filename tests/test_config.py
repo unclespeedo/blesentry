@@ -22,6 +22,8 @@ from blesentry.config import (
     Config,
     ConfigError,
     MockScannerConfig,
+    PresenceConfig,
+    build_presence,
     build_scanner,
     load_config,
 )
@@ -79,6 +81,13 @@ or_patterns = ["0:01:06", "0:01:1a"]
 min_score = 0.7
 recent_window = 256
 
+[presence]
+appear_windows = 5
+disappear_windows = 4
+rssi_threshold = -70
+cooldown_windows = 6
+prune_after_windows = 20
+
 [notifier]
 backend = "none"
 """
@@ -101,6 +110,12 @@ def test_minimal_config_applies_defaults(tmp_path: Path) -> None:
     assert cfg.scanner.backend == "bleak"
     assert cfg.resolver.min_score == 0.55
     assert cfg.resolver.recent_window == 512
+    # Presence debounce falls back to the P2-1 tracker defaults.
+    assert cfg.presence.appear_windows == 3
+    assert cfg.presence.disappear_windows == 3
+    assert cfg.presence.rssi_threshold == -80
+    assert cfg.presence.cooldown_windows == 0
+    assert cfg.presence.prune_after_windows is None
     assert cfg.notifier.backend == "none"
 
 
@@ -115,6 +130,11 @@ def test_full_config_wires_every_knob(tmp_path: Path) -> None:
     assert cfg.scanner.or_patterns == ["0:01:06", "0:01:1a"]
     assert cfg.resolver.min_score == 0.7
     assert cfg.resolver.recent_window == 256
+    assert cfg.presence.appear_windows == 5
+    assert cfg.presence.disappear_windows == 4
+    assert cfg.presence.rssi_threshold == -70
+    assert cfg.presence.cooldown_windows == 6
+    assert cfg.presence.prune_after_windows == 20
 
 
 def test_config_type_is_base_settings(tmp_path: Path) -> None:
@@ -216,6 +236,15 @@ def test_wrong_type_rejected(tmp_path: Path) -> None:
         # Above the max achievable fusion score: unreachable, not valid.
         "[resolver]\nmin_score = 7.0\n",
         "[resolver]\nrecent_window = 0\n",
+        "[presence]\nappear_windows = 0\n",
+        "[presence]\ndisappear_windows = 0\n",
+        "[presence]\ncooldown_windows = -1\n",
+        "[presence]\nprune_after_windows = 0\n",
+        # A zero-or-positive RSSI is a sign typo that no real signal can
+        # reach — it would silence the sentinel (rssi >= 0 never holds),
+        # so both 0 and a positive value are rejected at load time.
+        "[presence]\nrssi_threshold = 80\n",
+        "[presence]\nrssi_threshold = 0\n",
     ],
 )
 def test_out_of_range_values_rejected(tmp_path: Path, section: str) -> None:
@@ -278,6 +307,46 @@ def test_build_bleak_scanner_rejects_bad_or_pattern() -> None:
     cfg = BleakScannerConfig(or_patterns=["not-a-pattern"])
     with pytest.raises(ValueError):
         build_scanner(cfg)
+
+
+# ---------------------------------------------------------------------------
+# build_presence: config -> PresenceTracker (P2-2 threshold wiring)
+# ---------------------------------------------------------------------------
+
+
+def test_build_presence_returns_tracker() -> None:
+    from blesentry.presence import PresenceTracker
+
+    assert isinstance(build_presence(PresenceConfig()), PresenceTracker)
+
+
+def test_build_presence_wires_rssi_gate_and_appear() -> None:
+    # A behavioural check that the two headline knobs actually reach the
+    # tracker: an at-appear_windows=1 device below the RSSI gate stays
+    # silent, the same device above the gate reaches PRESENT immediately.
+    from blesentry.presence import PresenceState
+
+    tracker = build_presence(
+        PresenceConfig(appear_windows=1, rssi_threshold=-70)
+    )
+    assert tracker.update({1: -75}) == []  # below the -70 gate → a miss
+    [transition] = tracker.update({1: -65})  # above the gate → PRESENT
+    assert transition.device_id == 1
+    assert transition.state is PresenceState.PRESENT
+
+
+def test_build_presence_wires_disappear_and_cooldown() -> None:
+    # disappear_windows=1 makes a single miss drop the device to ABSENT;
+    # cooldown/prune are pass-through and covered by the tracker's own
+    # tests — here we just prove the disappear count reaches the machine.
+    from blesentry.presence import PresenceState
+
+    tracker = build_presence(
+        PresenceConfig(appear_windows=1, disappear_windows=1)
+    )
+    tracker.update({1: -50})  # → PRESENT
+    [transition] = tracker.update({})  # one miss → ABSENT
+    assert transition.state is PresenceState.ABSENT
 
 
 # ---------------------------------------------------------------------------

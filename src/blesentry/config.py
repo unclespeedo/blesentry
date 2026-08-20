@@ -39,6 +39,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
     from blesentry.notifier.protocol import Notifier
+    from blesentry.presence import PresenceTracker
     from blesentry.scanner.protocol import Scanner
 
 __all__ = [
@@ -48,11 +49,13 @@ __all__ = [
     "MockScannerConfig",
     "NoneNotifierConfig",
     "NotifierConfig",
+    "PresenceConfig",
     "ResolverConfig",
     "ScanConfig",
     "StorageConfig",
     "TelegramNotifierConfig",
     "build_notifier",
+    "build_presence",
     "build_scanner",
     "load_config",
 ]
@@ -106,6 +109,40 @@ class ResolverConfig(_Section):
     # advertisement can reach is a misconfig, not a valid setting.
     min_score: float = Field(default=0.55, ge=0, le=2.0)
     recent_window: int = Field(default=512, ge=1)
+
+
+class PresenceConfig(_Section):
+    """Presence state-machine thresholds (P2-1 debounce + cooldown).
+
+    These are the operator's dwell-and-proximity dials — the levers that
+    turn a device-dense site from an alert firehose into signal. Counts
+    are in *scan windows*, not seconds: one window is ``[scan] window +
+    [scan] pause`` long, so at the defaults (10 s + 5 s) three windows is
+    ~45 s. Defaults mirror
+    :class:`~blesentry.presence.PresenceTracker`; see ``docs/tuning.md``.
+    """
+
+    # Consecutive above-gate windows before a device counts as PRESENT.
+    # Higher = slower to fire, more resistant to a passer-by.
+    appear_windows: int = Field(default=3, ge=1)
+    # Consecutive missed windows before a PRESENT device counts as ABSENT.
+    disappear_windows: int = Field(default=3, ge=1)
+    # Proximity gate: the minimum RSSI (dBm) for a window to count as a
+    # hit. RSSI is negative and rises toward 0 with proximity, so RAISING
+    # this (e.g. -80 -> -65) admits only nearby devices — the primary
+    # lever for a dense site. Bounded [-127, 0): a value of 0 or more is a
+    # sign typo that would silence the sentinel — no real received signal
+    # reaches 0 dBm, so nothing would ever count as a hit.
+    rssi_threshold: int = Field(default=-80, ge=-127, lt=0)
+    # Windows after a device goes ABSENT during which a return is treated
+    # as the same visit (no re-emit). 0 = every return is a new visit; to
+    # affect a device that returns immediately it must exceed
+    # ``appear_windows`` (reconfirming PRESENT itself costs that many).
+    cooldown_windows: int = Field(default=0, ge=0)
+    # Drop an ABSENT device from tracker memory after this many missed
+    # windows, bounding RAM on the 512 MB target. ``None`` -> the
+    # tracker's default of ``4 * disappear_windows``.
+    prune_after_windows: int | None = Field(default=None, ge=1)
 
 
 class NoneNotifierConfig(_Section):
@@ -193,6 +230,7 @@ class Config(BaseSettings):
     scan: ScanConfig = ScanConfig()
     scanner: ScannerConfig = BleakScannerConfig()
     resolver: ResolverConfig = ResolverConfig()
+    presence: PresenceConfig = PresenceConfig()
     notifier: NotifierConfig = NoneNotifierConfig()
 
 
@@ -306,6 +344,32 @@ def build_scanner(scanner: ScannerConfig) -> Scanner:
         adapter_id=scanner.adapter_id,
         adapter=scanner.adapter,
         or_patterns=[parse_or_pattern(p) for p in raw],
+    )
+
+
+def build_presence(presence: PresenceConfig) -> PresenceTracker:
+    """Construct the presence state machine from its config section.
+
+    A straight pass-through of the debounce and proximity thresholds into
+    :class:`~blesentry.presence.PresenceTracker`. Unlike the resolver, the
+    tracker needs no repository, so it is fully built here (the daemon
+    just hands it to the scan loop). The ``PresenceTracker`` constructor
+    re-validates the counts, so a bad value fails fast either way.
+
+    Args:
+        presence: The validated presence section from :class:`Config`.
+
+    Returns:
+        A ready-to-use :class:`~blesentry.presence.PresenceTracker`.
+    """
+    from blesentry.presence import PresenceTracker
+
+    return PresenceTracker(
+        appear_windows=presence.appear_windows,
+        disappear_windows=presence.disappear_windows,
+        rssi_threshold=presence.rssi_threshold,
+        cooldown_windows=presence.cooldown_windows,
+        prune_after_windows=presence.prune_after_windows,
     )
 
 

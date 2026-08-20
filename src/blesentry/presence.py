@@ -27,7 +27,9 @@ only tracks presence and emits transitions.
 
 The tracker is window-driven and clock-free: thresholds are counted in
 windows, and the caller stamps each transition with the window's time.
-Thresholds are constructor parameters; config wiring is P2-2.
+Thresholds are constructor parameters, wired from the ``[presence]``
+config section by :func:`blesentry.config.build_presence` (P2-2); see
+``docs/tuning.md`` for what each one does.
 """
 
 from __future__ import annotations

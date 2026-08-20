@@ -49,6 +49,31 @@ or_patterns = ["0:01:06", "0:01:1a", "0:01:05", "0:01:02", "0:01:04"]
 min_score = 0.55
 recent_window = 512
 
+[presence]
+# Presence debounce + proximity (P2-1). Counts are in SCAN WINDOWS, not
+# seconds — one window is (scan.window + scan.pause) long, so at the
+# defaults above three windows is ~45 s. This section is the main lever
+# for a device-dense site; see docs/tuning.md for a tuning recipe.
+#
+# rssi_threshold is the proximity GATE: minimum signal (dBm) for a window
+# to count. RSSI is negative and rises toward 0 as a device gets closer,
+# so RAISING this admits only nearby devices and is the fastest way to
+# quiet a noisy site (e.g. -65 ≈ same room). Must be in [-127, 0).
+rssi_threshold = -80
+# Consecutive in-range windows before a device is PRESENT (a passer-by
+# heard for 1–2 windows never qualifies). Higher = calmer, slower.
+appear_windows = 3
+# Consecutive missed windows before a PRESENT device is ABSENT.
+disappear_windows = 3
+# Windows after leaving during which a return is the SAME visit (no
+# re-alert). 0 = every return is new; to matter it must exceed
+# appear_windows. Raise it to stop a device flapping at the edge of range
+# from re-alerting.
+cooldown_windows = 0
+# Forget an ABSENT device after this many missed windows (bounds memory).
+# Omit for the default of 4 × disappear_windows.
+# prune_after_windows = 12
+
 [notifier]
 # Notifier backend selector (ADR-0002). "none" runs the daemon without
 # alerting; "telegram" is the v1 chat platform (ADR-0003).
