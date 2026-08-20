@@ -2,15 +2,17 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Async repository layer for devices and observations (P1-6).
+"""Async repository layer for devices, observations, and the outbox.
 
 All SQL is confined to this module — this is the storage seam per
-ADR-0002.  Callers never touch the database directly.
+ADR-0002.  Callers never touch the database directly.  Devices and
+observations are P1-6; the outbox enqueue API is P2-3.
 """
 
 from __future__ import annotations
 
-from typing import TypedDict
+from collections.abc import Sequence
+from typing import Any, TypedDict
 
 import aiosqlite
 
@@ -41,6 +43,19 @@ class ObservationRow(TypedDict):
     adapter_id: str | None
     address_type: str | None
     adv_type: str | None
+
+
+class OutboxRow(TypedDict):
+    """Shape of a row returned by :class:`OutboxRepository`."""
+
+    id: int
+    site_id: str
+    status: str
+    attempt_count: int
+    next_attempt_at: str | None
+    payload: str
+    last_error: str | None
+    created_at: str
 
 
 class DeviceRepository:
@@ -334,3 +349,101 @@ class ObservationRepository:
             address_type=row[6],
             adv_type=row[7],
         )
+
+
+def _to_outbox_row(row: Sequence[Any]) -> OutboxRow:
+    """Map a full-column ``outbox`` result row to :class:`OutboxRow`.
+
+    Rows are positional tuples (``connect`` sets no ``row_factory``);
+    the ``Sequence`` annotation keeps access index-only, not by name.
+    """
+    return OutboxRow(
+        id=row[0],
+        site_id=row[1],
+        status=row[2],
+        attempt_count=row[3],
+        next_attempt_at=row[4],
+        payload=row[5],
+        last_error=row[6],
+        created_at=row[7],
+    )
+
+
+class OutboxRepository:
+    """Async repository for the ``outbox`` table (P2-3).
+
+    The outbox is the durability boundary: every outbound message is
+    written here with status ``PENDING`` synchronously with the event
+    that produced it, before any delivery attempt — nothing is ever
+    fire-and-forget.  Enqueue joins the caller's ambient transaction
+    (#84), so a message and its triggering event commit or roll back as
+    one unit.  Claiming, backoff, and status transitions belong to the
+    drain loop (P2-4); this class owns enqueue and the ordered reads.
+
+    FIFO ordering relies on SQLite's monotonically increasing rowid
+    (``id``), which holds while rows are only appended.  When P2-4
+    begins deleting delivered rows, it must switch ``id`` to
+    ``AUTOINCREMENT`` (a migration) so a reused rowid can never rewind
+    the order or alias a message id a caller still holds.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection, site_id: str) -> None:
+        """Initialise with an open connection and target site."""
+        self._conn = conn
+        self._site = site_id
+
+    @property
+    def connection(self) -> aiosqlite.Connection:
+        """The underlying connection, for ambient transactions (#84)."""
+        return self._conn
+
+    async def enqueue(self, *, payload: str) -> int:
+        """Append one message as ``PENDING``; return its new id.
+
+        ``status``/``attempt_count``/``created_at`` take their schema
+        defaults (PENDING / 0 / now).  Ordering is by id, so the drain
+        loop (P2-4) delivers messages in the order they were enqueued.
+
+        Caller contract: wrap the enqueue in the *same* ``transaction()``
+        as the triggering write when the two must be atomic — the alert
+        and the event that raised it then commit together, or not at all
+        (never a fire-and-forget row outliving a failed event).
+        """
+        async with transaction(self._conn):
+            cur = await self._conn.execute(
+                "INSERT INTO outbox (site_id, payload) "
+                "VALUES (?, ?) RETURNING id",
+                (self._site, payload),
+            )
+            row = await cur.fetchone()
+            await cur.close()
+            if row is None:
+                raise RuntimeError("RETURNING produced no row")
+            return int(row[0])
+
+    async def list_pending(self) -> list[OutboxRow]:
+        """Return this site's PENDING messages, oldest first (FIFO)."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, status, attempt_count, "
+            "next_attempt_at, payload, last_error, created_at "
+            "FROM outbox WHERE site_id = ? AND status = 'PENDING' "
+            "ORDER BY id",
+            (self._site,),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [_to_outbox_row(r) for r in rows]
+
+    async def get(self, outbox_id: int) -> OutboxRow | None:
+        """Return one outbox row, or ``None`` if not found."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, status, attempt_count, "
+            "next_attempt_at, payload, last_error, created_at "
+            "FROM outbox WHERE id = ? AND site_id = ?",
+            (outbox_id, self._site),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return _to_outbox_row(row)
