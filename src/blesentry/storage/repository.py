@@ -242,6 +242,66 @@ class DeviceRepository:
             for r in rows
         ]
 
+    async def set_label(
+        self,
+        device_id: int,
+        *,
+        label: str | None,
+        actor: str,
+    ) -> bool:
+        """Set (or clear, ``label=None``) a device's label; audit it.
+
+        Reads the previous label, updates the device, and appends a
+        ``label_audit`` row (who/what/when) atomically. Returns ``False``
+        if no device with that id exists for this site (a no-op, no
+        audit row). ``actor`` identifies the operator making the change.
+        """
+        async with transaction(self._conn):
+            cur = await self._conn.execute(
+                "SELECT label FROM devices WHERE id = ? AND site_id = ?",
+                (device_id, self._site),
+            )
+            row = await cur.fetchone()
+            await cur.close()
+            if row is None:
+                return False
+            previous = row[0]
+            await self._conn.execute(
+                "UPDATE devices SET label = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ? AND site_id = ?",
+                (label, device_id, self._site),
+            )
+            await self._conn.execute(
+                "INSERT INTO label_audit "
+                "(site_id, device_id, actor, previous_label, new_label) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (self._site, device_id, actor, previous, label),
+            )
+            return True
+
+    async def set_description(
+        self,
+        device_id: int,
+        *,
+        description: str | None,
+    ) -> bool:
+        """Set a device's free-text description.
+
+        Not audited (``label_audit`` tracks labels only). Returns
+        ``False`` if no device with that id exists for this site.
+        """
+        async with transaction(self._conn):
+            cur = await self._conn.execute(
+                "UPDATE devices SET description = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ? AND site_id = ? RETURNING id",
+                (description, device_id, self._site),
+            )
+            row = await cur.fetchone()
+            await cur.close()
+            return row is not None
+
 
 class ObservationRepository:
     """Async repository for the ``observations`` table.
@@ -422,6 +482,17 @@ class OutboxRepository:
             if row is None:
                 raise RuntimeError("RETURNING produced no row")
             return int(row[0])
+
+    async def count_pending(self) -> int:
+        """Return how many PENDING messages this site has (outbox depth)."""
+        cur = await self._conn.execute(
+            "SELECT COUNT(*) FROM outbox "
+            "WHERE site_id = ? AND status = 'PENDING'",
+            (self._site,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        return int(row[0]) if row is not None else 0
 
     async def list_pending(self) -> list[OutboxRow]:
         """Return this site's PENDING messages, oldest first (FIFO)."""

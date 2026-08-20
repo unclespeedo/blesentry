@@ -26,10 +26,11 @@ from blesentry.cli import (
     build_parser,
     main,
 )
+from blesentry.commands import run_command_loop
 from blesentry.drain import run_drain
 from blesentry.loop import run_loop
 from blesentry.notifier.mock import MockNotifier
-from blesentry.notifier.models import OutboundMessage
+from blesentry.notifier.models import InboundCommand, OutboundMessage
 from blesentry.notifier.null import NullNotifier
 from blesentry.scanner.mock import MockScanner
 from blesentry.storage import (
@@ -72,6 +73,18 @@ async def test_supervised_propagates_drain_failure() -> None:
 async def test_supervised_propagates_scan_failure() -> None:
     with pytest.raises(ValueError, match="scan died"):
         await _run_supervised(_raises(ValueError("scan died")), _forever())
+
+
+async def test_supervised_handles_three_tasks() -> None:
+    result = await _run_supervised(_returns(2), _forever(), _forever())
+    assert result == 2
+
+
+async def test_supervised_propagates_failure_among_three() -> None:
+    with pytest.raises(RuntimeError, match="boom"):
+        await _run_supervised(
+            _forever(), _forever(), _raises(RuntimeError("boom"))
+        )
 
 
 async def test_supervised_cancellation_cancels_both_children() -> None:
@@ -173,7 +186,7 @@ async def test_drain_delivers_queued_message_while_scanning(
                 DeviceRepository(scan_conn, SITE),
                 ObservationRepository(scan_conn, SITE),
                 duration=0.01,
-                pause=0.0,
+                pause=0.05,
                 max_cycles=3,
             ),
             run_drain(outbox, notifier, poll=0.0),
@@ -188,6 +201,55 @@ async def test_drain_delivers_queued_message_while_scanning(
         await drain_conn.close()
 
 
+# --- command loop runs alongside the scan loop -----------------------
+
+
+async def test_command_loop_runs_alongside_scan(db_path: Path) -> None:
+    scan_conn = await connect(db_path)
+    await apply_migrations(scan_conn)
+    cmd_conn = await connect(db_path)  # dedicated (#91)
+    try:
+        outbox = OutboxRepository(cmd_conn, SITE)
+        notifier = MockNotifier(
+            inbound=[
+                InboundCommand(
+                    chat_id=1, user_id=2, message_id=1, text="/help"
+                )
+            ]
+        )
+        # Scan is primary and runs forever; the command loop finishes
+        # after its one command, which stops the scan (returns 0).
+        result = await _run_supervised(
+            run_loop(
+                MockScanner(scenarios=[[]]),
+                DeviceRepository(scan_conn, SITE),
+                ObservationRepository(scan_conn, SITE),
+                duration=0.01,
+                pause=0.05,
+                max_cycles=None,
+            ),
+            run_command_loop(
+                notifier,
+                DeviceRepository(cmd_conn, SITE),
+                OutboxRepository(cmd_conn, SITE),
+                db_path=str(db_path),
+                started_at=0.0,
+                clock=lambda: 0.0,
+            ),
+        )
+        assert result == 0  # scan cancelled when the command loop ended
+        # The reply was enqueued to the outbox (ADR-0003), on its own conn.
+        replies = [
+            OutboundMessage.model_validate_json(row["payload"]).text
+            for row in await outbox.list_pending()
+        ]
+        assert len(replies) == 1
+        assert "commands:" in replies[0]
+    finally:
+        await scan_conn.close()
+        await cmd_conn.close()
+
+
 # --- full `run` command, self-terminating via max_cycles -------------
 
 
@@ -196,7 +258,7 @@ def test_run_command_drains_outbox_end_to_end(tmp_path: Path) -> None:
     cfg = _write_config(
         tmp_path / "c.toml",
         f'site_id = "{SITE}"\n[storage]\ndb = "{db}"\n'
-        "[scan]\nwindow = 0.01\npause = 0.0\nmax_cycles = 3\n"
+        "[scan]\nwindow = 0.01\npause = 0.05\nmax_cycles = 3\n"
         '[scanner]\nbackend = "mock"\n'
         '[notifier]\nbackend = "none"\n',
     )

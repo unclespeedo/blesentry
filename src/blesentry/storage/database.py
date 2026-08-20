@@ -52,10 +52,20 @@ async def transaction(
     interleaved tasks would corrupt each other's units of work. The
     P2 bot handler gets its own connection (requirement recorded on
     the notifier issue).
+
+    ``BEGIN IMMEDIATE`` (not plain ``BEGIN``): every unit of work here
+    writes, and several (the scan cycle, ``set_label``) read before they
+    write. A deferred ``BEGIN`` would take the write lock only at the
+    first write, so a concurrent connection (scan/drain/command loop on
+    the same WAL database) committing after this unit's read snapshot
+    makes the write-upgrade fail with ``SQLITE_BUSY_SNAPSHOT`` — which
+    ``busy_timeout`` never retries (the snapshot is stale, waiting can't
+    help). Acquiring the write lock up front makes ``busy_timeout``
+    govern the contention normally instead.
     """
     outermost = not conn.in_transaction
     if outermost:
-        await conn.execute("BEGIN")
+        await conn.execute("BEGIN IMMEDIATE")
     try:
         yield
     except BaseException:

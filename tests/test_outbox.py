@@ -151,6 +151,18 @@ async def test_interleaved_sites_keep_per_site_fifo(
     assert [r["payload"] for r in await site_b.list_pending()] == ["b0", "b1"]
 
 
+async def test_count_pending(outbox: OutboxRepository) -> None:
+    assert await outbox.count_pending() == 0
+    for i in range(3):
+        await outbox.enqueue(payload=f"m{i}")
+    assert await outbox.count_pending() == 3
+    # Terminal rows don't count toward depth.
+    head = await outbox.head_pending()
+    assert head is not None
+    await outbox.mark_delivered(head["id"])
+    assert await outbox.count_pending() == 2
+
+
 async def test_get_unknown_returns_none(outbox: OutboxRepository) -> None:
     assert await outbox.get(999) is None
 
