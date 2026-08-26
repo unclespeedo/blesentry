@@ -6,10 +6,9 @@
 -->
 # ADR-0005: Resolver seam — lifecycle, scoring, durable aliases
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-26
-- **Deciders:** Ryan Speed (human sign-off required — agents may
-  draft, never accept)
+- **Deciders:** Ryan Speed
 
 ## Context
 
@@ -196,7 +195,8 @@ the follow-up that wires persist must.
   unused by the resolver — empty in production until the follow-up
   wires persist-inside-`resolve`. Schema-changing deploys still
   follow `docs/schema.md` (stop collector, deploy, start).
-- Accepting this ADR is human-only (`Proposed` until then).
+- This ADR is **Accepted** (human sign-off 2026-08-26). Changing the
+  frozen surface is a new ADR, not an ADR-0002 amendment.
 - ADR-0002 grows a pointer: Resolver is a named internal seam, not a
   fourth plugin.
 
