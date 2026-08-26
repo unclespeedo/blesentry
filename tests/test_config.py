@@ -21,9 +21,12 @@ from blesentry.config import (
     BleakScannerConfig,
     Config,
     ConfigError,
+    MockDetectionConfig,
     MockScannerConfig,
+    NoneDetectionConfig,
     PresenceConfig,
     SummaryConfig,
+    build_detector,
     build_presence,
     build_scanner,
     load_config,
@@ -92,6 +95,9 @@ prune_after_windows = 20
 [notifier]
 backend = "none"
 
+[detection]
+backend = "mock"
+
 [summary]
 enabled = false
 hour_utc = 8
@@ -122,6 +128,8 @@ def test_minimal_config_applies_defaults(tmp_path: Path) -> None:
     assert cfg.presence.cooldown_windows == 0
     assert cfg.presence.prune_after_windows is None
     assert cfg.notifier.backend == "none"
+    assert isinstance(cfg.detection, NoneDetectionConfig)
+    assert cfg.detection.backend == "none"
     assert cfg.summary.enabled is True
     assert cfg.summary.hour_utc == 12
     assert isinstance(cfg.summary, SummaryConfig)
@@ -145,6 +153,8 @@ def test_full_config_wires_every_knob(tmp_path: Path) -> None:
     assert cfg.presence.prune_after_windows == 20
     assert cfg.summary.enabled is False
     assert cfg.summary.hour_utc == 8
+    assert isinstance(cfg.detection, MockDetectionConfig)
+    assert cfg.detection.backend == "mock"
 
 
 def test_summary_hour_utc_boundaries_accepted(tmp_path: Path) -> None:
@@ -194,6 +204,15 @@ def test_unknown_scanner_backend_rejected(tmp_path: Path) -> None:
         load_config(_write(tmp_path, body))
 
 
+def test_unknown_detection_backend_rejected(tmp_path: Path) -> None:
+    body = (
+        'site_id = "s"\n[storage]\ndb = "/tmp/x.db"\n'
+        '[detection]\nbackend = "crowd"\n'
+    )
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, body))
+
+
 # ---------------------------------------------------------------------------
 # Fail-fast on every class of invalid input (DoD: clear errors)
 # ---------------------------------------------------------------------------
@@ -222,6 +241,13 @@ def test_unknown_nested_key_rejected(tmp_path: Path) -> None:
     body = MINIMAL + "\n[resolver]\nmin_scor = 0.5\n"
     with pytest.raises(ConfigError):
         load_config(_write(tmp_path, body))
+
+
+def test_unknown_detection_key_rejected(tmp_path: Path) -> None:
+    body = MINIMAL + '\n[detection]\nbackend = "none"\ntypo_knob = "oops"\n'
+    with pytest.raises(ConfigError) as exc:
+        load_config(_write(tmp_path, body))
+    assert "typo_knob" in str(exc.value)
 
 
 def test_missing_required_site_id(tmp_path: Path) -> None:
@@ -397,6 +423,48 @@ def test_build_presence_wires_disappear_and_cooldown() -> None:
 
 
 # ---------------------------------------------------------------------------
+# build_detector: config -> concrete Detector (ADR-0006 lazy registry)
+# ---------------------------------------------------------------------------
+
+
+def test_build_detector_none_is_null() -> None:
+    from blesentry.detection.null import NullDetector
+
+    assert isinstance(build_detector(NoneDetectionConfig()), NullDetector)
+
+
+def test_build_detector_mock_is_mock() -> None:
+    from blesentry.detection.mock import MockDetector
+
+    assert isinstance(
+        build_detector(MockDetectionConfig(backend="mock")),
+        MockDetector,
+    )
+
+
+def test_build_detector_none_does_not_import_mock() -> None:
+    """The none path must not load mock (ADR-0006 lazy import)."""
+    import subprocess
+    import sys
+
+    script = (
+        "from blesentry.config import NoneDetectionConfig, "
+        "build_detector\n"
+        "build_detector(NoneDetectionConfig())\n"
+        "import sys\n"
+        "raise SystemExit(0 if 'blesentry.detection.mock' "
+        "not in sys.modules else 1)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+# ---------------------------------------------------------------------------
 # The committed example config (DoD: example config committed)
 # ---------------------------------------------------------------------------
 
@@ -410,3 +478,4 @@ def test_example_config_loads_clean() -> None:
     assert cfg.site_id
     assert cfg.storage.db
     assert cfg.scanner.backend in {"bleak", "mock"}
+    assert cfg.detection.backend in {"none", "mock"}

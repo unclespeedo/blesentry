@@ -44,16 +44,20 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
 ```
 
 Every external dependency sits behind a small config-selected interface
-(`Scanner`, `Notifier`, `Storage`) — swapping implementations is a config
-edit, no code change. See `docs/adr/0002-extension-points.md` for those
-plugin contracts. The Device resolver is a *named internal* seam
-(ADR-0005), not a backend selector: one instance, one lifecycle, no
-plugin registry.
+(`Scanner`, `Notifier`, `Storage`, `Detector`) — swapping
+implementations is a config edit, no code change. See
+`docs/adr/0002-extension-points.md` for those plugin contracts.
+Detector's frozen surface (`observe(window) → events`) is ADR-0006;
+v1 backends are `none` (default, no events) and `mock` (CI / replay).
+Approach / crowd / inside detectors are later issues and are **not**
+yet invoked from the scan loop. The Device resolver is a *named
+internal* seam (ADR-0005), not a backend selector: one instance, one
+lifecycle, no plugin registry.
 
 ## Licensing (plain English)
 MPL-2.0. Use it anywhere, including commercially. If you modify *these files*
 and ship them, publish those modifications. Your own plugins, glue code, and
-out-of-tree Scanner/Notifier backends are yours, under any license.
+out-of-tree Scanner/Notifier/Detector backends are yours, under any license.
 
 ## Deploying to the Pi
 
