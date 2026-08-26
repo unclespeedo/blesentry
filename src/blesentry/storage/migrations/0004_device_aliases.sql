@@ -4,8 +4,8 @@
 
 -- ADR-0005 / #96: durable fusion aliases. Later fingerprints joined
 -- to an existing device persist here (audit trail + restart lookup
--- once DeviceResolver wires persist-on-commit). Founding keys stay
--- on devices.fingerprint. All access is DeviceRepository-only.
+-- once DeviceResolver wires persist-inside-resolve). Founding keys
+-- stay on devices.fingerprint. All access is DeviceRepository-only.
 
 CREATE TABLE device_aliases (
     id INTEGER PRIMARY KEY,
