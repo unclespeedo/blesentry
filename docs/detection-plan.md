@@ -342,19 +342,18 @@ catches).
 
 ## Provisional IDs & filing
 
-On filing, each issue keeps its letter-prefix in the title and this table is
-filled so `Deps:` remain resolvable:
+Each issue keeps its letter-prefix in the title so `Deps:` remain
+resolvable. Filed (GitHub milestones M1–M5 = `#7`–`#11`; label `phase:5`):
 
-| Provisional | Issue | | Provisional | Issue |
-|---|---|---|---|---|
-| F1 | #— | | C1 | #— |
-| F2 | #— | | C2 | #— |
-| … | | | … | |
+- **M1** (`#7`): F1 `#120` · F2 `#121` · F3 `#122` · F4 `#123` · F5 `#124` · F6 `#125`
+- **M2** (`#8`): A1 `#126` · A2 `#127` · A3 `#128` · A4 `#129` · A5 `#130`
+- **M3** (`#9`): C1 `#131` · C2 `#132` · C3 `#133` · C4 `#134` · C5 `#135`
+- **M4** (`#10`): I1 `#136` · I2 `#137` · I3 `#138` · I4 `#139`
+- **M5** (`#11`): L1 `#140` · L2 `#141` · L3 `#142` · L4 `#143` · L5 `#144`
 
-M1–M5 are also created as GitHub **milestones** (mirroring the existing
-Phase-N milestones), and a `phase:5` label is added to the taxonomy so the
-AGENTS.md SELECT tie-break ("lowest phase") stays well-ordered against the
-existing `phase:4` issues.
+The `phase:5` label was added to the taxonomy so the AGENTS.md SELECT
+tie-break ("lowest phase") stays well-ordered against `phase:4`. Issues are
+filed **without** `agent:eligible` — the epic is human-gated until approved.
 
 ## Relationship to the existing roadmap
 
