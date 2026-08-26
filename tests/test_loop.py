@@ -302,6 +302,7 @@ async def test_loop_flushes_leftover_rollup_on_cancel(
             if await devices.list_devices():
                 break
             await asyncio.sleep(0.01)
+        assert await devices.list_devices(), "first cycle never persisted"
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
