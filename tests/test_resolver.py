@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+import blesentry.resolver as resolver_mod
+import blesentry.storage.repository as repo_mod
 from blesentry.resolver import (
     DeviceResolver,
     fingerprint_key,
@@ -732,3 +734,98 @@ async def test_abort_rolls_back_alias_write(devices) -> None:
     assert await devices.list_aliases(device_id) == []
     await _resolve_cycle(resolver, rotated)
     assert len(await devices.list_aliases(device_id)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Alias retention + seed cache cap (#151)
+# ---------------------------------------------------------------------------
+
+
+def _named_payload(address: str, tick: str) -> Advertisement:
+    """Name + payload continuity; address ticks mint a new fused key."""
+    return _ad(
+        address=address,
+        address_type="rpa",
+        local_name="Tag",
+        manufacturer_data={"76": tick},
+    )
+
+
+@pytest.mark.asyncio
+async def test_over_cap_device_resolves_via_founding_window_newest(
+    devices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Oldest aliases drop; founding, newest, and window still join."""
+    monkeypatch.setattr(repo_mod, "_MAX_ALIASES_PER_DEVICE", 3)
+    resolver = DeviceResolver(devices)
+    founding = _named_payload("5E:11:11:11:11:11", "aa")
+    (device_id,) = await _resolve_cycle(resolver, founding)
+    rotated = [
+        _named_payload(f"43:22:22:22:22:{i:02X}", "aa") for i in range(5)
+    ]
+    for ad in rotated:
+        await _resolve_cycle(resolver, ad)
+    aliases = await devices.list_aliases(device_id)
+    assert len(aliases) == 3
+    oldest_key = fingerprint_key(Fingerprint.from_advertisement(rotated[0]))
+    newest_key = fingerprint_key(Fingerprint.from_advertisement(rotated[-1]))
+    assert await devices.get_by_alias(oldest_key) is None
+    assert await devices.get_by_alias(newest_key) is not None
+
+    (id_founding,) = await _resolve_cycle(DeviceResolver(devices), founding)
+    assert id_founding == device_id
+
+    cold = DeviceResolver(devices, recent_window=0)
+    (id_newest,) = await _resolve_cycle(cold, rotated[-1])
+    assert id_newest == device_id
+
+    restarted = DeviceResolver(devices)
+    await restarted.seed()
+    later = _named_payload("AA:33:33:33:33:33", "aa")
+    (id_later,) = await _resolve_cycle(restarted, later)
+    assert id_later == device_id
+    assert len(await devices.list_devices()) == 1
+
+
+@pytest.mark.asyncio
+async def test_pruned_alias_outside_window_opens_new_device(
+    devices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Documented residual: pruned key + cold window splits identity."""
+    monkeypatch.setattr(repo_mod, "_MAX_ALIASES_PER_DEVICE", 3)
+    resolver = DeviceResolver(devices)
+    founding = _named_payload("5E:11:11:11:11:11", "aa")
+    (device_id,) = await _resolve_cycle(resolver, founding)
+    rotated = [
+        _named_payload(f"43:22:22:22:22:{i:02X}", "aa") for i in range(5)
+    ]
+    for ad in rotated:
+        await _resolve_cycle(resolver, ad)
+    cold = DeviceResolver(devices, recent_window=0)
+    (id_pruned,) = await _resolve_cycle(cold, rotated[0])
+    assert id_pruned != device_id
+    assert len(await devices.list_devices()) == 2
+
+
+@pytest.mark.asyncio
+async def test_seed_key_cache_is_bounded(
+    devices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """seed() must not load an unbounded alias history into RAM."""
+    monkeypatch.setattr(resolver_mod, "_MAX_KEY_CACHE", 4)
+    writer = DeviceResolver(devices)
+    founding = _named_payload("5E:11:11:11:11:11", "aa")
+    (device_id,) = await _resolve_cycle(writer, founding)
+    newest = founding
+    for i in range(8):
+        newest = _named_payload(f"43:22:22:22:22:{i:02X}", "aa")
+        await _resolve_cycle(writer, newest)
+    restarted = DeviceResolver(devices)
+    await restarted.seed()
+    assert len(restarted._key_cache) <= 4
+    founding_key = fingerprint_key(Fingerprint.from_advertisement(founding))
+    newest_key = fingerprint_key(Fingerprint.from_advertisement(newest))
+    assert founding_key in restarted._key_cache
+    assert newest_key in restarted._key_cache
+    (id_newest,) = await _resolve_cycle(restarted, newest)
+    assert id_newest == device_id

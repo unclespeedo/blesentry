@@ -12,7 +12,8 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-from blesentry.storage import apply_migrations, connect
+from blesentry.storage import apply_migrations, connect, transaction
+from blesentry.storage import repository as repo_mod
 from blesentry.storage.repository import (
     DeviceRepository,
     ObservationRepository,
@@ -829,6 +830,89 @@ async def test_upsert_rejects_alias_fingerprint(
     )
     with pytest.raises(ValueError, match="already an alias"):
         await device_repo.upsert(fingerprint="fp-rotated")
+
+
+async def test_record_alias_prunes_oldest_beyond_cap(
+    device_repo: DeviceRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep the newest N aliases; drop the oldest on insert (#151)."""
+    monkeypatch.setattr(repo_mod, "_MAX_ALIASES_PER_DEVICE", 3)
+    device_id = await device_repo.upsert(fingerprint="fp-f")
+    for i in range(4):
+        await device_repo.record_alias(
+            fingerprint=f"fp-{i}", device_id=device_id
+        )
+    aliases = await device_repo.list_aliases(device_id)
+    assert [row["fingerprint"] for row in aliases] == [
+        "fp-1",
+        "fp-2",
+        "fp-3",
+    ]
+    assert await device_repo.get_by_alias("fp-0") is None
+    assert await device_repo.get_by_alias("fp-3") is not None
+
+
+async def test_record_alias_idempotent_does_not_evict_at_cap(
+    device_repo: DeviceRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-binding a known alias is still a no-write at the cap."""
+    monkeypatch.setattr(repo_mod, "_MAX_ALIASES_PER_DEVICE", 2)
+    device_id = await device_repo.upsert(fingerprint="fp-f")
+    await device_repo.record_alias(fingerprint="fp-1", device_id=device_id)
+    await device_repo.record_alias(fingerprint="fp-2", device_id=device_id)
+    before = (await device_repo.list_aliases(device_id))[0]["updated_at"]
+    await device_repo.record_alias(fingerprint="fp-2", device_id=device_id)
+    aliases = await device_repo.list_aliases(device_id)
+    assert [row["fingerprint"] for row in aliases] == ["fp-1", "fp-2"]
+    assert aliases[0]["updated_at"] == before
+
+
+async def test_prune_excess_aliases_sweeps_preexisting(
+    db: aiosqlite.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Seed-time sweep drops oldest extras without touching other sites."""
+    monkeypatch.setattr(repo_mod, "_MAX_ALIASES_PER_DEVICE", 100)
+    site_a = DeviceRepository(db, "site-a")
+    site_b = DeviceRepository(db, "site-b")
+    id_a = await site_a.upsert(fingerprint="fp-a")
+    id_b = await site_b.upsert(fingerprint="fp-b")
+    for i in range(5):
+        await site_a.record_alias(fingerprint=f"fp-a-{i}", device_id=id_a)
+        await site_b.record_alias(fingerprint=f"fp-b-{i}", device_id=id_b)
+    monkeypatch.setattr(repo_mod, "_MAX_ALIASES_PER_DEVICE", 2)
+    deleted = await site_a.prune_excess_aliases()
+    assert deleted == 3
+    assert [row["fingerprint"] for row in await site_a.list_aliases(id_a)] == [
+        "fp-a-3",
+        "fp-a-4",
+    ]
+    assert [row["fingerprint"] for row in await site_b.list_aliases(id_b)] == [
+        f"fp-b-{i}" for i in range(5)
+    ]
+
+
+async def test_rolled_back_alias_insert_does_not_keep_prune(
+    db: aiosqlite.Connection,
+    device_repo: DeviceRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prune-on-insert must share the caller's unit of work (#151)."""
+    monkeypatch.setattr(repo_mod, "_MAX_ALIASES_PER_DEVICE", 2)
+    device_id = await device_repo.upsert(fingerprint="fp-f")
+    await device_repo.record_alias(fingerprint="fp-1", device_id=device_id)
+    await device_repo.record_alias(fingerprint="fp-2", device_id=device_id)
+    try:
+        async with transaction(db):
+            await device_repo.record_alias(
+                fingerprint="fp-3", device_id=device_id
+            )
+            raise RuntimeError("cycle fails")
+    except RuntimeError:
+        pass
+    assert [
+        row["fingerprint"] for row in await device_repo.list_aliases(device_id)
+    ] == ["fp-1", "fp-2"]
+    assert await device_repo.get_by_alias("fp-3") is None
 
 
 # -- PresenceEventRepository (P2-1) --

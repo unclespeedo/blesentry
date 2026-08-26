@@ -19,6 +19,17 @@ import aiosqlite
 
 from blesentry.storage.database import transaction
 
+# Newest-N alias retention per device (#151). Address is part of
+# fingerprint_key, so a long-lived rotator would otherwise accumulate
+# one durable row per distinct fused key with no cap. 32 newest
+# (highest row id, insert-monotonic so NTP steps cannot evict the
+# row just inserted) is enough for exact-key recovery of recent
+# rotations; older keys fall back to window fusion or (after
+# restart, outside the window) a new device row — documented in
+# docs/risks.md. Not a schema CHECK; enforced here on insert and
+# by prune_excess_aliases (seed sweep).
+_MAX_ALIASES_PER_DEVICE = 32
+
 
 class DeviceRow(TypedDict):
     """Shape of a row returned by :class:`DeviceRepository`."""
@@ -240,6 +251,10 @@ class DeviceRepository:
         A fingerprint that is already a founding ``devices.fingerprint``
         on this site raises (cross-table uniqueness, ADR-0005 / #148).
 
+        After a new insert, oldest aliases for this device are dropped
+        so at most ``_MAX_ALIASES_PER_DEVICE`` remain (#151). The
+        idempotent same-device path does not prune (count unchanged).
+
         Returns the alias row ``id``.
         """
         async with transaction(self._conn):
@@ -288,7 +303,59 @@ class DeviceRepository:
             await cur.close()
             if row is None:
                 raise RuntimeError("RETURNING produced no row")
+            await self._prune_oldest_aliases(device_id)
             return int(row[0])
+
+    async def _prune_oldest_aliases(self, device_id: int) -> int:
+        """Delete oldest aliases (lowest id) above the per-device cap.
+
+        Caller owns the ambient transaction. Returns rows deleted.
+        """
+        cur = await self._conn.execute(
+            "SELECT COUNT(*) FROM device_aliases "
+            "WHERE site_id = ? AND device_id = ?",
+            (self._site, device_id),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        count = int(row[0]) if row is not None else 0
+        excess = count - _MAX_ALIASES_PER_DEVICE
+        if excess <= 0:
+            return 0
+        cur = await self._conn.execute(
+            "DELETE FROM device_aliases WHERE id IN ("
+            "SELECT id FROM ("
+            "SELECT id FROM device_aliases "
+            "WHERE site_id = ? AND device_id = ? "
+            "ORDER BY id ASC "
+            "LIMIT ?"
+            ")"
+            ")",
+            (self._site, device_id, excess),
+        )
+        await cur.close()
+        return excess
+
+    async def prune_excess_aliases(self) -> int:
+        """Bound every device on this site to the newest-N alias cap.
+
+        Seed-time sweep so a pre-retention database is capped without
+        waiting for the next ``record_alias``. Site-scoped. Returns
+        rows deleted; already-within-cap is a no-op (0).
+        """
+        async with transaction(self._conn):
+            cur = await self._conn.execute(
+                "SELECT device_id FROM device_aliases "
+                "WHERE site_id = ? GROUP BY device_id "
+                "HAVING COUNT(*) > ?",
+                (self._site, _MAX_ALIASES_PER_DEVICE),
+            )
+            over = [int(r[0]) for r in await cur.fetchall()]
+            await cur.close()
+            deleted = 0
+            for device_id in over:
+                deleted += await self._prune_oldest_aliases(device_id)
+            return deleted
 
     async def get_by_alias(self, fingerprint: str) -> DeviceRow | None:
         """Return the device owning this alias fingerprint, if any.

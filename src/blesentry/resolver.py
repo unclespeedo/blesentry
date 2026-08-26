@@ -325,16 +325,22 @@ class DeviceResolver:
         Aliases backfill leftover window slots so a later key can
         score against a rotated appearance, without letting one
         device's alias history evict every other founding key.
-        Stored keys carry no live provenance; address_type seeds
-        None, which the same-address and HAP rules do not need.
+        Cache fills up to ``_MAX_KEY_CACHE`` (founding keys first;
+        newest aliases take leftover slots). A seed-time alias
+        sweep bounds the table before warming. Stored keys carry
+        no live provenance; address_type seeds None, which the
+        same-address and HAP rules do not need.
         """
+        await self._devices.prune_excess_aliases()
         rows = await self._devices.list_recent(self._recent_window)
         # list_recent is newest-first; insert oldest-first so FIFO
         # window eviction discards the oldest seeds, not the newest.
         # Founding keys take the window budget first (the pre-#148
-        # diversity invariant). Aliases always warm the exact-key
-        # cache; they enter the window only in leftover slots, newest
-        # first, so one chatty rotator cannot evict every other device.
+        # diversity invariant) and the exact-key cache budget first
+        # (#151). Aliases enter the window only in leftover slots,
+        # newest first, so one chatty rotator cannot evict every
+        # other device; they enter the cache the same way, and only
+        # while under ``_MAX_KEY_CACHE``.
         alias_seeds: list[tuple[str, Fingerprint, int]] = []
         for row in reversed(rows):
             fingerprint = _fingerprint_from_stored(
@@ -347,18 +353,24 @@ class DeviceResolver:
             if fingerprint is None:
                 continue
             key = row["fingerprint"]
-            self._key_cache[key] = row["id"]
+            if len(self._key_cache) < _MAX_KEY_CACHE:
+                self._key_cache[key] = row["id"]
             self._recent[key] = (fingerprint, None, row["id"])
             for alias in await self._devices.list_aliases(row["id"]):
                 alias_fp = _fingerprint_from_stored(alias["fingerprint"])
                 if alias_fp is None:
                     continue
-                alias_key = alias["fingerprint"]
-                self._key_cache[alias_key] = alias["device_id"]
-                alias_seeds.append((alias_key, alias_fp, alias["device_id"]))
+                alias_seeds.append(
+                    (alias["fingerprint"], alias_fp, alias["device_id"])
+                )
         for alias_key, alias_fp, device_id in reversed(alias_seeds):
+            if (
+                alias_key not in self._key_cache
+                and len(self._key_cache) < _MAX_KEY_CACHE
+            ):
+                self._key_cache[alias_key] = device_id
             if len(self._recent) >= self._recent_window:
-                break
+                continue
             if alias_key in self._recent:
                 continue
             self._recent[alias_key] = (alias_fp, None, device_id)
