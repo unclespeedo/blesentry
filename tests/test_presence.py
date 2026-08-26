@@ -311,7 +311,8 @@ async def test_rssi_sequence_approach_presents_spike_does_not() -> None:
         walker: _ad(walker, -99),
         car: _ad(car, -99),
     }
-    # Walker rises through the gate and stays; car is a 2-window spike.
+    # Walker starts at -90 (below the -80 gate), then three consecutive
+    # hits (W2–W4) reach PRESENT. Car is a 2-window spike — never PRESENT.
     sequences = {
         walker: [-90, -70, -60, -55, -55, -55],
         car: [-40, -42],

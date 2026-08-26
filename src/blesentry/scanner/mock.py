@@ -87,7 +87,10 @@ class MockScanner:
                 are ignored.
             window_dt: Seconds added to the prototype timestamp per
                 window index. ``0`` (the default) leaves timestamps
-                unchanged.
+                unchanged — fine for window-counted presence tests,
+                but time-based detection tests (slope, dwell) must
+                pass a non-zero value; observations store
+                ``ad.timestamp``, not the loop clock.
 
         Returns:
             A ``MockScanner`` whose successive ``scan()`` calls
