@@ -280,6 +280,69 @@ async def test_scan_loop_emits_presence_and_ignores_car_passby() -> None:
         await conn.close()
 
 
+async def test_rssi_sequence_approach_presents_spike_does_not() -> None:
+    """#58: sequence helper drives presence.
+
+    Gradual approach reaches PRESENT; a 2-window spike stays silent.
+    """
+    from blesentry.loop import run_loop
+    from blesentry.scanner.mock import MockScanner
+    from blesentry.storage import (
+        DeviceRepository,
+        ObservationRepository,
+        PresenceEventRepository,
+        apply_migrations,
+        connect,
+    )
+
+    conn = await connect(":memory:")
+    await apply_migrations(conn)
+    site = "rssi-seq-site"
+    devices = DeviceRepository(conn, site)
+    observations = ObservationRepository(conn, site)
+    presence_events = PresenceEventRepository(conn, site)
+    tracker = PresenceTracker(
+        appear_windows=3, disappear_windows=3, rssi_threshold=-80
+    )
+
+    walker = "CC:CC:CC:CC:CC:CC"
+    car = "DD:DD:DD:DD:DD:DD"
+    templates = {
+        walker: _ad(walker, -99),
+        car: _ad(car, -99),
+    }
+    # Walker rises through the gate and stays; car is a 2-window spike.
+    sequences = {
+        walker: [-90, -70, -60, -55, -55, -55],
+        car: [-40, -42],
+    }
+    try:
+        await run_loop(
+            MockScanner.from_rssi_sequences(
+                templates=templates, sequences=sequences
+            ),
+            devices,
+            observations,
+            duration=0.0,
+            pause=0.0,
+            max_cycles=6,
+            presence=tracker,
+            presence_events=presence_events,
+            now=_WindowClock(),
+        )
+        all_devices = await devices.list_devices()
+        by_address = {d["address"]: d["id"] for d in all_devices}
+
+        walker_events = await presence_events.list_for_device(
+            by_address[walker]
+        )
+        assert [e["event_type"] for e in walker_events] == ["PRESENT"]
+        car_events = await presence_events.list_for_device(by_address[car])
+        assert car_events == []
+    finally:
+        await conn.close()
+
+
 async def test_presence_requires_both_tracker_and_repo() -> None:
     from blesentry.loop import run_cycle
     from blesentry.scanner.mock import MockScanner

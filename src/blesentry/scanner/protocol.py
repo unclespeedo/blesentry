@@ -8,7 +8,10 @@ The ``Scanner`` protocol defines the single interface the rest of
 ``blesentry`` uses to observe BLE advertisements.  Concrete
 implementations (BleakScanner for production, MockScanner for tests)
 are selected via config (P1-9) and never imported by name outside the
-scanner module.
+scanner module.  MockScanner additionally accepts per-device RSSI
+sequences (``from_rssi_sequences``) so presence tests can script
+signal profiles — flicker, approach, pass-by spike — while still
+speaking only ``scan(duration) -> list[Advertisement]``.
 
 ADR-0002 (extension-point architecture) records this seam.
 """

@@ -21,6 +21,10 @@
 - All SQL lives in repository modules; nothing else touches the database.
 - Respect the seams: Scanner and Notifier protocols per ADR-0002. New
   external dependencies require justification in the PR (512MB RAM target).
+- CI never touches a radio. Drive the Scanner seam with ``MockScanner``:
+  batch scenarios for appear / disappear / MAC rotation, and
+  ``MockScanner.from_rssi_sequences`` when a test needs a per-device
+  RSSI profile (near-threshold flicker, gradual approach, brief spike).
 
 ## Workflow
 - One issue per PR; `Closes #N` in the description. No scope creep — file a
