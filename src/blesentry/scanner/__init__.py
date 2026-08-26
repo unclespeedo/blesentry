@@ -4,11 +4,12 @@
 
 """Scanner seam: BLE advertisement value objects and fingerprint keys.
 
-``Fingerprint`` equality is an exact-sighting match, not a device-identity
-test — MAC rotation is joined by the resolver (see the ``Fingerprint``
-docstring). P1-1 ships the ``Advertisement`` and ``Fingerprint`` models;
-the ``Scanner`` protocol and ``MockScanner`` fixture replay land in P1-2,
-with the real ``BleakScanner`` adapter following in P1-3.
+``Fingerprint`` equality is an exact match of retained fingerprint
+fields, not a device-identity test — MAC rotation is joined by the
+resolver (see the ``Fingerprint`` docstring). P1-1 ships the
+``Advertisement`` and ``Fingerprint`` models; the ``Scanner``
+protocol and ``MockScanner`` fixture replay land in P1-2, with the
+real ``BleakScanner`` adapter following in P1-3.
 """
 
 from blesentry.scanner.bleak import BleakScanner

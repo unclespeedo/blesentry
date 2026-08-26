@@ -2,7 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""BLE advertisement value objects and the derived identity fingerprint.
+"""BLE advertisement value objects and the derived sighting fingerprint.
 
 Schema is the normalized record shape documented in
 ``scripts/capture_scan.py`` and enforced by ``tests/test_fixtures.py``.
@@ -135,12 +135,12 @@ class Fingerprint(BaseModel):
     — never the observation artifacts (RSSI, timestamp, adapter).
 
     Equality is not an identity test. BLE MAC randomization (especially
-    Apple rotating public addresses) means two observations of the same
-    physical device produce unequal fingerprints when the address
-    rotates. Use ``==`` and hashing only as an exact-sighting cache
-    key. Joining rotated sightings is the resolver's job via fuzzy
-    scoring (``fusion_score``, P1-7 / ADR-0005), not ``Fingerprint``
-    equality.
+    Apple resolvable private addresses) means two observations of the
+    same physical device produce unequal fingerprints when the address
+    rotates. Use ``==`` and hashing only as an exact match of the
+    retained fingerprint fields. Joining rotated observations is the
+    resolver's job via fuzzy scoring (``fusion_score``, P1-7 /
+    ADR-0005), not ``Fingerprint`` equality.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -158,9 +158,9 @@ class Fingerprint(BaseModel):
 
         Set-typed fields are order-independent so equivalent advertisements
         from different capture passes produce equal fingerprints. Equal
-        fingerprints are the same *sighting shape*, not proof of the same
-        device: a rotated MAC yields a different fingerprint (see the
-        class docstring).
+        fingerprints are the same retained-field shape, not proof of the
+        same device: a rotated MAC yields a different fingerprint (see
+        the class docstring).
         """
         return cls(
             address=advertisement.address,
