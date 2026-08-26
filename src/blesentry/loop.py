@@ -61,6 +61,18 @@ def iso_utc(timestamp: float) -> str:
 __all__ = ["CycleStats", "fingerprint_key", "iso_utc", "run_cycle", "run_loop"]
 
 
+def _require_resolver_affinity(
+    resolver: DeviceResolver, devices: DeviceRepository
+) -> None:
+    """Raise if a caller-supplied resolver is not the cycle repo (#149)."""
+    if resolver.connection is not devices.connection:
+        raise ValueError(
+            "resolver must share the cycle connection for atomicity"
+        )
+    if resolver.site_id != devices.site_id:
+        raise ValueError("resolver must share the cycle site")
+
+
 async def run_cycle(
     scanner: Scanner,
     devices: DeviceRepository,
@@ -128,12 +140,7 @@ async def run_cycle(
             "presence_events must share the cycle connection for atomicity"
         )
     r = resolver if resolver is not None else DeviceResolver(devices)
-    if r.connection is not devices.connection:
-        raise ValueError(
-            "resolver must share the cycle connection for atomicity"
-        )
-    if r.site_id != devices.site_id:
-        raise ValueError("resolver must share the cycle site")
+    _require_resolver_affinity(r, devices)
     device_ids: set[int] = set()
     heard: dict[int, int] = {}
     persisted = 0
@@ -204,8 +211,8 @@ async def run_loop(
         resolver: Pre-built resolver — the seam through which config
             (P1-9) supplies tuned thresholds. Must be built over the
             same ``devices`` repo (same connection and ``site_id``);
-            ``run_cycle`` fail-fasts otherwise (#149). ``None``
-            builds a default resolver.
+            ``run_loop`` fail-fasts before ``seed()`` otherwise
+            (#149). ``None`` builds a default resolver.
         presence: Pre-built presence tracker, carried across cycles
             (P2-1). ``None`` disables presence tracking.
         presence_events: Repository for presence transitions; required
@@ -220,6 +227,7 @@ async def run_loop(
     cycles = 0
     if resolver is None:
         resolver = DeviceResolver(devices)
+    _require_resolver_affinity(resolver, devices)
     await resolver.seed()
     while max_cycles is None or cycles < max_cycles:
         stats = await run_cycle(

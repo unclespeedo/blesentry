@@ -357,3 +357,68 @@ async def test_cycle_rejects_resolver_on_different_site(repos) -> None:
             duration=0.0,
             resolver=resolver,
         )
+
+
+@pytest.mark.asyncio
+async def test_loop_rejects_resolver_on_different_connection_before_seed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_loop must not seed (prune-write) a foreign connection (#149)."""
+    db = tmp_path / "cycle.db"
+    scan_conn = await connect(db)
+    await apply_migrations(scan_conn)
+    other_conn = await connect(db)
+    seeded: list[int] = []
+
+    async def tracking_seed(self: DeviceResolver) -> None:
+        seeded.append(1)
+
+    monkeypatch.setattr(DeviceResolver, "seed", tracking_seed)
+    try:
+        devices = DeviceRepository(scan_conn, "test-site")
+        observations = ObservationRepository(scan_conn, "test-site")
+        resolver = DeviceResolver(DeviceRepository(other_conn, "test-site"))
+        with pytest.raises(ValueError, match="cycle connection"):
+            await run_loop(
+                MockScanner(scenarios=[[_ad()]]),
+                devices,
+                observations,
+                duration=0.0,
+                pause=0.0,
+                max_cycles=1,
+                resolver=resolver,
+            )
+        assert seeded == []
+        assert await devices.list_devices() == []
+    finally:
+        await other_conn.close()
+        await scan_conn.close()
+
+
+@pytest.mark.asyncio
+async def test_loop_rejects_resolver_on_different_site_before_seed(
+    repos, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_loop must not warm fusion memory from another site (#149)."""
+    devices, observations = repos
+    resolver = DeviceResolver(
+        DeviceRepository(devices.connection, "other-site")
+    )
+    seeded: list[int] = []
+
+    async def tracking_seed(self: DeviceResolver) -> None:
+        seeded.append(1)
+
+    monkeypatch.setattr(DeviceResolver, "seed", tracking_seed)
+    with pytest.raises(ValueError, match="cycle site"):
+        await run_loop(
+            MockScanner(scenarios=[[_ad()]]),
+            devices,
+            observations,
+            duration=0.0,
+            pause=0.0,
+            max_cycles=1,
+            resolver=resolver,
+        )
+    assert seeded == []
+    assert await devices.list_devices() == []
