@@ -96,11 +96,13 @@ gaps, from the adversarial review:
   inheriting its status and polluting its history — where exact-key
   identity would have flagged a new device. Contradiction detection
   is still follow-up; the fusion audit-trail schema is
-  `device_aliases` (ADR-0005). Fused keys persist from
+  `device_aliases` (ADR-0005), truncated to the newest 32 aliases
+  per device (#151). Fused keys persist from
   `DeviceResolver.resolve` inside the cycle transaction (#148) and
-  survive process restart via alias lookup (and `seed()` warming).
-  The trail is an audit of which fingerprints were absorbed, not
-  proof the join was authentic.
+  survive process restart via alias lookup (and `seed()` warming)
+  while they remain in that newest-32 set. The trail is an audit
+  of recently absorbed fingerprints, not proof the join was
+  authentic and not a complete history.
   Labeling and alert design (P2) must not treat fused identity as
   authenticated. Two low-effort paths deserve naming: replaying a
   HAP device id (6 cleartext bytes on the air) fuses at 1.0 with no
@@ -131,12 +133,30 @@ gaps, from the adversarial review:
 - **Restart amnesia (mitigated) and window bounds.** Founding keys
   recover from ``devices.fingerprint``. Fused (rotated) keys recover
   from ``device_aliases`` via ``get_by_alias`` without window
-  re-score (#148). ``seed()`` additionally warms the exact-key cache
-  from both, and backfills leftover window slots with aliases so a
-  *new* rotation can score against a recently fused key — founding
-  keys keep the window budget so one chatty rotator cannot evict
-  every other device. A device absent longer than the window whose
-  current key is neither founding nor a stored alias still opens a
-  new device row. An advertisement flood can flush the window
-  (availability of fusion, not correctness — ties to the #85 flood
-  posture).
+  re-score (#148) for the **newest 32 aliases per device** (#151);
+  older aliases are pruned and are not a complete absorption trail.
+  ``seed()`` additionally warms the exact-key cache from both, and
+  backfills leftover window slots with aliases so a *new* rotation
+  can score against a recently fused key — founding keys keep the
+  window budget so one chatty rotator cannot evict every other
+  device. A device absent longer than the window whose current key
+  is neither founding nor a stored alias still opens a new device
+  row. An advertisement flood can flush the window (availability of
+  fusion, not correctness — ties to the #85 flood posture).
+- **Alias-table growth vs founding-key collapse (#151).** These are
+  opposite failure modes. Founding-key collapse is many distinct
+  devices fused into one identity (the company-id-only config
+  floor exists to prevent it). Alias-table growth is one identity
+  minting unbounded *rows*: address is part of ``fingerprint_key``,
+  so every fused rotation inserts a durable alias with no schema
+  cap and no ``VACUUM``. Retention keeps the 32 newest aliases per
+  device (prune-oldest by row ``id`` on insert, plus a ``seed()``
+  sweep for pre-retention databases). ``seed()`` also refuses to load more
+  than ``_MAX_KEY_CACHE`` exact keys (founding keys first; newest
+  aliases fill leftover slots). Residual: a pruned alias that is
+  also outside the recent window cannot exact-match after restart
+  and opens a **new** device row (split identity), not a collapse
+  of many devices into one. ``DELETE`` frees pages for reuse;
+  ``VACUUM`` is not automatic (write-heavy on SD; operator-optional).
+  The trail is still an audit of absorbed fingerprints, not proof
+  the join was authentic — truncated to the newest 32 per device.

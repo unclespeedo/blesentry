@@ -120,20 +120,32 @@ delivers. Nothing is ever fire-and-forget.
 ### `device_aliases`
 
 Durable fusion aliases (ADR-0005 / #96 / #148). One row per *later*
-fused fingerprint bound to an existing device — the audit trail of
-which keys were absorbed into which identity, and the restart-stable
-lookup path. `DeviceResolver.resolve` persists a fused key via
+fused fingerprint bound to an existing device — a truncated audit
+of which keys were absorbed into which identity (newest 32 per
+device), and the restart-stable lookup path for those retained
+keys. `DeviceResolver.resolve` persists a fused key via
 `record_alias` inside the ambient cycle transaction (not from
 `commit()`, which is synchronous and runs after COMMIT). `resolve`
 consults `get_by_alias` after the founding-key exact match;
 `seed()` warms cache and window from aliases as well as founding
 keys (founding keys keep the window budget; aliases backfill
 leftover slots). Founding keys stay on `devices.fingerprint`; they
-must not also appear here (repository-enforced).
+must not also appear here (repository-enforced). Per-device
+retention keeps the 32 newest alias rows (highest `id` = insert
+order, not wall clock — NTP steps must not delete the row just
+inserted). A pruned key that is also outside the recent window is
+not restart-stable: it opens a new device row (split identity),
+so this table is a truncated audit of recent joins, not a complete
+absorption history. Do not export alias rows into issues or CI
+(fingerprints embed addresses, names, and payloads). `record_alias`
+prunes on insert and `prune_excess_aliases` sweeps at `seed()` so
+a pre-retention database is bounded without waiting for the next
+rotation. `seed()` also caps the in-process exact-key cache at the
+resolver's `_MAX_KEY_CACHE` (founding keys first).
 
 All access is through `DeviceRepository` (`record_alias`,
-`get_by_alias`, `list_aliases`). No other module may touch this
-table.
+`get_by_alias`, `list_aliases`, `prune_excess_aliases`). No other
+module may touch this table.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -144,7 +156,8 @@ table.
 | `created_at` / `updated_at` | TEXT NOT NULL | ISO-8601 UTC, same `strftime` default as `devices`. Set at insert; an idempotent same-device `record_alias` is a no-write (does not bump `updated_at`). |
 
 Indexed `(site_id, device_id)` for per-device audit listing. Added in
-`0004` (#96); resolver persist/consume wired in #148.
+`0004` (#96); resolver persist/consume wired in #148; per-device
+retention (32 newest) in #151.
 
 ### `label_audit`
 
