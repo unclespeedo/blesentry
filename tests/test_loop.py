@@ -183,6 +183,14 @@ def _loop_messages(caplog: pytest.LogCaptureFixture, level: int) -> list[str]:
     ]
 
 
+def _loop_rollups(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        message
+        for message in _loop_messages(caplog, logging.INFO)
+        if message.startswith("cycles ")
+    ]
+
+
 @pytest.mark.asyncio
 async def test_loop_logs_each_cycle_at_debug_not_info(
     repos, caplog: pytest.LogCaptureFixture
@@ -205,6 +213,27 @@ async def test_loop_logs_each_cycle_at_debug_not_info(
     assert len(debug) == 4
     assert all(message.startswith("cycle ") for message in debug)
     assert all(not message.startswith("cycle ") for message in info)
+    assert any(message.startswith("scanning;") for message in info)
+
+
+@pytest.mark.asyncio
+async def test_loop_emits_first_cycle_liveness_at_info(
+    repos, caplog: pytest.LogCaptureFixture
+) -> None:
+    devices, observations = repos
+    with caplog.at_level(logging.INFO, logger="blesentry.loop"):
+        await run_loop(
+            MockScanner(scenarios=[[_ad()]] * 2),
+            devices,
+            observations,
+            duration=0.0,
+            pause=0.0,
+            max_cycles=2,
+            rollup_every=60,
+        )
+    info = _loop_messages(caplog, logging.INFO)
+    assert info[0].startswith("scanning;")
+    assert "60" in info[0]
 
 
 @pytest.mark.asyncio
@@ -223,7 +252,7 @@ async def test_loop_emits_info_rollup_every_n_cycles(
             max_cycles=4,
             rollup_every=2,
         )
-    info = _loop_messages(caplog, logging.INFO)
+    info = _loop_rollups(caplog)
     assert len(info) == 2
     assert info[0].startswith("cycles 1-2:")
     assert info[1].startswith("cycles 3-4:")
@@ -248,7 +277,7 @@ async def test_loop_flushes_leftover_rollup_on_exit(
             max_cycles=3,
             rollup_every=2,
         )
-    info = _loop_messages(caplog, logging.INFO)
+    info = _loop_rollups(caplog)
     assert [m.split(":")[0] for m in info] == ["cycles 1-2", "cycles 3-3"]
 
 

@@ -256,8 +256,10 @@ async def run_loop(
             an unlabeled device becomes PRESENT. ``None`` disables it.
         now: Clock for stamping presence transitions (injectable).
         rollup_every: Emit one INFO heartbeat every this many completed
-            cycles (#100). Per-cycle stats stay at DEBUG. A leftover
-            window is flushed on exit. Must be >= 1.
+            cycles (#100). Per-cycle stats stay at DEBUG. Cycle 1 also
+            emits one INFO liveness line so a restart is immediately
+            visible at INFO. A leftover window is flushed on exit.
+            Must be >= 1.
 
     Returns:
         Number of cycles completed.
@@ -299,6 +301,15 @@ async def run_loop(
                 stats.devices,
                 stats.observations,
             )
+            if cycles == 1:
+                # One INFO per process so journalctl -f shows liveness
+                # immediately; the 60-cycle rollup is the steady-state
+                # heartbeat (#100). Do not use a "cycle N:" prefix —
+                # that shape is DEBUG-only.
+                logger.info(
+                    "scanning; INFO rollup every %d cycles",
+                    rollup_every,
+                )
             heard += stats.heard
             device_windows += stats.devices
             observation_count += stats.observations

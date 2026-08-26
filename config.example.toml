@@ -24,8 +24,9 @@ pause = 5.0        # pause between windows, seconds
 # max_cycles is omitted: a deployed daemon scans until SIGTERM. Set it
 # only for bounded test or capture runs.
 # Journal cadence is not a config key: the daemon runs at INFO, logs
-# each cycle at DEBUG, and emits an INFO rollup every 60 cycles
-# (~15 min at these defaults). See docs/tuning.md.
+# each cycle at DEBUG, emits one INFO liveness line after the first
+# cycle, then an INFO rollup every 60 cycles (~15 min at these
+# defaults). See docs/tuning.md.
 
 [scanner]
 # Backend selector (ADR-0002). "bleak" = production BLE; "mock" = replay
