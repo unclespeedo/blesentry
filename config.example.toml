@@ -43,9 +43,14 @@ or_patterns = ["0:01:06", "0:01:1a", "0:01:05", "0:01:02", "0:01:04"]
 # corpus = "tests/fixtures/corpus.json"
 
 [resolver]
-# Fusion-resolver thresholds (P1-7). min_score is the fused-score cutoff
-# for joining an advertisement to an existing device; recent_window
-# bounds the temporally-local rotation-join memory.
+# Fusion-resolver thresholds (P1-7, ADR-0005). min_score is the fused-
+# score cutoff for joining an advertisement to an existing device.
+# Floor: must exceed the company-only weight (0.3). At or below 0.3
+# every device that shares only a vendor company id collapses into one
+# identity — the rotation cloud becomes one row per vendor. The 0.55
+# default also requires name or service-set corroboration on top of a
+# matching manufacturer payload (0.5). recent_window bounds the
+# temporally-local rotation-join memory.
 min_score = 0.55
 recent_window = 512
 

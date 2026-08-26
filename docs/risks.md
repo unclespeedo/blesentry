@@ -94,9 +94,11 @@ gaps, from the adversarial review:
   A spoofer replaying a known device's name/payload/uuids from a
   rotating-type address can be fused INTO that known identity,
   inheriting its status and polluting its history — where exact-key
-  identity would have flagged a new device. Mitigation candidates
-  (contradiction detection, fusion audit trail) are follow-up work;
-  labeling and alert design (P2) must not treat fused identity as
+  identity would have flagged a new device. Contradiction detection
+  is still follow-up; the fusion audit-trail schema is now
+  `device_aliases` (ADR-0005). The resolver does not yet persist into
+  it, so fused keys remain in-process only.
+  Labeling and alert design (P2) must not treat fused identity as
   authenticated. Two low-effort paths deserve naming: replaying a
   HAP device id (6 cleartext bytes on the air) fuses at 1.0 with no
   other shared signal, and replaying a device's current address

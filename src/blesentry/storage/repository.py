@@ -6,7 +6,8 @@
 
 All SQL is confined to this module — this is the storage seam per
 ADR-0002.  Callers never touch the database directly.  Devices and
-observations are P1-6; the outbox enqueue API is P2-3.
+observations are P1-6; the outbox enqueue API is P2-3; device_aliases
+(ADR-0005) are DeviceRepository-only.
 """
 
 from __future__ import annotations
@@ -28,6 +29,17 @@ class DeviceRow(TypedDict):
     address: str | None
     label: str | None
     description: str | None
+    created_at: str
+    updated_at: str
+
+
+class DeviceAliasRow(TypedDict):
+    """Shape of a row returned by alias methods (ADR-0005)."""
+
+    id: int
+    site_id: str
+    fingerprint: str
+    device_id: int
     created_at: str
     updated_at: str
 
@@ -203,6 +215,109 @@ class DeviceRepository:
                 "WHERE id = ? AND site_id = ? AND address IS NOT ?",
                 (address, device_id, self._site, address),
             )
+
+    async def record_alias(self, *, fingerprint: str, device_id: int) -> int:
+        """Bind a fused fingerprint to a device (ADR-0005).
+
+        Site-scoped: an unknown or other-site ``device_id`` raises.
+        Re-binding the same fingerprint to a different device raises
+        (alias conflict). Same device is idempotent (no write).
+
+        Returns the alias row ``id``.
+        """
+        async with transaction(self._conn):
+            cur = await self._conn.execute(
+                "SELECT id FROM devices WHERE id = ? AND site_id = ?",
+                (device_id, self._site),
+            )
+            owner = await cur.fetchone()
+            await cur.close()
+            if owner is None:
+                raise ValueError(f"device {device_id} not found for this site")
+            cur = await self._conn.execute(
+                "SELECT id, device_id FROM device_aliases "
+                "WHERE site_id = ? AND fingerprint = ?",
+                (self._site, fingerprint),
+            )
+            existing = await cur.fetchone()
+            await cur.close()
+            if existing is not None:
+                if int(existing[1]) != device_id:
+                    raise ValueError(
+                        "alias conflict: fingerprint already bound "
+                        f"to device {existing[1]}"
+                    )
+                # Same binding: no write. Bumping updated_at here would
+                # WAL-churn the SD on every future persist-on-resolve
+                # of a known alias (the #84 / touch_address lesson).
+                return int(existing[0])
+            cur = await self._conn.execute(
+                "INSERT INTO device_aliases "
+                "(site_id, fingerprint, device_id) "
+                "VALUES (?, ?, ?) RETURNING id",
+                (self._site, fingerprint, device_id),
+            )
+            row = await cur.fetchone()
+            await cur.close()
+            if row is None:
+                raise RuntimeError("RETURNING produced no row")
+            return int(row[0])
+
+    async def get_by_alias(self, fingerprint: str) -> DeviceRow | None:
+        """Return the device owning this alias fingerprint, if any.
+
+        The row is the device's *founding-key* ``DeviceRow``, not a
+        projection of the queried alias — ``row["fingerprint"]`` is
+        ``devices.fingerprint``, which generally differs from the
+        argument.
+        """
+        cur = await self._conn.execute(
+            "SELECT d.id, d.site_id, d.fingerprint, d.address, "
+            "d.label, d.description, d.created_at, d.updated_at "
+            "FROM device_aliases AS a "
+            "JOIN devices AS d ON d.id = a.device_id "
+            "AND d.site_id = a.site_id "
+            "WHERE a.site_id = ? AND a.fingerprint = ?",
+            (self._site, fingerprint),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return DeviceRow(
+            id=row[0],
+            site_id=row[1],
+            fingerprint=row[2],
+            address=row[3],
+            label=row[4],
+            description=row[5],
+            created_at=row[6],
+            updated_at=row[7],
+        )
+
+    async def list_aliases(self, device_id: int) -> list[DeviceAliasRow]:
+        """Return fused fingerprints bound to this device, oldest first."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, fingerprint, device_id, "
+            "created_at, updated_at "
+            "FROM device_aliases "
+            "WHERE site_id = ? AND device_id = ? "
+            "ORDER BY created_at ASC, id ASC",
+            (self._site, device_id),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            DeviceAliasRow(
+                id=r[0],
+                site_id=r[1],
+                fingerprint=r[2],
+                device_id=r[3],
+                created_at=r[4],
+                updated_at=r[5],
+            )
+            for r in rows
+        ]
 
     async def get(self, device_id: int) -> DeviceRow | None:
         """Return a device row, or ``None`` if not found."""

@@ -26,6 +26,7 @@ EXPECTED_TABLES = (
     "presence_events",
     "outbox",
     "label_audit",
+    "device_aliases",
 )
 
 SCHEMA_V1 = "0001_schema_v1.sql"
@@ -304,6 +305,116 @@ async def test_migration_0002_preserves_v1_data(tmp_path) -> None:
     old = await cur.fetchone()
     await cur.close()
     assert old is not None and old[0] is None
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0004_creates_device_aliases(tmp_path) -> None:
+    conn = await connect(tmp_path / "m4.db")
+    applied = await apply_migrations(conn)
+    assert "0004_device_aliases.sql" in applied
+    cur = await conn.execute("PRAGMA table_info(device_aliases)")
+    cols = {row[1] for row in await cur.fetchall()}
+    await cur.close()
+    assert {
+        "id",
+        "site_id",
+        "fingerprint",
+        "device_id",
+        "created_at",
+        "updated_at",
+    } <= cols
+    cur = await conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'device_aliases'"
+    )
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None
+    sql = row[0].lower()
+    assert "unique" in sql
+    assert "references devices" in sql
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='device_aliases'"
+    )
+    names = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_device_aliases_device" in names
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0004_preserves_existing_data(tmp_path) -> None:
+    """Upgrade path: a populated 0003 database gains device_aliases."""
+    import shutil
+
+    from blesentry.storage.database import DEFAULT_MIGRATIONS_DIR
+
+    db = tmp_path / "upgrade4.db"
+    conn = await connect(db)
+    through_0003 = tmp_path / "through_0003"
+    through_0003.mkdir()
+    for name in (
+        "0001_schema_v1.sql",
+        "0002_address_provenance.sql",
+        "0003_devices_recency_index.sql",
+    ):
+        shutil.copy(DEFAULT_MIGRATIONS_DIR / name, through_0003 / name)
+    await apply_migrations(conn, migrations_dir=through_0003)
+    await conn.execute(
+        "INSERT INTO devices (site_id, fingerprint) VALUES ('s', 'fp')"
+    )
+    await conn.commit()
+    applied = await apply_migrations(conn)
+    assert "0004_device_aliases.sql" in applied
+    cur = await conn.execute("SELECT fingerprint FROM devices")
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None and row[0] == "fp"
+    cur = await conn.execute("PRAGMA foreign_key_check")
+    assert await cur.fetchall() == []
+    await cur.close()
+    tables = await _tables(conn)
+    assert "device_aliases" in tables
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_device_aliases_fk_enforced(tmp_path) -> None:
+    conn = await connect(tmp_path / "fk.db")
+    await apply_migrations(conn)
+    with pytest.raises(aiosqlite.IntegrityError):
+        await conn.execute(
+            "INSERT INTO device_aliases "
+            "(site_id, fingerprint, device_id) "
+            "VALUES (?, ?, ?)",
+            ("s", "fp-x", 999),
+        )
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_device_aliases_fingerprint_unique_per_site(
+    tmp_path,
+) -> None:
+    conn = await connect(tmp_path / "uq.db")
+    await apply_migrations(conn)
+    await conn.execute(
+        "INSERT INTO devices (site_id, fingerprint) VALUES ('s', 'fp')"
+    )
+    await conn.commit()
+    await conn.execute(
+        "INSERT INTO device_aliases "
+        "(site_id, fingerprint, device_id) "
+        "VALUES ('s', 'fp-a', 1)"
+    )
+    await conn.commit()
+    with pytest.raises(aiosqlite.IntegrityError):
+        await conn.execute(
+            "INSERT INTO device_aliases "
+            "(site_id, fingerprint, device_id) "
+            "VALUES ('s', 'fp-a', 1)"
+        )
     await conn.close()
 
 

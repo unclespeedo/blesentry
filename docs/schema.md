@@ -36,7 +36,7 @@ rationale targets SD-card longevity on the Pi 3 A+ (512MB):
 | `journal_mode` | `WAL` | Fewer fsyncs than the default rollback journal; readers never block the writer; crash-safe without the checkpoint-every-commit cost. Persists in the DB file. |
 | `synchronous` | `NORMAL` | In WAL mode this is durable against application crashes and cannot corrupt on power loss; a power cut may lose the most recent committed transactions (acceptable — see `P4-5`), which is the standard trade-off on flash. |
 | `busy_timeout` | `5000` | The daemon is long-lived with a single writer; this prevents spurious `SQLITE_BUSY` on transient lock contention. |
-| `foreign_keys` | `ON` | Referential integrity across `devices` → `observations` / `presence_events` / `outbox` / `label_audit`. Per-connection; reapplied on every open. |
+| `foreign_keys` | `ON` | Referential integrity across `devices` → `observations` / `presence_events` / `outbox` / `label_audit` / `device_aliases`. Per-connection; reapplied on every open. |
 
 ## Conventions
 
@@ -65,7 +65,7 @@ One row per resolved identity. Identity is the fingerprint fusion key
 |---|---|---|
 | `id` | INTEGER PK | |
 | `site_id` | TEXT NOT NULL | |
-| `fingerprint` | TEXT NOT NULL | The identity's *founding* (first-seen) key, versioned (`\"v\":2`). Fusion aliases (later fingerprints resolved to the same device) live in process memory only; after a restart the resolver re-seeds its candidate window from the newest stored devices and re-derives joins (#19). `UNIQUE (site_id, fingerprint)`. |
+| `fingerprint` | TEXT NOT NULL | The identity's *founding* (first-seen) key, versioned (`\"v\":2`). Fusion aliases (later fingerprints resolved to the same device) currently live in process memory; after a restart the resolver re-seeds its candidate window from the newest stored devices and re-derives joins (#19). The durable-alias table (`device_aliases`, ADR-0005) is the shipped path for persisting those later keys — `DeviceResolver` does not yet consume it. `UNIQUE (site_id, fingerprint)`. |
 | `address` | TEXT NULL | Currently-known source address (a peripheral UUID on CoreBluetooth captures); updated on each fused rotation (#19), so it tracks the most recent fusion event. Indexed (`idx_devices_address`). Renamed from `mac` in `0002`. |
 | `label` | TEXT NULL | Operator-assigned friendly name (`P2-6/P2-7`); null until labeled. |
 | `description` | TEXT NULL | Optional operator notes. |
@@ -116,6 +116,31 @@ delivers. Nothing is ever fire-and-forget.
 | `payload` | TEXT NOT NULL | Opaque to storage. By convention (P2-4) it is a JSON-serialized `notifier.models.OutboundMessage`; the drain loop deserializes it, and a producer (P2-6/P2-8) enqueues `OutboundMessage(...).model_dump_json()`. An unparseable payload is dead-lettered. |
 | `last_error` | TEXT NULL | Most recent delivery failure detail. |
 | `created_at` | TEXT NOT NULL | |
+
+### `device_aliases`
+
+Durable fusion aliases (ADR-0005 / #96). One row per *later* fused
+fingerprint bound to an existing device — the audit trail of which
+keys were absorbed into which identity, and the restart-stable lookup
+path once the resolver wires persist-inside-`resolve`. Founding keys stay on
+`devices.fingerprint`; they must not also appear here.
+
+All access is through `DeviceRepository` (`record_alias`,
+`get_by_alias`, `list_aliases`). No other module may touch this
+table.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `site_id` | TEXT NOT NULL | |
+| `fingerprint` | TEXT NOT NULL | Canonical fusion key (`fingerprint_key` JSON). `UNIQUE (site_id, fingerprint)`. |
+| `device_id` | INTEGER NOT NULL | FK → `devices(id)`. Site-scoped at the repository (unknown or other-site id raises). Re-binding the same fingerprint to a *different* device is an alias conflict and raises — the trail must not silently rewrite identity. |
+| `created_at` / `updated_at` | TEXT NOT NULL | ISO-8601 UTC, same `strftime` default as `devices`. Set at insert; an idempotent same-device `record_alias` is a no-write (does not bump `updated_at`). |
+
+Indexed `(site_id, device_id)` for per-device audit listing. Added in
+`0004` (#96). Empty in production until the resolver follow-up writes
+from inside `resolve()` (not from `commit()` — that method is
+synchronous and runs after the cycle COMMIT).
 
 ### `label_audit`
 

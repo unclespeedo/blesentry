@@ -203,6 +203,19 @@ MockNotifier for CI.  Formal ADR deferred to P2-5.
 Repository modules isolate all SQL.  No raw SQL outside repository files.
 aiosqlite is the v1 backend.  Formal ADR deferred to P1-5/P1-6.
 
+### Resolver seam (named internal; not a plugin)
+
+The README's **Device resolver** box is a fourth *named* seam.  It is
+**not** a config-selected extension point — there is one
+`DeviceResolver` implementation; `[resolver]` tunes thresholds, it
+does not pick a backend.  Duplicate-MAC policy (above) still defers
+deduplication and identity fusion to this seam.
+
+Lifecycle (`resolve` / `commit` / `abort` / `seed`), the
+cycle-transaction contract, the `min_score` floor, and the durable
+`device_aliases` path are **ADR-0005**. Changing that surface is a
+new ADR, not an ADR-0002 amendment.
+
 ## Consequences
 
 - Adding a new scanner backend is a single-file addition plus a config
