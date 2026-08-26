@@ -781,6 +781,44 @@ async def test_list_aliases_unknown_device_is_empty(
     assert await device_repo.list_aliases(999) == []
 
 
+async def test_list_aliases_for_devices_batches_oldest_first(
+    device_repo: DeviceRepository,
+) -> None:
+    a = await device_repo.upsert(fingerprint="fp-a")
+    b = await device_repo.upsert(fingerprint="fp-b")
+    await device_repo.record_alias(fingerprint="fp-a1", device_id=a)
+    await device_repo.record_alias(fingerprint="fp-a2", device_id=a)
+    await device_repo.record_alias(fingerprint="fp-b1", device_id=b)
+    rows = await device_repo.list_aliases_for_devices([a, b])
+    assert [row["fingerprint"] for row in rows] == [
+        "fp-a1",
+        "fp-a2",
+        "fp-b1",
+    ]
+    assert {row["device_id"] for row in rows} == {a, b}
+
+
+async def test_list_aliases_for_devices_empty_ids_is_empty(
+    device_repo: DeviceRepository,
+) -> None:
+    await device_repo.upsert(fingerprint="fp-a")
+    assert await device_repo.list_aliases_for_devices([]) == []
+
+
+async def test_list_aliases_for_devices_is_site_scoped(
+    db: aiosqlite.Connection,
+) -> None:
+    site_a = DeviceRepository(db, "site-a")
+    site_b = DeviceRepository(db, "site-b")
+    id_a = await site_a.upsert(fingerprint="fp-a")
+    id_b = await site_b.upsert(fingerprint="fp-b")
+    await site_a.record_alias(fingerprint="fp-rot-a", device_id=id_a)
+    await site_b.record_alias(fingerprint="fp-rot-b", device_id=id_b)
+    rows = await site_a.list_aliases_for_devices([id_a, id_b])
+    assert [row["fingerprint"] for row in rows] == ["fp-rot-a"]
+    assert rows[0]["device_id"] == id_a
+
+
 async def test_get_by_alias_unknown_is_none(
     device_repo: DeviceRepository,
 ) -> None:

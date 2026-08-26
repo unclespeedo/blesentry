@@ -12,6 +12,7 @@ changed-payload case. Real temp-file SQLite underneath.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,7 @@ from blesentry.resolver import (
 )
 from blesentry.scanner import Advertisement, Fingerprint
 from blesentry.storage.database import apply_migrations, connect, transaction
-from blesentry.storage.repository import DeviceRepository
+from blesentry.storage.repository import DeviceAliasRow, DeviceRepository
 
 
 def _ad(
@@ -829,3 +830,121 @@ async def test_seed_key_cache_is_bounded(
     assert newest_key in restarted._key_cache
     (id_newest,) = await _resolve_cycle(restarted, newest)
     assert id_newest == device_id
+
+
+# ---------------------------------------------------------------------------
+# Seed batch-load + alias cache-hit touch (#153)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_seed_loads_aliases_in_one_round_trip(
+    devices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """N devices with aliases must not N+1 list_aliases."""
+    writer = DeviceResolver(devices)
+    for i in range(3):
+        founding = _ad(
+            address=f"5E:11:11:11:11:{i:02X}",
+            address_type="rpa",
+            local_name=f"D{i}",
+            manufacturer_data={"76": "aabbcc"},
+        )
+        rotated = _ad(
+            address=f"43:22:22:22:22:{i:02X}",
+            address_type="rpa",
+            local_name=f"D{i}",
+            manufacturer_data={"76": "aabbcc"},
+        )
+        await _resolve_cycle(writer, founding)
+        await _resolve_cycle(writer, rotated)
+
+    calls = {"list": 0, "batch": 0}
+    orig_list = DeviceRepository.list_aliases
+    orig_batch = DeviceRepository.list_aliases_for_devices
+
+    async def counting_list(
+        self: DeviceRepository, device_id: int
+    ) -> list[DeviceAliasRow]:
+        calls["list"] += 1
+        return await orig_list(self, device_id)
+
+    async def counting_batch(
+        self: DeviceRepository, device_ids: Sequence[int]
+    ) -> list[DeviceAliasRow]:
+        calls["batch"] += 1
+        return await orig_batch(self, device_ids)
+
+    monkeypatch.setattr(DeviceRepository, "list_aliases", counting_list)
+    monkeypatch.setattr(
+        DeviceRepository, "list_aliases_for_devices", counting_batch
+    )
+
+    restarted = DeviceResolver(devices)
+    await restarted.seed()
+    assert calls["list"] == 0
+    assert calls["batch"] == 1
+
+
+@pytest.mark.asyncio
+async def test_seeded_alias_cache_hit_touches_new_address(devices) -> None:
+    """A seeded alias key must still refresh devices.address."""
+    first = DeviceResolver(devices)
+    founding, rotated = _rotation_pair()
+    (device_id,) = await _resolve_cycle(first, founding)
+    await _resolve_cycle(first, rotated)
+    later = _ad(
+        address="AA:33:33:33:33:33",
+        address_type="rpa",
+        local_name="Tag",
+        manufacturer_data={"76": "aabbcc"},
+    )
+    await _resolve_cycle(first, later)
+    row = await devices.get(device_id)
+    assert row is not None and row["address"] == later.address
+
+    restarted = DeviceResolver(devices)
+    await restarted.seed()
+    await _resolve_cycle(restarted, rotated)
+    row = await devices.get(device_id)
+    assert row is not None and row["address"] == rotated.address
+
+
+@pytest.mark.asyncio
+async def test_live_alias_cache_hit_touches_new_address(devices) -> None:
+    """Alias keys published by commit() also refresh devices.address."""
+    resolver = DeviceResolver(devices)
+    founding, rotated = _rotation_pair()
+    (device_id,) = await _resolve_cycle(resolver, founding)
+    await _resolve_cycle(resolver, rotated)
+    later = _ad(
+        address="AA:33:33:33:33:33",
+        address_type="rpa",
+        local_name="Tag",
+        manufacturer_data={"76": "aabbcc"},
+    )
+    await _resolve_cycle(resolver, later)
+    row = await devices.get(device_id)
+    assert row is not None and row["address"] == later.address
+    await _resolve_cycle(resolver, rotated)
+    row = await devices.get(device_id)
+    assert row is not None and row["address"] == rotated.address
+
+
+@pytest.mark.asyncio
+async def test_seeded_founding_cache_hit_does_not_touch_address(
+    devices,
+) -> None:
+    """Founding-key cache hits stay a no-touch (#84 / #153)."""
+    first = DeviceResolver(devices)
+    founding, rotated = _rotation_pair()
+    (device_id,) = await _resolve_cycle(first, founding)
+    await _resolve_cycle(first, rotated)
+    row = await devices.get(device_id)
+    assert row is not None and row["address"] == rotated.address
+
+    restarted = DeviceResolver(devices)
+    await restarted.seed()
+    await _resolve_cycle(restarted, founding)
+    row = await devices.get(device_id)
+    assert row is not None and row["address"] == rotated.address

@@ -135,11 +135,15 @@ gaps, from the adversarial review:
   from ``device_aliases`` via ``get_by_alias`` without window
   re-score (#148) for the **newest 32 aliases per device** (#151);
   older aliases are pruned and are not a complete absorption trail.
-  ``seed()`` additionally warms the exact-key cache from both, and
-  backfills leftover window slots with aliases so a *new* rotation
-  can score against a recently fused key — founding keys keep the
-  window budget so one chatty rotator cannot evict every other
-  device. A device absent longer than the window whose current key
+  ``seed()`` additionally warms the exact-key cache from both (one
+  ``list_aliases_for_devices`` query for the seeded window, not
+  per-device ``list_aliases`` — #153), and backfills leftover
+  window slots with aliases so a *new* rotation can score against
+  a recently fused key — founding keys keep the window budget so
+  one chatty rotator cannot evict every other device. A cache hit
+  on an alias key still ``touch_address`` so ``devices.address``
+  tracks that sighting after restart (and live, after
+  ``commit()``); founding-key cache hits do not. A device absent longer than the window whose current key
   is neither founding nor a stored alias still opens a new device
   row. An advertisement flood can flush the window (availability of
   fusion, not correctness — ties to the #85 flood posture).
