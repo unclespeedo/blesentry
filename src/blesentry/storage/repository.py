@@ -7,11 +7,13 @@
 All SQL is confined to this module — this is the storage seam per
 ADR-0002.  Callers never touch the database directly.  Devices and
 observations are P1-6; the outbox enqueue API is P2-3; device_aliases
-(ADR-0005) are DeviceRepository-only.
+(ADR-0005) are DeviceRepository-only; init_sessions (P2-7) are
+InitSessionRepository-only.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from typing import Any, TypedDict
 
@@ -89,6 +91,19 @@ class PresenceEventRow(TypedDict):
     device_id: int
     event_type: str
     occurred_at: str
+
+
+class InitSessionRow(TypedDict):
+    """Shape of a row returned by :class:`InitSessionRepository`."""
+
+    id: int
+    site_id: str
+    status: str
+    cursor: int
+    device_ids: list[int]
+    expires_at: str
+    created_at: str
+    updated_at: str
 
 
 class DeviceRepository:
@@ -469,6 +484,45 @@ class DeviceRepository:
             "FROM devices WHERE site_id = ? "
             "ORDER BY id",
             (self._site,),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            DeviceRow(
+                id=r[0],
+                site_id=r[1],
+                fingerprint=r[2],
+                address=r[3],
+                label=r[4],
+                description=r[5],
+                created_at=r[6],
+                updated_at=r[7],
+            )
+            for r in rows
+        ]
+
+    async def list_present_unlabeled(self) -> list[DeviceRow]:
+        """Devices whose latest presence event is PRESENT and unlabeled.
+
+        Latest is ``MAX(id)`` per device, not ``occurred_at``: an NTP
+        step must not hide a just-written ABSENT. ``label IS NULL``
+        excludes named devices and the ``(ignored)`` sentinel. Site-
+        scoped. Used to snapshot an ``/init`` session (P2-7).
+        """
+        cur = await self._conn.execute(
+            "SELECT d.id, d.site_id, d.fingerprint, d.address, d.label, "
+            "d.description, d.created_at, d.updated_at "
+            "FROM devices d "
+            "INNER JOIN ("
+            "  SELECT device_id, MAX(id) AS last_id "
+            "  FROM presence_events WHERE site_id = ? "
+            "  GROUP BY device_id"
+            ") latest ON latest.device_id = d.id "
+            "INNER JOIN presence_events pe ON pe.id = latest.last_id "
+            "WHERE d.site_id = ? AND d.label IS NULL "
+            "AND pe.event_type = 'PRESENT' "
+            "ORDER BY d.id",
+            (self._site, self._site),
         )
         rows = await cur.fetchall()
         await cur.close()
@@ -897,3 +951,99 @@ class PresenceEventRepository:
             )
             for r in rows
         ]
+
+
+def _parse_device_ids(raw: str) -> list[int]:
+    """Decode the snapshot JSON; reject anything but a list of ints."""
+    data = json.loads(raw)
+    if not isinstance(data, list) or not all(
+        isinstance(item, int) and not isinstance(item, bool) for item in data
+    ):
+        raise ValueError(
+            "init session device_ids must be a JSON array of ints"
+        )
+    return data
+
+
+class InitSessionRepository:
+    """Async repository for the ``init_sessions`` table (P2-7).
+
+    At most one ``ACTIVE`` row per site (partial unique index). The
+    snapshot of device ids is immutable JSON; cursor/status mutate.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection, site_id: str) -> None:
+        """Initialise with an open connection and target site."""
+        self._conn = conn
+        self._site = site_id
+
+    @property
+    def connection(self) -> aiosqlite.Connection:
+        """The underlying connection, for ambient transactions."""
+        return self._conn
+
+    def _row(self, r: Sequence[Any]) -> InitSessionRow:
+        return InitSessionRow(
+            id=r[0],
+            site_id=r[1],
+            status=r[2],
+            cursor=r[3],
+            device_ids=_parse_device_ids(r[4]),
+            expires_at=r[5],
+            created_at=r[6],
+            updated_at=r[7],
+        )
+
+    async def get_active(self) -> InitSessionRow | None:
+        """Return the site's ACTIVE session, or ``None``."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, status, cursor, device_ids, "
+            "expires_at, created_at, updated_at "
+            "FROM init_sessions WHERE site_id = ? AND status = 'ACTIVE'",
+            (self._site,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return self._row(row)
+
+    async def create(
+        self, *, device_ids: Sequence[int], expires_at: str
+    ) -> InitSessionRow:
+        """Insert a new ACTIVE session; fails if one already exists."""
+        payload = json.dumps([int(i) for i in device_ids])
+        async with transaction(self._conn):
+            cur = await self._conn.execute(
+                "INSERT INTO init_sessions "
+                "(site_id, status, cursor, device_ids, expires_at) "
+                "VALUES (?, 'ACTIVE', 0, ?, ?) "
+                "RETURNING id, site_id, status, cursor, device_ids, "
+                "expires_at, created_at, updated_at",
+                (self._site, payload, expires_at),
+            )
+            row = await cur.fetchone()
+            await cur.close()
+            if row is None:
+                raise RuntimeError("RETURNING produced no row")
+            return self._row(row)
+
+    async def set_cursor(self, session_id: int, cursor: int) -> None:
+        """Advance the prompt cursor on this site's session."""
+        async with transaction(self._conn):
+            await self._conn.execute(
+                "UPDATE init_sessions SET cursor = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ? AND site_id = ?",
+                (cursor, session_id, self._site),
+            )
+
+    async def set_status(self, session_id: int, status: str) -> None:
+        """Flip status (DONE / CANCELLED / EXPIRED) on this site's session."""
+        async with transaction(self._conn):
+            await self._conn.execute(
+                "UPDATE init_sessions SET status = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ? AND site_id = ?",
+                (status, session_id, self._site),
+            )

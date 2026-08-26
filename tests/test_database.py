@@ -27,6 +27,7 @@ EXPECTED_TABLES = (
     "outbox",
     "label_audit",
     "device_aliases",
+    "init_sessions",
 )
 
 SCHEMA_V1 = "0001_schema_v1.sql"
@@ -136,6 +137,13 @@ async def test_check_constraints_enforced(
             "(site_id, device_id, event_type, occurred_at) "
             "VALUES (?, ?, ?, ?)",
             ("site-a", 1, "WANDERING", "2026-01-01T00:00:00Z"),
+        )
+    with pytest.raises(aiosqlite.IntegrityError):
+        await conn.execute(
+            "INSERT INTO init_sessions "
+            "(site_id, status, cursor, device_ids, expires_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("site-a", "RUNNING", 0, "[]", "2026-01-01T00:00:00.000Z"),
         )
 
 
@@ -376,6 +384,34 @@ async def test_migration_0004_preserves_existing_data(tmp_path) -> None:
     await cur.close()
     tables = await _tables(conn)
     assert "device_aliases" in tables
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0005_creates_init_sessions(tmp_path) -> None:
+    conn = await connect(tmp_path / "m5.db")
+    applied = await apply_migrations(conn)
+    assert "0005_init_sessions.sql" in applied
+    cur = await conn.execute("PRAGMA table_info(init_sessions)")
+    cols = {row[1] for row in await cur.fetchall()}
+    await cur.close()
+    assert {
+        "id",
+        "site_id",
+        "status",
+        "cursor",
+        "device_ids",
+        "expires_at",
+        "created_at",
+        "updated_at",
+    } <= cols
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='init_sessions'"
+    )
+    names = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_init_sessions_one_active" in names
     await conn.close()
 
 

@@ -24,8 +24,8 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
                 │        ▼                                     │
                 │ SQLite (aiosqlite) — source of truth         │
                 │  devices / device_aliases / observations /   │
-                │  presence / outbox / label_audit             │
-                │                          (all keyed site_id) │
+                │  presence / outbox / label_audit /           │
+                │  init_sessions           (all keyed site_id) │
                 │        │                                     │
                 │        ▼                                     │
                 │ Presence state machine                       │
@@ -72,6 +72,18 @@ the install. Idempotent — a no-op re-run takes ~3 seconds.
 At a busy site the defaults will alert on every lingering device. Turn it
 down with the `[presence]` section — start by raising `rssi_threshold` to
 alert only on nearby devices. See `docs/tuning.md` for the recipe.
+
+### Operator commands (Telegram)
+
+Once a Telegram notifier is configured, the daemon's command loop accepts
+`/status`, `/list`, `/label`, `/unlabel`, `/ignore`, `/describe`, and
+`/init`. `/init` starts a time-boxed bulk-label session of currently
+PRESENT unlabeled devices (reply with a name — no slash — then `/skip` /
+`/ignore` / `/done` / `/init cancel`). After 30 minutes the session
+expires; `/init` starts a fresh list. The same session is reachable on
+the host with `blesentry init --config config.local.toml` — useful for
+the first on-site pass; Ctrl-D pauses it for later resume. See
+`docs/tuning.md`.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under

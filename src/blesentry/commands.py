@@ -14,10 +14,9 @@ to the outbox (ADR-0003: outbound flows through the outbox, never
 fire-and-forget), so the drain delivers it with the same
 durability/backoff as an alert. Replies are plain text.
 
-Commands: help, status, list, label, unlabel, describe. The
-scan-loop-coupled ones (force-scan, and status's presence-aware fields)
-are a follow-up (#110) — they need a scan-loop wake / the presence
-machine (#22).
+Commands: help, status, list, label, unlabel, describe, init (P2-7).
+The scan-loop-coupled ones (force-scan, and status's presence-aware
+fields) are a follow-up (#110).
 """
 
 from __future__ import annotations
@@ -28,15 +27,24 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import NamedTuple
 
+from blesentry.init import (
+    DEFAULT_TIMEOUT_SECONDS,
+    IGNORED_LABEL,
+    InitDeps,
+    handle_inbound,
+)
 from blesentry.notifier.models import InboundCommand, OutboundMessage
 from blesentry.notifier.protocol import Notifier
-from blesentry.storage.repository import DeviceRepository, OutboxRepository
+from blesentry.storage.repository import (
+    DeviceRepository,
+    InitSessionRepository,
+    OutboxRepository,
+)
 
 logger = logging.getLogger(__name__)
 
-# Sentinel label for a device the operator acknowledged but did not name
-# (P2-6 /ignore). Any non-null label closes the unknown-device alert gate.
-IGNORED_LABEL = "(ignored)"
+# Re-exported: the P2-6 /ignore sentinel. Defined in init.py so the
+# session layer can apply it without importing this router.
 
 HELP_TEXT = (
     "commands:\n"
@@ -46,6 +54,7 @@ HELP_TEXT = (
     "  /unlabel <id> — clear a device's name\n"
     "  /ignore <id> — acknowledge a device, no more alerts\n"
     "  /describe <id> <text> — set a device note\n"
+    "  /init — bulk-label present devices (then a name, /skip /done)\n"
     "  /help — this message"
 )
 
@@ -65,6 +74,9 @@ class CommandContext(NamedTuple):
     db_path: str
     clock: Callable[[], float]
     started_at: float
+    sessions: InitSessionRepository | None = None
+    now: Callable[[], float] = time.time
+    init_timeout: float = DEFAULT_TIMEOUT_SECONDS
 
 
 def _parse(text: str) -> tuple[str, str]:
@@ -201,8 +213,26 @@ _HANDLERS: dict[str, Callable[[str, CommandContext], Awaitable[str]]] = {
 }
 
 
+def _init_deps(ctx: CommandContext) -> InitDeps | None:
+    if ctx.sessions is None:
+        return None
+    return InitDeps(
+        ctx.devices,
+        ctx.sessions,
+        actor=f"tg:{ctx.command.user_id}",
+        now=ctx.now,
+        timeout=ctx.init_timeout,
+        ignored_label=IGNORED_LABEL,
+    )
+
+
 async def dispatch(ctx: CommandContext) -> str:
     """Route one authorized command to its handler; return the reply."""
+    deps = _init_deps(ctx)
+    if deps is not None:
+        handled = await handle_inbound(ctx.command.text, deps)
+        if handled is not None:
+            return handled
     verb, args = _parse(ctx.command.text)
     handler = _HANDLERS.get(verb)
     if handler is None:
@@ -219,6 +249,8 @@ async def run_command_loop(
     db_path: str,
     started_at: float,
     clock: Callable[[], float] = time.monotonic,
+    now: Callable[[], float] = time.time,
+    init_timeout: float = DEFAULT_TIMEOUT_SECONDS,
     max_commands: int | None = None,
 ) -> int:
     """Consume authorized commands and reply through the outbox.
@@ -229,10 +261,19 @@ async def run_command_loop(
     never the scan loop's. A handler error is logged and answered, never
     fatal to the loop. Returns the number of commands processed.
     """
+    sessions = InitSessionRepository(devices.connection, devices.site_id)
     processed = 0
     async for command in notifier.commands():
         ctx = CommandContext(
-            command, devices, outbox, db_path, clock, started_at
+            command,
+            devices,
+            outbox,
+            db_path,
+            clock,
+            started_at,
+            sessions,
+            now,
+            init_timeout,
         )
         try:
             reply = await dispatch(ctx)

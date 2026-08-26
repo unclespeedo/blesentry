@@ -28,7 +28,8 @@ A device moves through a small state machine:
   a device pacing at the edge of range does not re-alert on every lap.
 
 Deciding *which* PRESENT devices actually message you (unknown vs. labeled) is a
-separate layer — `/label` and `/ignore` in Telegram. Tuning `[presence]`
+separate layer — `/label` and `/ignore` in Telegram, or `/init` to walk every
+currently-present unlabeled device one at a time. Tuning `[presence]`
 changes *how many devices reach PRESENT at all*; labeling silences the specific
 ones you have already accounted for. Use both.
 
@@ -156,4 +157,14 @@ Thresholds decide *presence*; they do not know *who* a device is. A close,
 persistent device you simply do not care about (your own TV, a fixed sensor)
 will keep reaching PRESENT no matter how you tune — that is correct. Silence it
 by labeling: `/label <id> Living-room TV` to name it, or `/ignore <id>` to mute
-it. Presence tuning trims the population; labeling accounts for the residents.
+it. To bulk-label everything that is currently present (first on-site pass,
+or a catch-up after a busy day), `/init` in chat — or `blesentry init
+--config config.local.toml` on the host — walks unlabeled PRESENT devices
+one at a time. Reply with a name (no slash), `/skip`, `/ignore` (this device, no more
+alerts), or `/done`. The session is snapshotted at start and time-boxed to
+30 minutes of wall clock; after expiry the in-flight name is not applied and
+`/init` (or `blesentry init`) starts a fresh snapshot. A daemon restart or a
+switch between chat and CLI resumes the same cursor rather than building a
+new list. `/init cancel` abandons it. On the CLI, EOF (Ctrl-D) pauses the
+session for later resume rather than cancelling it.
+Presence tuning trims the population; labeling accounts for the residents.

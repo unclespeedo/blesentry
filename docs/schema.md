@@ -36,7 +36,7 @@ rationale targets SD-card longevity on the Pi 3 A+ (512MB):
 | `journal_mode` | `WAL` | Fewer fsyncs than the default rollback journal; readers never block the writer; crash-safe without the checkpoint-every-commit cost. Persists in the DB file. |
 | `synchronous` | `NORMAL` | In WAL mode this is durable against application crashes and cannot corrupt on power loss; a power cut may lose the most recent committed transactions (acceptable — see `P4-5`), which is the standard trade-off on flash. |
 | `busy_timeout` | `5000` | The daemon is long-lived with a single writer; this prevents spurious `SQLITE_BUSY` on transient lock contention. |
-| `foreign_keys` | `ON` | Referential integrity across `devices` → `observations` / `presence_events` / `outbox` / `label_audit` / `device_aliases`. Per-connection; reapplied on every open. |
+| `foreign_keys` | `ON` | Referential integrity across `devices` → `observations` / `presence_events` / `outbox` / `label_audit` / `device_aliases`. Per-connection; reapplied on every open. `init_sessions` has no FK (the device-id snapshot is JSON). |
 
 ## Conventions
 
@@ -166,6 +166,42 @@ Indexed `(site_id, device_id)` for per-device audit listing. Added in
 retention (32 newest) in #151; seed batch-load + alias cache-hit
 touch in #153.
 
+### `init_sessions`
+
+At-most-one in-flight bulk-label session per site (`P2-7` `/init` and
+`blesentry init`). The command loop and the CLI share this row so a
+partial session survives daemon restart and can finish on the other
+surface. All access is through `InitSessionRepository` — no other
+module may touch this table.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `site_id` | TEXT NOT NULL | |
+| `status` | TEXT NOT NULL | `ACTIVE` / `DONE` / `CANCELLED` / `EXPIRED`. CHECK constraint. Partial unique index `idx_init_sessions_one_active` on `site_id` WHERE `status = 'ACTIVE'` — a second live session for the site is a hard error, not a silent overwrite. |
+| `cursor` | INTEGER NOT NULL | 0-based index into `device_ids` of the device currently being prompted. Default 0. |
+| `device_ids` | TEXT NOT NULL | JSON array of integer device ids, **snapshotted at session start**. Resume walks this list (skipping any that have since been labeled), never a freshly queried present set — so a device that appears mid-session is not injected, and a device that leaves stays in the queue until skipped or labeled. |
+| `expires_at` | TEXT NOT NULL | ISO-8601 UTC, same fixed-width format as other timestamps. Default time-box is 30 minutes from start (`blesentry.init.DEFAULT_TIMEOUT_SECONDS`). Compared lexicographically against `iso_utc(now)`. Any init-session touch (`/init`, free-text name, `/skip`, `/done`, bare `/ignore`, `/init cancel`, or `blesentry init`) flips a stale `ACTIVE` row to `EXPIRED`. Only `/init` / `blesentry init` then start a new snapshot; other expired touches reply `init session expired; send /init to start over` and do not apply the in-flight name. |
+| `created_at` / `updated_at` | TEXT NOT NULL | ISO-8601 UTC; `updated_at` bumps on cursor/status changes. |
+
+`device_ids` is JSON rather than a child table because the snapshot is
+immutable and small (PRESENT unlabeled devices at one site — dozens, not
+thousands). Ids are not FK-enforced (the snapshot must outlive a row the
+operator then `/unlabel`s); missing ids are skipped at prompt time.
+
+**Present** for the snapshot is the storage-seam definition: a device's
+latest `presence_events` row **by `id`** (insert-monotonic, not
+`occurred_at` — NTP steps must not hide a just-written ABSENT) is
+`PRESENT`, and `devices.label IS NULL`. The in-memory `PresenceTracker`
+is not consulted — the command loop runs on its own connection (#91)
+and the tracker is not restart-seeded (#112).
+
+Applying a name re-reads the cursor inside one `BEGIN IMMEDIATE`
+transaction so a stale chat or CLI prompt cannot overwrite a label the
+other surface just wrote.
+
+Added in `0005` (#28).
+
 ### `label_audit`
 
 Append-only record of every label change: who, what, when (`P2-6`).
@@ -183,5 +219,7 @@ Append-only record of every label change: who, what, when (`P2-6`).
 
 - `P2-3/P2-4` implement the outbox claim/deliver query on `idx_outbox_claim`.
 - `P1-6` adds the repository layer over these tables (the only SQL writers).
+- `P2-7` adds `init_sessions` (migration `0005`) and
+  `DeviceRepository.list_present_unlabeled`.
 - Retention, clock-skew backfill, and integrity hardening are `P3-4`/`P4-5`
   concerns and do not change this schema.

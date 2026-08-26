@@ -183,3 +183,17 @@ def test_format_json_keeps_names_escaped_not_raw() -> None:
     raw = format_json([_ad(local_name="x\x1b[2Jy")])
     assert "\x1b" not in raw
     assert "\\u001b" in raw
+
+
+def test_init_subcommand_parses_config() -> None:
+    args = build_parser().parse_args(["init", "--config", "cfg.toml"])
+    assert args.command == "init"
+    assert args.config == "cfg.toml"
+
+
+def test_init_subcommand_requires_config_or_db_site() -> None:
+    args = build_parser().parse_args(
+        ["init", "--db", "x.db", "--site-id", "s"]
+    )
+    assert args.db == "x.db"
+    assert args.site_id == "s"

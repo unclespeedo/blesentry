@@ -94,6 +94,9 @@ backend = "none"
 # Telegram backend (ADR-0003): long-poll getUpdates, no webhook — works
 # behind CGNAT/firewalls with zero inbound surface. Alerts and commands
 # flow through one private chat with one authorized operator.
+# Bulk-label currently-PRESENT unlabeled devices with /init (30 min
+# session, resumable; reply with a name, or /skip /ignore /done).
+# `blesentry init --config …` on the host; Ctrl-D pauses.
 # [notifier]
 # backend = "telegram"
 # chat_id = 123456789   # the one authorized chat

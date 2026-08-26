@@ -149,6 +149,27 @@ def build_parser() -> argparse.ArgumentParser:
         dest="or_patterns",
         help="BlueZ passive-scan pattern (repeatable; Linux only)",
     )
+
+    init_cmd = sub.add_parser(
+        "init",
+        help="bulk-label currently present unlabeled devices (P2-7)",
+    )
+    init_cmd.add_argument(
+        "--config",
+        default=None,
+        help="TOML config file; supplies db path and site_id. "
+        "Cannot be combined with --db/--site-id.",
+    )
+    init_cmd.add_argument(
+        "--db",
+        default=None,
+        help="SQLite database path; required unless --config is given",
+    )
+    init_cmd.add_argument(
+        "--site-id",
+        default=None,
+        help="site identifier; required unless --config is given",
+    )
     return parser
 
 
@@ -429,6 +450,54 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_init_storage(args: argparse.Namespace) -> tuple[str, str]:
+    """Fold ``init`` invocation styles into ``(db_path, site_id)``.
+
+    Same exclusive ``--config`` vs ``--db``/``--site-id`` rule as
+    ``run``; init does not need a scanner or notifier.
+    """
+    if args.config is not None:
+        if args.db is not None or args.site_id is not None:
+            raise ValueError("--config cannot be combined with --db/--site-id")
+        from blesentry.config import load_config
+
+        cfg = load_config(args.config)
+        return str(cfg.storage.db), cfg.site_id
+    if args.db is None or args.site_id is None:
+        raise ValueError("init requires --config, or both --db and --site-id")
+    return args.db, args.site_id
+
+
+def _stdin_line() -> str | None:
+    line = sys.stdin.readline()
+    if line == "":
+        return None
+    return line.rstrip("\n")
+
+
+async def _run_init(args: argparse.Namespace) -> int:
+    """Open the database and drive a bulk-label session on stdin."""
+    from blesentry.init import run_cli_session
+    from blesentry.storage.database import apply_migrations, connect
+    from blesentry.storage.repository import (
+        DeviceRepository,
+        InitSessionRepository,
+    )
+
+    db_path, site_id = _resolve_init_storage(args)
+    conn = await connect(db_path)
+    try:
+        await apply_migrations(conn)
+        return await run_cli_session(
+            DeviceRepository(conn, site_id),
+            InitSessionRepository(conn, site_id),
+            readline=_stdin_line,
+            write=print,
+        )
+    finally:
+        await conn.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point; returns the process exit code."""
     args = build_parser().parse_args(argv)
@@ -439,6 +508,8 @@ def main(argv: list[str] | None = None) -> int:
                 format="%(asctime)s %(levelname)s %(name)s: %(message)s",
             )
             return asyncio.run(_run_daemon(args))
+        if args.command == "init":
+            return asyncio.run(_run_init(args))
         scanner = _build_scanner(args)
         advertisements = asyncio.run(run_scan(scanner, duration=args.duration))
     except KeyboardInterrupt:
