@@ -10,10 +10,10 @@ protection requires the `checks` and `dco` jobs) and on main.
 
 ## Data & fixtures
 Detection and evaluation work runs only against committed, sanitized
-fixture corpora (`tests/fixtures/README.md`) — never live Pi data.
-Capturing or refreshing a corpus is a human step (physical, on-site);
-an agent blocked on missing ground truth labels the issue `needs:hardware`
-and picks the next one. Never SSH to or target the Pi to obtain data.
+fixture corpora (`tests/fixtures/README.md`) — never live Pi data (see
+Hard Prohibitions). Capturing or refreshing a corpus is a human, on-site
+step; an agent blocked on missing ground truth stops per the step-2 STOP
+flow, labels the issue `needs:hardware`, and picks the next one.
 
 ## The Loop: "tackle the next priority"
 0. HEALTH CHECK: if CI on main is red, fixing it IS the next priority —
@@ -27,11 +27,11 @@ and picks the next one. Never SSH to or target the Pi to obtain data.
 3. IMPLEMENT: branch `feat/<ID>-<slug>` (or fix/, docs/, ops/). TDD: failing
    test → implementation → green. Conventional commits, one logical change
    each, `Signed-off-by` on all.
-   For `type:spike` and detector-evaluation issues whose DoD is a report or
-   decision rather than code, the DoD is met by a committed report/decision
-   REPRODUCED by the eval harness / replay (not a unit test alone); still
-   branch + PR + sign-off, and commit the harness invocation and its output
-   as the evidence.
+   For `epic:detection` evaluation issues (`type:docs`/`type:test`) whose DoD
+   is an in-issue decision or report rather than code, that committed
+   decision/report satisfies the DoD — plus, WHERE the eval harness/replay
+   exists, a reproduction of the reported metric (harness invocation + output
+   as evidence). TDD still governs any code the issue produces.
 4. SELF-REVIEW: run the full local gate — `uvx pre-commit run --all-files`
    (the single source of truth; never a hand-typed subset of its hooks).
    Re-read the diff as a hostile reviewer. Check: MPL header on new files,
