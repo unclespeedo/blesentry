@@ -12,6 +12,9 @@
 # Idempotent and safe mid-development: rsync --delete mirrors the
 # working tree (never git state), uv sync reconciles the venv, and the
 # service restart is a guarded no-op until P3-1 ships a unit.
+# Pi-only runtime files (config.local.toml, *.db) are gitignored and
+# absent from the source, so they are excluded below — otherwise
+# --delete would wipe the node's live config/database (#155).
 set -euo pipefail
 
 HOST="${1:-${BLESENTRY_HOST:-$USER@blesentry-pi.local}}"
@@ -24,6 +27,7 @@ UV='UV=$(command -v uv || echo "$HOME/.local/bin/uv")'
 echo "deploy: $REPO_ROOT -> $HOST:~/$REMOTE_DIR"
 
 rsync -az --delete \
+  --exclude 'config.local.toml' \
   --exclude '.git' \
   --exclude '.venv' \
   --exclude '.claude' \
