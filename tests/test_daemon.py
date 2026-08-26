@@ -37,9 +37,12 @@ from blesentry.storage import (
     DeviceRepository,
     ObservationRepository,
     OutboxRepository,
+    PresenceEventRepository,
+    SiteStateRepository,
     apply_migrations,
     connect,
 )
+from blesentry.summary import LAST_SENT_KEY, SummaryDeps, run_summary_loop
 
 SITE = "daemon-site"
 
@@ -248,6 +251,67 @@ async def test_drain_delivers_queued_message_while_scanning(
     finally:
         await scan_conn.close()
         await drain_conn.close()
+
+
+async def test_summary_loop_runs_alongside_scan_and_drain(
+    db_path: Path,
+) -> None:
+    """Summary is a fail-loud sibling of scan/drain (#91, #168)."""
+    from datetime import UTC, datetime
+
+    scan_conn = await connect(db_path)
+    await apply_migrations(scan_conn)
+    drain_conn = await connect(db_path)
+    summary_conn = await connect(db_path)
+    try:
+        noon = datetime(2026, 8, 26, 12, 0, 0, tzinfo=UTC).timestamp()
+        notifier = MockNotifier()
+        cycles = await _run_supervised(
+            run_loop(
+                MockScanner(scenarios=[[], [], []]),
+                DeviceRepository(scan_conn, SITE),
+                ObservationRepository(scan_conn, SITE),
+                duration=0.01,
+                pause=0.05,
+                max_cycles=3,
+            ),
+            run_drain(
+                OutboxRepository(drain_conn, SITE),
+                notifier,
+                poll=0.0,
+            ),
+            run_summary_loop(
+                SummaryDeps(
+                    devices=DeviceRepository(summary_conn, SITE),
+                    observations=ObservationRepository(summary_conn, SITE),
+                    presence_events=PresenceEventRepository(
+                        summary_conn, SITE
+                    ),
+                    outbox=OutboxRepository(summary_conn, SITE),
+                    state=SiteStateRepository(summary_conn, SITE),
+                    now=lambda: noon,
+                    hour_utc=12,
+                    enabled=True,
+                ),
+                poll=0.0,
+            ),
+        )
+        assert cycles == 3
+        sent = [m.text for m in notifier.sent]
+        pending = [
+            OutboundMessage.model_validate_json(r["payload"]).text
+            for r in await OutboxRepository(summary_conn, SITE).list_pending()
+        ]
+        # Drain may claim the row before scan's max_cycles trips.
+        assert any("daily summary" in t for t in (*sent, *pending))
+        marker = await SiteStateRepository(summary_conn, SITE).get(
+            LAST_SENT_KEY
+        )
+        assert marker is not None
+    finally:
+        await scan_conn.close()
+        await drain_conn.close()
+        await summary_conn.close()
 
 
 # --- command loop runs alongside the scan loop -----------------------

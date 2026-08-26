@@ -472,6 +472,82 @@ async def test_migration_0006_creates_site_state(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_migration_0006_preserves_populated_0005(tmp_path) -> None:
+    """Upgrade path: indexes land on a non-empty 0005 database (#168)."""
+    import shutil
+
+    from blesentry.storage.database import DEFAULT_MIGRATIONS_DIR
+    from blesentry.storage.repository import SiteStateRepository
+
+    db = tmp_path / "upgrade6.db"
+    conn = await connect(db)
+    through_0005 = tmp_path / "through_0005"
+    through_0005.mkdir()
+    for name in (
+        "0001_schema_v1.sql",
+        "0002_address_provenance.sql",
+        "0003_devices_recency_index.sql",
+        "0004_device_aliases.sql",
+        "0005_init_sessions.sql",
+    ):
+        shutil.copy(DEFAULT_MIGRATIONS_DIR / name, through_0005 / name)
+    await apply_migrations(conn, migrations_dir=through_0005)
+    await conn.execute(
+        "INSERT INTO devices (site_id, fingerprint, address) "
+        "VALUES ('s', 'fp', 'aa')"
+    )
+    await conn.execute(
+        "INSERT INTO observations "
+        "(site_id, device_id, rssi, observed_at) "
+        "VALUES ('s', 1, -60, '2026-08-01T00:00:00.000Z')"
+    )
+    await conn.execute(
+        "INSERT INTO presence_events "
+        "(site_id, device_id, event_type, occurred_at) "
+        "VALUES ('s', 1, 'PRESENT', '2026-08-01T00:00:00.000Z')"
+    )
+    await conn.execute(
+        "INSERT INTO outbox (site_id, payload) VALUES ('s', 'queued')"
+    )
+    await conn.commit()
+    applied = await apply_migrations(conn)
+    assert "0006_site_state.sql" in applied
+    cur = await conn.execute("SELECT fingerprint FROM devices")
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None and row[0] == "fp"
+    cur = await conn.execute("SELECT COUNT(*) FROM observations")
+    obs_n = await cur.fetchone()
+    await cur.close()
+    assert obs_n is not None and obs_n[0] == 1
+    cur = await conn.execute("SELECT COUNT(*) FROM presence_events")
+    pres_n = await cur.fetchone()
+    await cur.close()
+    assert pres_n is not None and pres_n[0] == 1
+    cur = await conn.execute("SELECT COUNT(*) FROM outbox")
+    out_n = await cur.fetchone()
+    await cur.close()
+    assert out_n is not None and out_n[0] == 1
+    cur = await conn.execute("PRAGMA foreign_key_check")
+    assert await cur.fetchall() == []
+    await cur.close()
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'"
+    )
+    names = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_presence_events_site_time" in names
+    assert "idx_devices_site_created" in names
+    assert "idx_outbox_site_status" in names
+    state = SiteStateRepository(conn, "s")
+    await state.set("daily_summary.last_sent", "2026-08-01T12:00:00.000Z")
+    assert await state.get("daily_summary.last_sent") == (
+        "2026-08-01T12:00:00.000Z"
+    )
+    await conn.close()
+
+
+@pytest.mark.asyncio
 async def test_device_aliases_fk_enforced(tmp_path) -> None:
     conn = await connect(tmp_path / "fk.db")
     await apply_migrations(conn)

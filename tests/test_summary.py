@@ -345,6 +345,33 @@ async def test_seen_list_is_capped(
     assert "#21" not in text.split("new devices:")[0]
 
 
+async def test_presence_roster_is_capped(
+    db: aiosqlite.Connection,
+    devices: DeviceRepository,
+    observations: ObservationRepository,
+    presence: PresenceEventRepository,
+    outbox: OutboxRepository,
+    state: SiteStateRepository,
+) -> None:
+    device_id = await devices.upsert(fingerprint="fp-p", address="x")
+    await _backdate_created(db, device_id, iso_utc(NOON_TS - 2 * DAY))
+    for i in range(21):
+        await presence.append(
+            device_id=device_id,
+            event_type="PRESENT",
+            occurred_at=iso_utc(NOON_TS - HOUR + i),
+        )
+    await tick(_deps(devices, observations, presence, outbox, state))
+    text = OutboundMessage.model_validate_json(
+        (await outbox.list_pending())[0]["payload"]
+    ).text
+    roster, _, _ = text.partition("outbox:")
+    presence_block = roster.split("presence:", 1)[1]
+    assert "21 PRESENT" in presence_block
+    assert "…and 1 more" in presence_block
+    assert presence_block.count("PRESENT") == 21  # header + 20 roster rows
+
+
 # ---------------------------------------------------------------------------
 # Schedule + restart (DoD)
 # ---------------------------------------------------------------------------
