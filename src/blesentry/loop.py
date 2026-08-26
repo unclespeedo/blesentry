@@ -61,6 +61,18 @@ def iso_utc(timestamp: float) -> str:
 __all__ = ["CycleStats", "fingerprint_key", "iso_utc", "run_cycle", "run_loop"]
 
 
+def _require_resolver_affinity(
+    resolver: DeviceResolver, devices: DeviceRepository
+) -> None:
+    """Raise if a caller-supplied resolver is not the cycle repo (#149)."""
+    if resolver.connection is not devices.connection:
+        raise ValueError(
+            "resolver must share the cycle connection for atomicity"
+        )
+    if resolver.site_id != devices.site_id:
+        raise ValueError("resolver must share the cycle site")
+
+
 async def run_cycle(
     scanner: Scanner,
     devices: DeviceRepository,
@@ -85,7 +97,11 @@ async def run_cycle(
     publish only after COMMIT and are discarded on failure — a
     rolled-back cycle can never poison resolver memory (the #84
     lesson). Pass one resolver across cycles (run_loop does) or
-    rotation fusion resets every call.
+    rotation fusion resets every call. A caller-supplied resolver
+    must share the cycle ``devices`` connection *and* ``site_id``;
+    ``run_cycle`` raises if either differs (#149). Resolve writes
+    have to sit inside the cycle transaction, and observation
+    ``device_id`` is not site-qualified.
 
     Presence (P2-1): when a ``presence`` tracker and ``presence_events``
     repository are given (both or neither), each window's per-device
@@ -124,6 +140,7 @@ async def run_cycle(
             "presence_events must share the cycle connection for atomicity"
         )
     r = resolver if resolver is not None else DeviceResolver(devices)
+    _require_resolver_affinity(r, devices)
     device_ids: set[int] = set()
     heard: dict[int, int] = {}
     persisted = 0
@@ -193,7 +210,9 @@ async def run_loop(
             Bounded runs are for tests and timeboxed captures.
         resolver: Pre-built resolver — the seam through which config
             (P1-9) supplies tuned thresholds. Must be built over the
-            same ``devices`` repo. ``None`` builds a default resolver.
+            same ``devices`` repo (same connection and ``site_id``);
+            ``run_loop`` fail-fasts before ``seed()`` otherwise
+            (#149). ``None`` builds a default resolver.
         presence: Pre-built presence tracker, carried across cycles
             (P2-1). ``None`` disables presence tracking.
         presence_events: Repository for presence transitions; required
@@ -208,6 +227,7 @@ async def run_loop(
     cycles = 0
     if resolver is None:
         resolver = DeviceResolver(devices)
+    _require_resolver_affinity(resolver, devices)
     await resolver.seed()
     while max_cycles is None or cycles < max_cycles:
         stats = await run_cycle(

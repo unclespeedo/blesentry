@@ -108,6 +108,16 @@ class DeviceRepository:
         """The underlying connection, for ambient transactions (#84)."""
         return self._conn
 
+    @property
+    def site_id(self) -> str:
+        """The site this repository is scoped to.
+
+        Public so ``run_cycle`` can fail-fast when a caller-supplied
+        resolver was built for a different site (#149). Observation
+        ``device_id`` is not site-qualified.
+        """
+        return self._site
+
     async def upsert(
         self,
         *,
