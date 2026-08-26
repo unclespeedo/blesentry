@@ -128,12 +128,19 @@ class Advertisement(BaseModel):
 
 
 class Fingerprint(BaseModel):
-    """Hashable identity key derived from a single advertisement.
+    """Hashable sighting key derived from a single advertisement.
 
-    Carries the stable signal components only (source address, service
-    UUIDs, manufacturer data, advertised name) — never the observation
-    artifacts (RSSI, timestamp, adapter). Candidate matching and scoring
-    across fingerprints is the resolver's job (P1-7).
+    Carries the stable-looking signal components of that one observation
+    (source address, service UUIDs, manufacturer data, advertised name)
+    — never the observation artifacts (RSSI, timestamp, adapter).
+
+    Equality is not an identity test. BLE MAC randomization (especially
+    Apple rotating public addresses) means two observations of the same
+    physical device produce unequal fingerprints when the address
+    rotates. Use ``==`` and hashing only as an exact-sighting cache
+    key. Joining rotated sightings is the resolver's job via fuzzy
+    scoring (``fusion_score``, P1-7 / ADR-0005), not ``Fingerprint``
+    equality.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -147,10 +154,13 @@ class Fingerprint(BaseModel):
 
     @classmethod
     def from_advertisement(cls, advertisement: Advertisement) -> Fingerprint:
-        """Derive the identity key from a single advertisement.
+        """Derive the sighting key from a single advertisement.
 
         Set-typed fields are order-independent so equivalent advertisements
-        from different capture passes produce equal fingerprints.
+        from different capture passes produce equal fingerprints. Equal
+        fingerprints are the same *sighting shape*, not proof of the same
+        device: a rotated MAC yields a different fingerprint (see the
+        class docstring).
         """
         return cls(
             address=advertisement.address,

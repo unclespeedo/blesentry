@@ -2,11 +2,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Scanner seam: BLE advertisement value objects and identity keys.
+"""Scanner seam: BLE advertisement value objects and fingerprint keys.
 
-P1-1 ships the ``Advertisement`` and ``Fingerprint`` models consumed by the
-rest of the system; the ``Scanner`` protocol and ``MockScanner`` fixture
-replay land in P1-2, with the real ``BleakScanner`` adapter following in P1-3.
+``Fingerprint`` equality is an exact-sighting match, not a device-identity
+test — MAC rotation is joined by the resolver (see the ``Fingerprint``
+docstring). P1-1 ships the ``Advertisement`` and ``Fingerprint`` models;
+the ``Scanner`` protocol and ``MockScanner`` fixture replay land in P1-2,
+with the real ``BleakScanner`` adapter following in P1-3.
 """
 
 from blesentry.scanner.bleak import BleakScanner
