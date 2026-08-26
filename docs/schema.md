@@ -36,7 +36,7 @@ rationale targets SD-card longevity on the Pi 3 A+ (512MB):
 | `journal_mode` | `WAL` | Fewer fsyncs than the default rollback journal; readers never block the writer; crash-safe without the checkpoint-every-commit cost. Persists in the DB file. |
 | `synchronous` | `NORMAL` | In WAL mode this is durable against application crashes and cannot corrupt on power loss; a power cut may lose the most recent committed transactions (acceptable — see `P4-5`), which is the standard trade-off on flash. |
 | `busy_timeout` | `5000` | The daemon is long-lived with a single writer; this prevents spurious `SQLITE_BUSY` on transient lock contention. |
-| `foreign_keys` | `ON` | Referential integrity across `devices` → `observations` / `presence_events` / `outbox` / `label_audit` / `device_aliases`. Per-connection; reapplied on every open. `init_sessions` has no FK (the device-id snapshot is JSON). |
+| `foreign_keys` | `ON` | Referential integrity across `devices` → `observations` / `presence_events` / `outbox` / `label_audit` / `device_aliases`. Per-connection; reapplied on every open. `init_sessions` has no FK (the device-id snapshot is JSON). `site_state` has no FK (opaque per-site key/value). |
 
 ## Conventions
 
@@ -207,6 +207,27 @@ other surface just wrote.
 
 Added in `0005` (#28).
 
+### `site_state`
+
+Opaque per-site key/value store for restart-stable daemon markers
+(`P2-9` daily-summary last-sent). Not a dumping ground for config —
+runtime *progress* that must survive process death lives here; tunables
+stay in the TOML file. All access is through `SiteStateRepository`
+(`get`, `set`) — no other module may touch this table.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `site_id` | TEXT NOT NULL | |
+| `key` | TEXT NOT NULL | Opaque marker name, e.g. `daily_summary.last_sent`. `UNIQUE (site_id, key)`. |
+| `value` | TEXT NOT NULL | Opaque payload. For `daily_summary.last_sent` this is the schema's fixed-width UTC timestamp of the last successful enqueue. |
+| `updated_at` | TEXT NOT NULL | ISO-8601 UTC, same `strftime` default as `devices`. Bumped on every `set`. |
+
+A `set` of `daily_summary.last_sent` is wrapped in the same ambient
+transaction as the outbox enqueue it records (never a fire-and-forget
+marker outliving a rolled-back digest, never a digest without a
+marker). Added in `0006` (#30).
+
 ### `label_audit`
 
 Append-only record of every label change: who, what, when (`P2-6`).
@@ -226,5 +247,11 @@ Append-only record of every label change: who, what, when (`P2-6`).
 - `P1-6` adds the repository layer over these tables (the only SQL writers).
 - `P2-7` adds `init_sessions` (migration `0005`) and
   `DeviceRepository.list_present_unlabeled`.
+- `P2-9` adds `site_state` (migration `0006`) plus
+  `idx_presence_events_site_time` / `idx_devices_site_created` /
+  `idx_outbox_site_status` for the digest window queries
+  (`DeviceRepository.list_observed_between`,
+  `DeviceRepository.list_created_between`,
+  `PresenceEventRepository.list_between`, `OutboxRepository.count_failed`).
 - Retention, clock-skew backfill, and integrity hardening are `P3-4`/`P4-5`
   concerns and do not change this schema.

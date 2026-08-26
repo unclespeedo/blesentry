@@ -54,6 +54,7 @@ __all__ = [
     "ResolverConfig",
     "ScanConfig",
     "StorageConfig",
+    "SummaryConfig",
     "TelegramNotifierConfig",
     "build_notifier",
     "build_presence",
@@ -162,6 +163,19 @@ class PresenceConfig(_Section):
     prune_after_windows: int | None = Field(default=None, ge=1)
 
 
+class SummaryConfig(_Section):
+    """Daily digest schedule (P2-9).
+
+    UTC only — no tz database on the 512 MB target. ``hour_utc`` is the
+    hour at or after which today's digest may fire; a ``site_state``
+    marker prevents a second send the same UTC day, including across
+    restarts.
+    """
+
+    enabled: bool = True
+    hour_utc: int = Field(default=12, ge=0, le=23)
+
+
 class NoneNotifierConfig(_Section):
     """The disabled backend — a daemon that runs without alerting."""
 
@@ -249,6 +263,7 @@ class Config(BaseSettings):
     resolver: ResolverConfig = ResolverConfig()
     presence: PresenceConfig = PresenceConfig()
     notifier: NotifierConfig = NoneNotifierConfig()
+    summary: SummaryConfig = SummaryConfig()
 
 
 def _safe_message(err: Mapping[str, object]) -> str:

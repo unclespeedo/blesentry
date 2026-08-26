@@ -17,6 +17,7 @@ from blesentry.storage.repository import (
     ObservationRepository,
     OutboxRepository,
     PresenceEventRepository,
+    SiteStateRepository,
 )
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "ObservationRepository",
     "OutboxRepository",
     "PresenceEventRepository",
+    "SiteStateRepository",
     "apply_migrations",
     "connect",
     "transaction",

@@ -108,3 +108,15 @@ backend = "none"
 # committed token is burned). Inject it via the environment instead:
 #   export BLESENTRY_NOTIFIER__BOT_TOKEN="123456:abc..."
 # or place it in config.local.toml (gitignored). See SECURITY.md.
+
+[summary]
+# Daily digest (P2-9): devices seen, new devices, presence transitions,
+# outbox health. Enqueued to the outbox like everything else, so a WAN
+# outage yields a late-but-complete summary via the drain. UTC only —
+# the Pi has no tz database in the v1 footprint.
+# hour_utc is the hour (0–23) at or after which today's digest may fire.
+# A last-sent marker in site_state prevents a second send the same UTC
+# day, including across daemon restarts. A multi-day downtime produces
+# one catch-up covering [last_sent, now), not one row per missed day.
+enabled = true
+hour_utc = 12

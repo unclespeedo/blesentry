@@ -44,6 +44,8 @@ class _RunSettings(NamedTuple):
     a config-only concern). ``presence`` is always a ready tracker: the
     ``[presence]`` thresholds in config mode, or the P2-1 defaults in flag
     mode (it needs no repository, so it is built here like the scanner).
+    ``summary_enabled`` / ``summary_hour_utc`` come from ``[summary]``
+    (defaults in flag mode).
     """
 
     scanner: Scanner
@@ -56,6 +58,8 @@ class _RunSettings(NamedTuple):
     max_cycles: int | None
     min_score: float | None
     recent_window: int | None
+    summary_enabled: bool
+    summary_hour_utc: int
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -266,6 +270,8 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
             max_cycles=cfg.scan.max_cycles,
             min_score=cfg.resolver.min_score,
             recent_window=cfg.resolver.recent_window,
+            summary_enabled=cfg.summary.enabled,
+            summary_hour_utc=cfg.summary.hour_utc,
         )
     if args.db is None or args.site_id is None:
         raise ValueError("run requires --config, or both --db and --site-id")
@@ -284,6 +290,8 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
         max_cycles=args.max_cycles,
         min_score=None,
         recent_window=None,
+        summary_enabled=True,
+        summary_hour_utc=12,
     )
 
 
@@ -327,7 +335,8 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     connection: ``transaction()`` nesting is connection-global, so
     sharing one connection across tasks would corrupt their units of
     work (#91). The command loop is skipped for the ``none`` backend,
-    which has no inbound side.
+    which has no inbound side. The daily-summary task (P2-9) runs on
+    its own connection when ``[summary] enabled`` (the default).
 
     SIGTERM (systemd's stop signal) cancels the task so both loops
     unwind through ``finally`` and connections close cleanly — the issue
@@ -349,7 +358,9 @@ async def _run_daemon(args: argparse.Namespace) -> int:
         ObservationRepository,
         OutboxRepository,
         PresenceEventRepository,
+        SiteStateRepository,
     )
+    from blesentry.summary import SummaryDeps, run_summary_loop
 
     settings = _resolve_run_settings(args)
     logger = logging.getLogger(__name__)
@@ -358,6 +369,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     scan_conn = None
     drain_conn = None
     cmd_conn = None
+    summary_conn = None
     try:
         if task is not None:
 
@@ -431,6 +443,32 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                     started_at=time.monotonic(),
                 )
             )
+        if settings.summary_enabled:
+            summary_conn = await connect(settings.db)
+            coros.append(
+                run_summary_loop(
+                    SummaryDeps(
+                        devices=DeviceRepository(
+                            summary_conn, settings.site_id
+                        ),
+                        observations=ObservationRepository(
+                            summary_conn, settings.site_id
+                        ),
+                        presence_events=PresenceEventRepository(
+                            summary_conn, settings.site_id
+                        ),
+                        outbox=OutboxRepository(
+                            summary_conn, settings.site_id
+                        ),
+                        state=SiteStateRepository(
+                            summary_conn, settings.site_id
+                        ),
+                        now=time.time,
+                        hour_utc=settings.summary_hour_utc,
+                        enabled=True,
+                    )
+                )
+            )
         cycles = await _run_supervised(*coros)
         logger.info("stopped after %d cycles", cycles)
     except asyncio.CancelledError:
@@ -447,6 +485,8 @@ async def _run_daemon(args: argparse.Namespace) -> int:
             await drain_conn.close()
         if cmd_conn is not None:
             await cmd_conn.close()
+        if summary_conn is not None:
+            await summary_conn.close()
     return 0
 
 
