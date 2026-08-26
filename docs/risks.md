@@ -95,9 +95,12 @@ gaps, from the adversarial review:
   rotating-type address can be fused INTO that known identity,
   inheriting its status and polluting its history — where exact-key
   identity would have flagged a new device. Contradiction detection
-  is still follow-up; the fusion audit-trail schema is now
-  `device_aliases` (ADR-0005). The resolver does not yet persist into
-  it, so fused keys remain in-process only.
+  is still follow-up; the fusion audit-trail schema is
+  `device_aliases` (ADR-0005). Fused keys persist from
+  `DeviceResolver.resolve` inside the cycle transaction (#148) and
+  survive process restart via alias lookup (and `seed()` warming).
+  The trail is an audit of which fingerprints were absorbed, not
+  proof the join was authentic.
   Labeling and alert design (P2) must not treat fused identity as
   authenticated. Two low-effort paths deserve naming: replaying a
   HAP device id (6 cleartext bytes on the air) fuses at 1.0 with no

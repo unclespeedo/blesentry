@@ -29,11 +29,13 @@ selector. This ADR names the internal seam so later consumers cannot
 re-derive the lifecycle from call-site folklore.
 
 Fusion aliases (later fingerprints joined to an existing device)
-today live only in process memory. After a restart, exact founding
-keys recover from `devices.fingerprint`; rotated keys must re-score
-against the seeded window. `docs/risks.md` names a durable fusion
-audit trail as an impersonation mitigation — without it, there is no
-record of which fingerprints were absorbed into which identity.
+originally lived only in process memory. After a restart, exact
+founding keys recovered from `devices.fingerprint`; rotated keys had
+to re-score against the seeded window. `docs/risks.md` names a
+durable fusion audit trail as an impersonation mitigation — without
+it, there is no record of which fingerprints were absorbed into
+which identity. Persist-inside-`resolve` (#148) is the wiring that
+closes that gap; see Decision below.
 
 ## Decision
 
@@ -143,7 +145,7 @@ Upper bound remains 2.0 — headroom for weight retuning, a
 gross-typo net (catches `7`), not a promise that every accepted
 value is reachable under the current weights (~1.6 non-HAP max).
 
-### Durable-alias path (schema sketch, shipped; resolver unwired)
+### Durable-alias path (schema shipped; resolver persist wired)
 
 Fusion aliases persist in `device_aliases`, deployed by migration
 `0004_device_aliases.sql`. All SQL stays in `DeviceRepository`
@@ -172,17 +174,25 @@ Repository surface (the only legal access):
 - `list_aliases(device_id) -> list[DeviceAliasRow]` — the fusion
   audit trail for one identity, oldest first.
 
-**This issue does not wire `DeviceResolver.resolve` to persist or
-consume aliases.** v1 fusion memory remains in-process (exact-key
-cache + recent window + `seed()` from founding keys). The table is
-the durable path and the impersonation audit trail
-`docs/risks.md` asked for; a follow-up consumes it so rotated keys
-survive restart without re-scoring.
+`DeviceResolver.resolve` persists and consumes aliases (#148):
+
+- After the founding-key exact match (`get_by_fingerprint`),
+  `resolve()` consults `get_by_alias`. A hit is the same device;
+  `touch_address` still runs when the advertisement carries an
+  address. No second `record_alias` write (idempotent anyway).
+- On a window fusion (`_best_match`), `resolve()` calls
+  `record_alias` inside the ambient cycle transaction — the same
+  unit of work as `touch_address` / observation inserts.
+  `commit()` / `abort()` stay memory-only publish/discard.
+- Founding-key creates (`upsert`) do **not** insert an alias row.
+- `seed()` warms the exact-key cache and recent window from
+  founding keys **and** each seeded device's aliases, so a later
+  fingerprint can score against a rotated key after restart.
 
 Founding keys stay on `devices.fingerprint`. Alias rows are *later*
 fused keys only — a fingerprint must not be both a founding key and
-an alias. The repository does not yet enforce that cross-table rule;
-the follow-up that wires persist must.
+an alias. `DeviceRepository` enforces that cross-table rule on
+`record_alias` and `upsert`.
 
 ## Consequences
 
@@ -191,10 +201,9 @@ the follow-up that wires persist must.
 - A second consumer (eval harness, force-scan, a future detector
   seam) has a written lifecycle; violating it is a bug, not a style
   choice.
-- `device_aliases` exists from this migration forward even while
-  unused by the resolver — empty in production until the follow-up
-  wires persist-inside-`resolve`. Schema-changing deploys still
-  follow `docs/schema.md` (stop collector, deploy, start).
+- `device_aliases` is the durable fusion path and the impersonation
+  audit trail `docs/risks.md` asked for. Schema-changing deploys
+  still follow `docs/schema.md` (stop collector, deploy, start).
 - This ADR is **Accepted** (human sign-off 2026-08-26). Changing the
   frozen surface is a new ADR, not an ADR-0002 amendment.
 - ADR-0002 grows a pointer: Resolver is a named internal seam, not a
@@ -202,19 +211,15 @@ the follow-up that wires persist must.
 
 ## Future Considerations
 
-- **Resolver persist-inside-`resolve`.** `commit()` is synchronous
-  and runs *after* the cycle SQL transaction has COMMIT-ed — it
-  cannot legally await `record_alias` or write aliases. The follow-up
-  must insert alias rows from async `resolve()` (inside the ambient
-  cycle transaction, same as `touch_address` today) and keep
-  `commit()`/`abort()` as memory-only publish/discard. `resolve()`
-  should consult `get_by_alias` after the founding-key lookup;
-  `seed()` may warm from aliases. That is the remaining half of
-  restart-stable rotation joins (today only founding keys + window
-  re-score). Changing `commit()` to async would itself be a new ADR.
-- **Cross-table uniqueness** (founding key vs alias) and an
-  append-only fusion *event* log if operators need history of
-  re-binds rather than current binding.
+- **Resolver persist-inside-`resolve` (done, #148).** `commit()`
+  stays synchronous and post-COMMIT; alias rows are inserted from
+  async `resolve()` inside the ambient cycle transaction.
+  `resolve()` consults `get_by_alias` after the founding-key lookup;
+  `seed()` warms from aliases. Changing `commit()` to async would
+  itself be a new ADR.
+- **Append-only fusion *event* log** if operators need history of
+  re-binds rather than current binding. Cross-table uniqueness
+  (founding key vs alias) is enforced in the repository (#148).
 - **Contradiction detection** (the other impersonation mitigation
   `docs/risks.md` names) is still follow-up; the alias table is the
   audit trail, not a detector.
