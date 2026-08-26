@@ -120,6 +120,8 @@ def test_flag_mode_uses_null_notifier(tmp_path: Path) -> None:
         _args("--db", str(tmp_path / "x.db"), "--site-id", "s")
     )
     assert isinstance(settings.notifier, NullNotifier)
+    assert settings.summary_enabled is True
+    assert settings.summary_hour_utc == 12
 
 
 def test_flag_mode_uses_default_presence(tmp_path: Path) -> None:
@@ -187,6 +189,21 @@ async def test_config_telegram_backend_builds_telegram_notifier(
     )
     settings = _resolve_run_settings(_args("--config", str(cfg)))
     assert isinstance(settings.notifier, TelegramNotifier)
+    await settings.notifier.aclose()
+
+
+async def test_config_summary_section_reaches_run_settings(
+    tmp_path: Path,
+) -> None:
+    cfg = _write_config(
+        tmp_path / "c.toml",
+        'site_id = "s"\n[storage]\ndb = "x.db"\n'
+        '[scanner]\nbackend = "mock"\n'
+        "[summary]\nenabled = false\nhour_utc = 6\n",
+    )
+    settings = _resolve_run_settings(_args("--config", str(cfg)))
+    assert settings.summary_enabled is False
+    assert settings.summary_hour_utc == 6
     await settings.notifier.aclose()
 
 

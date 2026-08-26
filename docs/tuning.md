@@ -114,9 +114,34 @@ Example — a deliberately quiet, proximity-only profile:
     disappear_windows = 3
     cooldown_windows = 8    # a return within ~2 min is the same visit
 
+## Daily summary (the `[summary]` section)
+
+Once a day the daemon enqueues a digest covering devices seen, newly
+created device rows, PRESENT/ABSENT transitions, and current outbox
+depth (pending + failed). It is just another outbox message: a WAN
+outage delays delivery; nothing is dropped. Device ids and operator
+labels appear; addresses, fingerprints, and advertisement payloads do
+not.
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `enabled` | `true` | `false` skips the summary task entirely |
+| `hour_utc` | `12` | Hour (0–23) at or after which today's digest may fire. UTC only. |
+
+The last-sent marker lives in SQLite (`site_state`), so a restart after
+today's digest does not send a second copy. The first digest after a
+fresh database covers the previous 24 hours; later ones cover
+`[last_sent, now)`. A daemon that was down for several days sends **one**
+catch-up for the gap, not one row per missed calendar day.
+
+To fire in the operator's morning, pick the UTC hour that matches; there
+is no site-local timezone knob in v1 (no tz database on the 512 MB
+target).
+
 ## Applying a change
 
-`[presence]` is read at start-up, so after editing the config:
+`[presence]` and `[summary]` are read at start-up, so after editing the
+config:
 
     sudo systemctl restart blesentry.service
     journalctl -u blesentry.service -f
@@ -147,6 +172,7 @@ issues or PRs):
     journalctl -u blesentry.service | grep scanning
     journalctl -u blesentry.service | grep 'cycles '
     journalctl -u blesentry.service | grep alerted
+    journalctl -u blesentry.service | grep 'daily summary'
 
 Do not raise `SystemMaxUse` to buy retention — 64M is the SD-longevity
 bound from the collector installer. Retention comes from quieter INFO.

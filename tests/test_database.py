@@ -28,6 +28,7 @@ EXPECTED_TABLES = (
     "label_audit",
     "device_aliases",
     "init_sessions",
+    "site_state",
 )
 
 SCHEMA_V1 = "0001_schema_v1.sql"
@@ -420,6 +421,46 @@ async def test_migration_0005_creates_init_sessions(tmp_path) -> None:
     presence_idx = {r[0] for r in await cur.fetchall()}
     await cur.close()
     assert "idx_presence_events_site_device_id" in presence_idx
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0006_creates_site_state(tmp_path) -> None:
+    conn = await connect(tmp_path / "m6.db")
+    applied = await apply_migrations(conn)
+    assert "0006_site_state.sql" in applied
+    cur = await conn.execute("PRAGMA table_info(site_state)")
+    cols = {row[1] for row in await cur.fetchall()}
+    await cur.close()
+    assert {
+        "id",
+        "site_id",
+        "key",
+        "value",
+        "updated_at",
+    } <= cols
+    cur = await conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'site_state'"
+    )
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None
+    sql = row[0].lower()
+    assert "unique" in sql
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='presence_events'"
+    )
+    presence_idx = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_presence_events_site_time" in presence_idx
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='devices'"
+    )
+    device_idx = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_devices_site_created" in device_idx
     await conn.close()
 
 

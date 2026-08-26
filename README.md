@@ -25,7 +25,8 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
                 │ SQLite (aiosqlite) — source of truth         │
                 │  devices / device_aliases / observations /   │
                 │  presence / outbox / label_audit /           │
-                │  init_sessions           (all keyed site_id) │
+                │  init_sessions / site_state                  │
+                │                          (all keyed site_id) │
                 │        │                                     │
                 │        ▼                                     │
                 │ Presence state machine                       │
@@ -85,6 +86,11 @@ the host with `blesentry init --config config.local.toml` — useful for
 the first on-site pass; Ctrl-D pauses it for later resume. Don't type a
 name on a CLI prompt after answering the same device in chat (EOF-pause
 the CLI first); the session is shared. See `docs/tuning.md`.
+
+A **daily digest** (devices seen, new devices, presence transitions,
+outbox health) is enqueued at `[summary] hour_utc` (default 12:00 UTC)
+and delivered through the same outbox. Disable with
+`[summary] enabled = false`. See `docs/tuning.md`.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under

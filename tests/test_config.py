@@ -23,6 +23,7 @@ from blesentry.config import (
     ConfigError,
     MockScannerConfig,
     PresenceConfig,
+    SummaryConfig,
     build_presence,
     build_scanner,
     load_config,
@@ -90,6 +91,10 @@ prune_after_windows = 20
 
 [notifier]
 backend = "none"
+
+[summary]
+enabled = false
+hour_utc = 8
 """
 
 
@@ -117,6 +122,9 @@ def test_minimal_config_applies_defaults(tmp_path: Path) -> None:
     assert cfg.presence.cooldown_windows == 0
     assert cfg.presence.prune_after_windows is None
     assert cfg.notifier.backend == "none"
+    assert cfg.summary.enabled is True
+    assert cfg.summary.hour_utc == 12
+    assert isinstance(cfg.summary, SummaryConfig)
 
 
 def test_full_config_wires_every_knob(tmp_path: Path) -> None:
@@ -135,6 +143,8 @@ def test_full_config_wires_every_knob(tmp_path: Path) -> None:
     assert cfg.presence.rssi_threshold == -70
     assert cfg.presence.cooldown_windows == 6
     assert cfg.presence.prune_after_windows == 20
+    assert cfg.summary.enabled is False
+    assert cfg.summary.hour_utc == 8
 
 
 def test_config_type_is_base_settings(tmp_path: Path) -> None:
@@ -250,6 +260,8 @@ def test_wrong_type_rejected(tmp_path: Path) -> None:
         # so both 0 and a positive value are rejected at load time.
         "[presence]\nrssi_threshold = 80\n",
         "[presence]\nrssi_threshold = 0\n",
+        "[summary]\nhour_utc = 24\n",
+        "[summary]\nhour_utc = -1\n",
     ],
 )
 def test_out_of_range_values_rejected(tmp_path: Path, section: str) -> None:

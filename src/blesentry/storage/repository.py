@@ -8,7 +8,7 @@ All SQL is confined to this module — this is the storage seam per
 ADR-0002.  Callers never touch the database directly.  Devices and
 observations are P1-6; the outbox enqueue API is P2-3; device_aliases
 (ADR-0005) are DeviceRepository-only; init_sessions (P2-7) are
-InitSessionRepository-only.
+InitSessionRepository-only; site_state (P2-9) is SiteStateRepository-only.
 """
 
 from __future__ import annotations
@@ -541,6 +541,73 @@ class DeviceRepository:
             for r in rows
         ]
 
+    async def list_observed_between(
+        self, start: str, end: str
+    ) -> list[DeviceRow]:
+        """Devices with at least one observation in ``[start, end)``.
+
+        Timestamps are the schema's fixed-width UTC strings; comparison
+        is lexical. Ordered by device id. Site-scoped.
+        """
+        cur = await self._conn.execute(
+            "SELECT d.id, d.site_id, d.fingerprint, d.address, d.label, "
+            "d.description, d.created_at, d.updated_at "
+            "FROM devices d "
+            "WHERE d.site_id = ? AND d.id IN ("
+            "  SELECT DISTINCT device_id FROM observations "
+            "  WHERE site_id = ? AND observed_at >= ? AND observed_at < ?"
+            ") "
+            "ORDER BY d.id",
+            (self._site, self._site, start, end),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            DeviceRow(
+                id=r[0],
+                site_id=r[1],
+                fingerprint=r[2],
+                address=r[3],
+                label=r[4],
+                description=r[5],
+                created_at=r[6],
+                updated_at=r[7],
+            )
+            for r in rows
+        ]
+
+    async def list_created_between(
+        self, start: str, end: str
+    ) -> list[DeviceRow]:
+        """Devices whose ``created_at`` falls in ``[start, end)``.
+
+        Used by the daily digest (P2-9) for the "new devices" section.
+        Ordered by id. Site-scoped.
+        """
+        cur = await self._conn.execute(
+            "SELECT id, site_id, fingerprint, address, label, "
+            "description, created_at, updated_at "
+            "FROM devices WHERE site_id = ? "
+            "AND created_at >= ? AND created_at < ? "
+            "ORDER BY id",
+            (self._site, start, end),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            DeviceRow(
+                id=r[0],
+                site_id=r[1],
+                fingerprint=r[2],
+                address=r[3],
+                label=r[4],
+                description=r[5],
+                created_at=r[6],
+                updated_at=r[7],
+            )
+            for r in rows
+        ]
+
     async def set_label(
         self,
         device_id: int,
@@ -793,6 +860,17 @@ class OutboxRepository:
         await cur.close()
         return int(row[0]) if row is not None else 0
 
+    async def count_failed(self) -> int:
+        """Return how many FAILED (dead-lettered) messages this site has."""
+        cur = await self._conn.execute(
+            "SELECT COUNT(*) FROM outbox "
+            "WHERE site_id = ? AND status = 'FAILED'",
+            (self._site,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        return int(row[0]) if row is not None else 0
+
     async def list_pending(self) -> list[OutboxRow]:
         """Return this site's PENDING messages, oldest first (FIFO)."""
         cur = await self._conn.execute(
@@ -953,6 +1031,33 @@ class PresenceEventRepository:
             for r in rows
         ]
 
+    async def list_between(
+        self, start: str, end: str
+    ) -> list[PresenceEventRow]:
+        """Transitions whose ``occurred_at`` falls in ``[start, end)``.
+
+        Ordered by ``occurred_at``, then id. Site-scoped.
+        """
+        cur = await self._conn.execute(
+            "SELECT id, site_id, device_id, event_type, occurred_at "
+            "FROM presence_events WHERE site_id = ? "
+            "AND occurred_at >= ? AND occurred_at < ? "
+            "ORDER BY occurred_at, id",
+            (self._site, start, end),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            PresenceEventRow(
+                id=r[0],
+                site_id=r[1],
+                device_id=r[2],
+                event_type=r[3],
+                occurred_at=r[4],
+            )
+            for r in rows
+        ]
+
 
 def _parse_device_ids(raw: str) -> list[int]:
     """Decode the snapshot JSON; reject anything but a list of ints."""
@@ -1072,4 +1177,53 @@ class InitSessionRepository:
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                 "WHERE id = ? AND site_id = ?",
                 (message_id, session_id, self._site),
+            )
+
+
+class SiteStateRepository:
+    """Async repository for the ``site_state`` table (P2-9).
+
+    Opaque per-site key/value markers that must survive process death
+    (the daily-summary last-sent stamp). Tunables stay in the TOML
+    file; only runtime *progress* lives here. ``set`` joins the
+    caller's ambient transaction so a marker and its triggering write
+    (the digest enqueue) commit or roll back together.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection, site_id: str) -> None:
+        """Initialise with an open connection and target site."""
+        self._conn = conn
+        self._site = site_id
+
+    @property
+    def connection(self) -> aiosqlite.Connection:
+        """The underlying connection, for ambient transactions."""
+        return self._conn
+
+    async def get(self, key: str) -> str | None:
+        """Return the value for ``key``, or ``None`` if unset."""
+        cur = await self._conn.execute(
+            "SELECT value FROM site_state WHERE site_id = ? AND key = ?",
+            (self._site, key),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            return None
+        return str(row[0])
+
+    async def set(self, key: str, value: str) -> None:
+        """Upsert ``key`` to ``value`` for this site.
+
+        ``updated_at`` is always refreshed. Joins an ambient
+        transaction when one is open.
+        """
+        async with transaction(self._conn):
+            await self._conn.execute(
+                "INSERT INTO site_state (site_id, key, value) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT(site_id, key) DO UPDATE SET "
+                "value = excluded.value, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+                (self._site, key, value),
             )
