@@ -95,9 +95,12 @@ gaps, from the adversarial review:
   rotating-type address can be fused INTO that known identity,
   inheriting its status and polluting its history — where exact-key
   identity would have flagged a new device. Contradiction detection
-  is still follow-up; the fusion audit-trail schema is now
-  `device_aliases` (ADR-0005). The resolver does not yet persist into
-  it, so fused keys remain in-process only.
+  is still follow-up; the fusion audit-trail schema is
+  `device_aliases` (ADR-0005). Fused keys persist from
+  `DeviceResolver.resolve` inside the cycle transaction (#148) and
+  survive process restart via alias lookup (and `seed()` warming).
+  The trail is an audit of which fingerprints were absorbed, not
+  proof the join was authentic.
   Labeling and alert design (P2) must not treat fused identity as
   authenticated. Two low-effort paths deserve naming: replaying a
   HAP device id (6 cleartext bytes on the air) fuses at 1.0 with no
@@ -125,10 +128,15 @@ gaps, from the adversarial review:
   Precedence note: the stable-address mismatch veto runs before the
   HAP rule, so equal HAP ids claimed from two different known-stable
   addresses stay distinct (a cloned payload, not one accessory).
-- **Restart amnesia (mitigated) and window bounds.** Exact keys
-  recover from the database, and the resolver seeds its window from
-  the newest stored devices at startup, so restart-spanning rotations
-  mostly re-join. A device absent longer than the window still opens
-  a new device row. An advertisement flood can
-  flush the window (availability of fusion, not correctness — ties to
-  the #85 flood posture).
+- **Restart amnesia (mitigated) and window bounds.** Founding keys
+  recover from ``devices.fingerprint``. Fused (rotated) keys recover
+  from ``device_aliases`` via ``get_by_alias`` without window
+  re-score (#148). ``seed()`` additionally warms the exact-key cache
+  from both, and backfills leftover window slots with aliases so a
+  *new* rotation can score against a recently fused key — founding
+  keys keep the window budget so one chatty rotator cannot evict
+  every other device. A device absent longer than the window whose
+  current key is neither founding nor a stored alias still opens a
+  new device row. An advertisement flood can flush the window
+  (availability of fusion, not correctness — ties to the #85 flood
+  posture).

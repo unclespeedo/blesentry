@@ -801,6 +801,36 @@ async def test_alias_fingerprint_unique_per_site(
     assert bound_b is not None and bound_b["id"] == b
 
 
+async def test_record_alias_rejects_founding_fingerprint(
+    device_repo: DeviceRepository,
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-founding")
+    with pytest.raises(ValueError, match="founding"):
+        await device_repo.record_alias(
+            fingerprint="fp-founding", device_id=device_id
+        )
+
+
+async def test_record_alias_rejects_other_device_founding_key(
+    device_repo: DeviceRepository,
+) -> None:
+    await device_repo.upsert(fingerprint="fp-a")
+    b = await device_repo.upsert(fingerprint="fp-b")
+    with pytest.raises(ValueError, match="founding"):
+        await device_repo.record_alias(fingerprint="fp-a", device_id=b)
+
+
+async def test_upsert_rejects_alias_fingerprint(
+    device_repo: DeviceRepository,
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-founding")
+    await device_repo.record_alias(
+        fingerprint="fp-rotated", device_id=device_id
+    )
+    with pytest.raises(ValueError, match="already an alias"):
+        await device_repo.upsert(fingerprint="fp-rotated")
+
+
 # -- PresenceEventRepository (P2-1) --
 
 

@@ -16,7 +16,12 @@ from pathlib import Path
 
 import pytest
 
-from blesentry.resolver import DeviceResolver, fusion_score, hap_device_id
+from blesentry.resolver import (
+    DeviceResolver,
+    fingerprint_key,
+    fusion_score,
+    hap_device_id,
+)
 from blesentry.scanner import Advertisement, Fingerprint
 from blesentry.storage.database import apply_migrations, connect, transaction
 from blesentry.storage.repository import DeviceRepository
@@ -569,3 +574,161 @@ async def test_seed_scores_against_current_address(devices) -> None:
         _ad(address="43:22:22:22:22:22", manufacturer_data={"76": "03"}),
     )
     assert id_b == id_a
+
+
+# ---------------------------------------------------------------------------
+# Durable aliases (#148): persist from resolve(), consume on lookup/seed
+# ---------------------------------------------------------------------------
+
+
+def _rotation_pair() -> tuple[Advertisement, Advertisement]:
+    """Name + payload continuity: scores 0.75, fuses at the default floor."""
+    founding = _ad(
+        address="5E:11:11:11:11:11",
+        address_type="rpa",
+        local_name="Tag",
+        manufacturer_data={"76": "aabbcc"},
+    )
+    rotated = _ad(
+        address="43:22:22:22:22:22",
+        address_type="rpa",
+        local_name="Tag",
+        manufacturer_data={"76": "aabbcc"},
+    )
+    return founding, rotated
+
+
+@pytest.mark.asyncio
+async def test_fused_key_is_recorded_as_alias(devices) -> None:
+    resolver = DeviceResolver(devices)
+    founding, rotated = _rotation_pair()
+    (device_id,) = await _resolve_cycle(resolver, founding)
+    await _resolve_cycle(resolver, rotated)
+    aliases = await devices.list_aliases(device_id)
+    assert [row["fingerprint"] for row in aliases] == [
+        fingerprint_key(Fingerprint.from_advertisement(rotated))
+    ]
+
+
+@pytest.mark.asyncio
+async def test_founding_key_is_not_recorded_as_alias(devices) -> None:
+    resolver = DeviceResolver(devices)
+    ad = _ad(local_name="Sensor")
+    (device_id,) = await _resolve_cycle(resolver, ad)
+    await _resolve_cycle(resolver, ad)
+    assert await devices.list_aliases(device_id) == []
+
+
+@pytest.mark.asyncio
+async def test_fused_key_survives_restart_via_alias_not_window(
+    devices,
+) -> None:
+    """Alias lookup recovers a rotated key with no window to re-score."""
+    first = DeviceResolver(devices)
+    founding, rotated = _rotation_pair()
+    (id_a,) = await _resolve_cycle(first, founding)
+    await _resolve_cycle(first, rotated)
+    restarted = DeviceResolver(devices, recent_window=0)
+    (id_b,) = await _resolve_cycle(restarted, rotated)
+    assert id_b == id_a
+    assert len(await devices.list_devices()) == 1
+
+
+@pytest.mark.asyncio
+async def test_seed_warms_alias_for_window_scoring(devices) -> None:
+    """A later key can score against a seeded alias, not just the founding.
+
+    Founding has payload only. The fused alias adds a name. A third
+    advertisement sharing name+payload with the alias (0.75) but only
+    payload with the founding key (0.5) must join after seed.
+    """
+    first = DeviceResolver(devices)
+    founding = _ad(
+        address="5E:11:11:11:11:11",
+        manufacturer_data={"76": "aabbcc"},
+    )
+    aliased = _ad(
+        address="5E:11:11:11:11:11",
+        local_name="Tag",
+        manufacturer_data={"76": "aabbcc"},
+    )
+    (id_a,) = await _resolve_cycle(first, founding)
+    await _resolve_cycle(first, aliased)
+    restarted = DeviceResolver(devices)
+    await restarted.seed()
+    later = _ad(
+        address="43:22:22:22:22:22",
+        local_name="Tag",
+        manufacturer_data={"76": "aabbcc"},
+    )
+    (id_b,) = await _resolve_cycle(restarted, later)
+    assert id_b == id_a
+
+
+@pytest.mark.asyncio
+async def test_seed_does_not_let_aliases_evict_other_devices(
+    devices,
+) -> None:
+    """Founding keys keep the window budget under alias volume.
+
+    One device minting many fused aliases (same-address payload ticks)
+    must not flush every other device out of a tight seed window.
+    """
+    writer = DeviceResolver(devices)
+    (id_b,) = await _resolve_cycle(
+        writer,
+        _ad(
+            address="5E:22:22:22:22:22",
+            address_type="rpa",
+            local_name="DevB",
+            manufacturer_data={"76": "ff"},
+        ),
+    )
+    await _resolve_cycle(
+        writer,
+        _ad(
+            address="5E:11:11:11:11:11",
+            address_type="rpa",
+            local_name="DevA",
+            manufacturer_data={"76": "00"},
+        ),
+    )
+    for i in range(5):
+        await _resolve_cycle(
+            writer,
+            _ad(
+                address="5E:11:11:11:11:11",
+                address_type="rpa",
+                local_name="DevA",
+                manufacturer_data={"76": f"{i + 1:02x}"},
+            ),
+        )
+    restarted = DeviceResolver(devices, recent_window=2)
+    await restarted.seed()
+    (id_b2,) = await _resolve_cycle(
+        restarted,
+        _ad(
+            address="43:33:33:33:33:33",
+            address_type="rpa",
+            local_name="DevB",
+            manufacturer_data={"76": "ff"},
+        ),
+    )
+    assert id_b2 == id_b
+    assert len(await devices.list_devices()) == 2
+
+
+@pytest.mark.asyncio
+async def test_abort_rolls_back_alias_write(devices) -> None:
+    resolver = DeviceResolver(devices)
+    founding, rotated = _rotation_pair()
+    (device_id,) = await _resolve_cycle(resolver, founding)
+    try:
+        async with transaction(resolver.connection):
+            await resolver.resolve(rotated)
+            raise RuntimeError("cycle fails")
+    except RuntimeError:
+        resolver.abort()
+    assert await devices.list_aliases(device_id) == []
+    await _resolve_cycle(resolver, rotated)
+    assert len(await devices.list_aliases(device_id)) == 1

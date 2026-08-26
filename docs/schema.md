@@ -65,7 +65,7 @@ One row per resolved identity. Identity is the fingerprint fusion key
 |---|---|---|
 | `id` | INTEGER PK | |
 | `site_id` | TEXT NOT NULL | |
-| `fingerprint` | TEXT NOT NULL | The identity's *founding* (first-seen) key, versioned (`\"v\":2`). Fusion aliases (later fingerprints resolved to the same device) currently live in process memory; after a restart the resolver re-seeds its candidate window from the newest stored devices and re-derives joins (#19). The durable-alias table (`device_aliases`, ADR-0005) is the shipped path for persisting those later keys — `DeviceResolver` does not yet consume it. `UNIQUE (site_id, fingerprint)`. |
+| `fingerprint` | TEXT NOT NULL | The identity's *founding* (first-seen) key, versioned (`\"v\":2`). Fusion aliases (later fingerprints resolved to the same device) persist in `device_aliases` (ADR-0005 / #148): `DeviceResolver.resolve` writes them inside the cycle transaction and consults them after this founding-key lookup; `seed()` warms the exact-key cache from both, and backfills leftover window slots with aliases (founding keys keep the budget). A fingerprint must not be both a founding key and an alias (enforced in `DeviceRepository`). `UNIQUE (site_id, fingerprint)`. |
 | `address` | TEXT NULL | Currently-known source address (a peripheral UUID on CoreBluetooth captures); updated on each fused rotation (#19), so it tracks the most recent fusion event. Indexed (`idx_devices_address`). Renamed from `mac` in `0002`. |
 | `label` | TEXT NULL | Operator-assigned friendly name (`P2-6/P2-7`); null until labeled. |
 | `description` | TEXT NULL | Optional operator notes. |
@@ -119,11 +119,17 @@ delivers. Nothing is ever fire-and-forget.
 
 ### `device_aliases`
 
-Durable fusion aliases (ADR-0005 / #96). One row per *later* fused
-fingerprint bound to an existing device — the audit trail of which
-keys were absorbed into which identity, and the restart-stable lookup
-path once the resolver wires persist-inside-`resolve`. Founding keys stay on
-`devices.fingerprint`; they must not also appear here.
+Durable fusion aliases (ADR-0005 / #96 / #148). One row per *later*
+fused fingerprint bound to an existing device — the audit trail of
+which keys were absorbed into which identity, and the restart-stable
+lookup path. `DeviceResolver.resolve` persists a fused key via
+`record_alias` inside the ambient cycle transaction (not from
+`commit()`, which is synchronous and runs after COMMIT). `resolve`
+consults `get_by_alias` after the founding-key exact match;
+`seed()` warms cache and window from aliases as well as founding
+keys (founding keys keep the window budget; aliases backfill
+leftover slots). Founding keys stay on `devices.fingerprint`; they
+must not also appear here (repository-enforced).
 
 All access is through `DeviceRepository` (`record_alias`,
 `get_by_alias`, `list_aliases`). No other module may touch this
@@ -138,9 +144,7 @@ table.
 | `created_at` / `updated_at` | TEXT NOT NULL | ISO-8601 UTC, same `strftime` default as `devices`. Set at insert; an idempotent same-device `record_alias` is a no-write (does not bump `updated_at`). |
 
 Indexed `(site_id, device_id)` for per-device audit listing. Added in
-`0004` (#96). Empty in production until the resolver follow-up writes
-from inside `resolve()` (not from `commit()` — that method is
-synchronous and runs after the cycle COMMIT).
+`0004` (#96); resolver persist/consume wired in #148.
 
 ### `label_audit`
 
