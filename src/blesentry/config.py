@@ -34,6 +34,7 @@ from pydantic import (
     Field,
     SecretStr,
     ValidationError,
+    field_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -96,10 +97,11 @@ class ScanConfig(_Section):
 
 
 class ResolverConfig(_Section):
-    """Fusion-resolver thresholds (P1-7).
+    """Fusion-resolver thresholds (P1-7, ADR-0005).
 
-    Defaults mirror :class:`~blesentry.resolver.DeviceResolver` — this
-    section retires that class's "constructor params until #21 lands".
+    Defaults mirror :class:`~blesentry.resolver.DeviceResolver`.
+    ``min_score`` must exceed the company-only fusion weight or a
+    vendor's rotation cloud collapses into one device.
     """
 
     # Upper bound guards against a typo (e.g. 7) that would silently
@@ -107,8 +109,25 @@ class ResolverConfig(_Section):
     # provisional weights; the HAP path caps at 1.0) and disable all
     # fusion. 2.0 leaves headroom for weight retuning; a threshold no
     # advertisement can reach is a misconfig, not a valid setting.
+    # Lower bound is the company-only weight (ADR-0005), applied in
+    # ``_above_company_only`` — Field(ge=0) would still admit vendor
+    # collapse.
     min_score: float = Field(default=0.55, ge=0, le=2.0)
     recent_window: int = Field(default=512, ge=1)
+
+    @field_validator("min_score")
+    @classmethod
+    def _above_company_only(cls, value: float) -> float:
+        """Reject a floor that lets company-id-only overlap fuse."""
+        from blesentry.resolver import COMPANY_ONLY_WEIGHT
+
+        if value <= COMPANY_ONLY_WEIGHT:
+            raise ValueError(
+                "must exceed the company-only fusion weight "
+                f"({COMPANY_ONLY_WEIGHT}) or a vendor collapses "
+                "to one device"
+            )
+        return value
 
 
 class PresenceConfig(_Section):

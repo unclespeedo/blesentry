@@ -23,8 +23,9 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
                 │        │                                     │
                 │        ▼                                     │
                 │ SQLite (aiosqlite) — source of truth         │
-                │  devices / observations / presence /         │
-                │  outbox / label_audit    (all keyed site_id) │
+                │  devices / device_aliases / observations /   │
+                │  presence / outbox / label_audit             │
+                │                          (all keyed site_id) │
                 │        │                                     │
                 │        ▼                                     │
                 │ Presence state machine                       │
@@ -43,8 +44,10 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
 
 Every external dependency sits behind a small config-selected interface
 (`Scanner`, `Notifier`, `Storage`) — swapping implementations is a config
-edit, no code change. See `docs/adr/0002-extension-points.md` for the seam
-contracts.
+edit, no code change. See `docs/adr/0002-extension-points.md` for those
+plugin contracts. The Device resolver is a *named internal* seam
+(ADR-0005), not a backend selector: one instance, one lifecycle, no
+plugin registry.
 
 ## Licensing (plain English)
 MPL-2.0. Use it anywhere, including commercially. If you modify *these files*

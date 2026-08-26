@@ -26,6 +26,7 @@ EXPECTED_TABLES = (
     "presence_events",
     "outbox",
     "label_audit",
+    "device_aliases",
 )
 
 SCHEMA_V1 = "0001_schema_v1.sql"
@@ -304,6 +305,41 @@ async def test_migration_0002_preserves_v1_data(tmp_path) -> None:
     old = await cur.fetchone()
     await cur.close()
     assert old is not None and old[0] is None
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0004_creates_device_aliases(tmp_path) -> None:
+    conn = await connect(tmp_path / "m4.db")
+    applied = await apply_migrations(conn)
+    assert "0004_device_aliases.sql" in applied
+    cur = await conn.execute("PRAGMA table_info(device_aliases)")
+    cols = {row[1] for row in await cur.fetchall()}
+    await cur.close()
+    assert {
+        "id",
+        "site_id",
+        "fingerprint",
+        "device_id",
+        "created_at",
+        "updated_at",
+    } <= cols
+    cur = await conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'device_aliases'"
+    )
+    row = await cur.fetchone()
+    await cur.close()
+    assert row is not None
+    sql = row[0].lower()
+    assert "unique" in sql
+    assert "references devices" in sql
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='device_aliases'"
+    )
+    names = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_device_aliases_device" in names
     await conn.close()
 
 

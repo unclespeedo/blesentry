@@ -14,10 +14,12 @@ radios cannot share an address concurrently — 2026-08-18 policy);
 address *provenance* powers the stable-address mismatch veto rather
 than gating the match weight.
 
-Transaction discipline (the #84 lesson): identities created inside a
-cycle transaction are staged; the caller invokes :meth:`commit` after
-the transaction commits or :meth:`abort` on failure, so a rolled-back
-cycle can never poison the resolver's memory with phantom ids.
+Transaction discipline (the #84 lesson, frozen in ADR-0005): identities
+created inside a cycle transaction are staged; the caller invokes
+:meth:`commit` after the transaction commits or :meth:`abort` on
+failure, so a rolled-back cycle can never poison the resolver's
+memory with phantom ids. One instance across cycles; :meth:`seed`
+before the first cycle.
 """
 
 from __future__ import annotations
@@ -33,12 +35,14 @@ from blesentry.storage.repository import DeviceRepository
 # Signal weights. Sum of non-address signals (0.5 + 0.25 + 0.25) = 1.0;
 # the default threshold 0.55 means: full manufacturer-payload equality
 # alone is not enough — it needs a name or service-set corroboration.
-# Company-id-only overlap (0.3) can never fuse on its own: the
-# rotation cloud must not collapse into one device per vendor.
+# Company-id-only overlap (COMPANY_ONLY_WEIGHT) can never fuse on its
+# own: the rotation cloud must not collapse into one device per vendor.
+# Config enforces min_score > COMPANY_ONLY_WEIGHT (ADR-0005).
 # Weights and the 0.55 default threshold are ACCEPTED-PROVISIONAL
 # pending P0-11 labeled walk-test tuning (2026-08-18 policy decision).
 _W_MFR_PAYLOAD = 0.5
-_W_MFR_COMPANY = 0.3
+COMPANY_ONLY_WEIGHT = 0.3
+_W_MFR_COMPANY = COMPANY_ONLY_WEIGHT
 _W_UUIDS = 0.25
 _W_NAME = 0.25
 _W_STABLE_ADDRESS = 0.6
@@ -167,7 +171,7 @@ class DeviceResolver:
         min_score: float = 0.55,
         recent_window: int = 512,
     ) -> None:
-        """Configure thresholds (constructor params until #21 lands)."""
+        """Configure fusion thresholds (wired through ``[resolver]``)."""
         self._devices = devices
         self._min_score = min_score
         self._recent_window = recent_window

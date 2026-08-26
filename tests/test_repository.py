@@ -696,6 +696,107 @@ async def test_set_description_unknown_device_is_noop(
     assert await device_repo.set_description(999, description="x") is False
 
 
+# -- DeviceRepository: device_aliases (ADR-0005 / #96) --
+
+
+async def test_record_alias_binds_fingerprint_to_device(
+    device_repo: DeviceRepository,
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-founding")
+    alias_id = await device_repo.record_alias(
+        fingerprint="fp-rotated", device_id=device_id
+    )
+    assert alias_id >= 1
+    bound = await device_repo.get_by_alias("fp-rotated")
+    assert bound is not None
+    assert bound["id"] == device_id
+    assert bound["fingerprint"] == "fp-founding"
+
+
+async def test_record_alias_unknown_device_raises(
+    device_repo: DeviceRepository,
+) -> None:
+    with pytest.raises(ValueError, match="not found"):
+        await device_repo.record_alias(fingerprint="fp-x", device_id=999)
+
+
+async def test_record_alias_is_site_scoped(db: aiosqlite.Connection) -> None:
+    site_a = DeviceRepository(db, "site-a")
+    site_b = DeviceRepository(db, "site-b")
+    device_id = await site_a.upsert(fingerprint="fp-a")
+    with pytest.raises(ValueError, match="not found"):
+        await site_b.record_alias(fingerprint="fp-rot", device_id=device_id)
+    await site_a.record_alias(fingerprint="fp-rot", device_id=device_id)
+    assert await site_b.get_by_alias("fp-rot") is None
+    bound = await site_a.get_by_alias("fp-rot")
+    assert bound is not None and bound["id"] == device_id
+
+
+async def test_record_alias_idempotent_same_device(
+    device_repo: DeviceRepository,
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-f")
+    first = await device_repo.record_alias(
+        fingerprint="fp-rot", device_id=device_id
+    )
+    second = await device_repo.record_alias(
+        fingerprint="fp-rot", device_id=device_id
+    )
+    assert first == second
+    aliases = await device_repo.list_aliases(device_id)
+    assert len(aliases) == 1
+    assert aliases[0]["fingerprint"] == "fp-rot"
+    assert aliases[0]["created_at"]
+    assert aliases[0]["updated_at"]
+
+
+async def test_record_alias_conflict_different_device(
+    device_repo: DeviceRepository,
+) -> None:
+    a = await device_repo.upsert(fingerprint="fp-a")
+    b = await device_repo.upsert(fingerprint="fp-b")
+    await device_repo.record_alias(fingerprint="fp-rot", device_id=a)
+    with pytest.raises(ValueError, match="alias conflict"):
+        await device_repo.record_alias(fingerprint="fp-rot", device_id=b)
+
+
+async def test_list_aliases_oldest_first(
+    device_repo: DeviceRepository,
+) -> None:
+    device_id = await device_repo.upsert(fingerprint="fp-f")
+    await device_repo.record_alias(fingerprint="fp-1", device_id=device_id)
+    await device_repo.record_alias(fingerprint="fp-2", device_id=device_id)
+    aliases = await device_repo.list_aliases(device_id)
+    assert [row["fingerprint"] for row in aliases] == ["fp-1", "fp-2"]
+
+
+async def test_list_aliases_unknown_device_is_empty(
+    device_repo: DeviceRepository,
+) -> None:
+    assert await device_repo.list_aliases(999) == []
+
+
+async def test_get_by_alias_unknown_is_none(
+    device_repo: DeviceRepository,
+) -> None:
+    assert await device_repo.get_by_alias("no-such") is None
+
+
+async def test_alias_fingerprint_unique_per_site(
+    db: aiosqlite.Connection,
+) -> None:
+    site_a = DeviceRepository(db, "site-a")
+    site_b = DeviceRepository(db, "site-b")
+    a = await site_a.upsert(fingerprint="fp-a")
+    b = await site_b.upsert(fingerprint="fp-b")
+    await site_a.record_alias(fingerprint="fp-shared", device_id=a)
+    await site_b.record_alias(fingerprint="fp-shared", device_id=b)
+    bound_a = await site_a.get_by_alias("fp-shared")
+    bound_b = await site_b.get_by_alias("fp-shared")
+    assert bound_a is not None and bound_a["id"] == a
+    assert bound_b is not None and bound_b["id"] == b
+
+
 # -- PresenceEventRepository (P2-1) --
 
 

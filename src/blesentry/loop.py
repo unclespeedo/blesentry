@@ -4,10 +4,10 @@
 
 """Continuous scan loop (P1-8): scan window -> resolve -> persist.
 
-Identity comes from the fusion resolver (#19, ``resolver.py``):
-weighted signal scoring with a stable-address mismatch veto,
-conservative by design — see resolver.py and docs/risks.md for the
-fusion limits (payload-variance under-joining, impersonation
+Identity comes from the fusion resolver (#19, ``resolver.py``,
+ADR-0005): weighted signal scoring with a stable-address mismatch
+veto, conservative by design — see resolver.py and docs/risks.md for
+the fusion limits (payload-variance under-joining, impersonation
 surface, window bounds).
 
 Error contract (ADR-0002): scanner failures propagate out of the loop
