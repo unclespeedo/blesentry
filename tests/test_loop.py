@@ -12,6 +12,7 @@ resolver is exact fingerprint identity — #19 replaces it with fusion.
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 import pytest
@@ -172,6 +173,126 @@ async def test_loop_runs_max_cycles_and_stops(repos) -> None:
         device_id=rows[0]["id"], since="2025-01-01T00:00:00.000Z"
     )
     assert len(rssi) == 2
+
+
+def _loop_messages(caplog: pytest.LogCaptureFixture, level: int) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "blesentry.loop" and record.levelno == level
+    ]
+
+
+@pytest.mark.asyncio
+async def test_loop_logs_each_cycle_at_debug_not_info(
+    repos, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Per-cycle stats must not consume the journald INFO budget (#100)."""
+    devices, observations = repos
+    scanner = MockScanner(scenarios=[[_ad()]] * 4)
+    with caplog.at_level(logging.DEBUG, logger="blesentry.loop"):
+        await run_loop(
+            scanner,
+            devices,
+            observations,
+            duration=0.0,
+            pause=0.0,
+            max_cycles=4,
+            rollup_every=2,
+        )
+    debug = _loop_messages(caplog, logging.DEBUG)
+    info = _loop_messages(caplog, logging.INFO)
+    assert len(debug) == 4
+    assert all(message.startswith("cycle ") for message in debug)
+    assert all(not message.startswith("cycle ") for message in info)
+
+
+@pytest.mark.asyncio
+async def test_loop_emits_info_rollup_every_n_cycles(
+    repos, caplog: pytest.LogCaptureFixture
+) -> None:
+    devices, observations = repos
+    scanner = MockScanner(scenarios=[[_ad()]] * 4)
+    with caplog.at_level(logging.DEBUG, logger="blesentry.loop"):
+        await run_loop(
+            scanner,
+            devices,
+            observations,
+            duration=0.0,
+            pause=0.0,
+            max_cycles=4,
+            rollup_every=2,
+        )
+    info = _loop_messages(caplog, logging.INFO)
+    assert len(info) == 2
+    assert info[0].startswith("cycles 1-2:")
+    assert info[1].startswith("cycles 3-4:")
+    assert "heard=2" in info[0]
+    assert "devices=2" in info[0]
+    assert "observations=2" in info[0]
+
+
+@pytest.mark.asyncio
+async def test_loop_flushes_leftover_rollup_on_exit(
+    repos, caplog: pytest.LogCaptureFixture
+) -> None:
+    devices, observations = repos
+    scanner = MockScanner(scenarios=[[_ad()]] * 3)
+    with caplog.at_level(logging.INFO, logger="blesentry.loop"):
+        await run_loop(
+            scanner,
+            devices,
+            observations,
+            duration=0.0,
+            pause=0.0,
+            max_cycles=3,
+            rollup_every=2,
+        )
+    info = _loop_messages(caplog, logging.INFO)
+    assert [m.split(":")[0] for m in info] == ["cycles 1-2", "cycles 3-3"]
+
+
+@pytest.mark.asyncio
+async def test_loop_flushes_leftover_rollup_on_cancel(
+    repos, caplog: pytest.LogCaptureFixture
+) -> None:
+    devices, observations = repos
+    scanner = MockScanner(scenarios=[[_ad()]] * 5)
+    with caplog.at_level(logging.INFO, logger="blesentry.loop"):
+        task = asyncio.create_task(
+            run_loop(
+                scanner,
+                devices,
+                observations,
+                duration=0.0,
+                pause=30.0,
+                max_cycles=None,
+            )
+        )
+        for _ in range(50):
+            if await devices.list_devices():
+                break
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    info = _loop_messages(caplog, logging.INFO)
+    assert any(message.startswith("cycles 1-1:") for message in info)
+
+
+@pytest.mark.asyncio
+async def test_loop_rejects_non_positive_rollup_every(repos) -> None:
+    devices, observations = repos
+    with pytest.raises(ValueError, match="rollup_every"):
+        await run_loop(
+            MockScanner(scenarios=[[_ad()]]),
+            devices,
+            observations,
+            duration=0.0,
+            pause=0.0,
+            max_cycles=1,
+            rollup_every=0,
+        )
 
 
 @pytest.mark.asyncio

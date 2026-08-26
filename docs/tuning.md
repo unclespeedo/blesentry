@@ -123,6 +123,28 @@ Example — a deliberately quiet, proximity-only profile:
 There is no live reload — a sentinel that re-reads config mid-run could change
 its alerting behaviour without a record of why, so a restart is deliberate.
 
+## Reading the journal
+
+The unit runs at INFO (`logging.basicConfig` in `blesentry run`). One
+INFO line per scan window filled the 64M persistent-journald cap
+(`scripts/provision/install-service.sh.template`) in about a day, which
+erased the history needed after an unclean power loss. Per-cycle stats
+are therefore **DEBUG**; INFO carries a **rollup every 60 cycles**
+(~15 min at the default 10 s window + 5 s pause) plus a leftover
+rollup when the loop exits.
+
+At INFO, `devices` in a rollup is the **sum of per-cycle unique
+device counts**, not a distinct-id union across the window. `heard`
+and `observations` are likewise sums.
+
+Useful greps (no site identifiers):
+
+    journalctl -u blesentry.service | grep 'cycles '
+    journalctl -u blesentry.service | grep alerted
+
+Do not raise `SystemMaxUse` to buy retention — 64M is the SD-longevity
+bound from the collector installer. Retention comes from quieter INFO.
+
 ## What tuning can't fix
 
 Thresholds decide *presence*; they do not know *who* a device is. A close,
