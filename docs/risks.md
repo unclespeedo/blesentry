@@ -128,10 +128,15 @@ gaps, from the adversarial review:
   Precedence note: the stable-address mismatch veto runs before the
   HAP rule, so equal HAP ids claimed from two different known-stable
   addresses stay distinct (a cloned payload, not one accessory).
-- **Restart amnesia (mitigated) and window bounds.** Exact keys
-  recover from the database, and the resolver seeds its window from
-  the newest stored devices at startup, so restart-spanning rotations
-  mostly re-join. A device absent longer than the window still opens
-  a new device row. An advertisement flood can
-  flush the window (availability of fusion, not correctness — ties to
-  the #85 flood posture).
+- **Restart amnesia (mitigated) and window bounds.** Founding keys
+  recover from ``devices.fingerprint``. Fused (rotated) keys recover
+  from ``device_aliases`` via ``get_by_alias`` without window
+  re-score (#148). ``seed()`` additionally warms the exact-key cache
+  from both, and backfills leftover window slots with aliases so a
+  *new* rotation can score against a recently fused key — founding
+  keys keep the window budget so one chatty rotator cannot evict
+  every other device. A device absent longer than the window whose
+  current key is neither founding nor a stored alias still opens a
+  new device row. An advertisement flood can flush the window
+  (availability of fusion, not correctness — ties to the #85 flood
+  posture).

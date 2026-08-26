@@ -666,6 +666,59 @@ async def test_seed_warms_alias_for_window_scoring(devices) -> None:
 
 
 @pytest.mark.asyncio
+async def test_seed_does_not_let_aliases_evict_other_devices(
+    devices,
+) -> None:
+    """Founding keys keep the window budget under alias volume.
+
+    One device minting many fused aliases (same-address payload ticks)
+    must not flush every other device out of a tight seed window.
+    """
+    writer = DeviceResolver(devices)
+    (id_b,) = await _resolve_cycle(
+        writer,
+        _ad(
+            address="5E:22:22:22:22:22",
+            address_type="rpa",
+            local_name="DevB",
+            manufacturer_data={"76": "ff"},
+        ),
+    )
+    await _resolve_cycle(
+        writer,
+        _ad(
+            address="5E:11:11:11:11:11",
+            address_type="rpa",
+            local_name="DevA",
+            manufacturer_data={"76": "00"},
+        ),
+    )
+    for i in range(5):
+        await _resolve_cycle(
+            writer,
+            _ad(
+                address="5E:11:11:11:11:11",
+                address_type="rpa",
+                local_name="DevA",
+                manufacturer_data={"76": f"{i + 1:02x}"},
+            ),
+        )
+    restarted = DeviceResolver(devices, recent_window=2)
+    await restarted.seed()
+    (id_b2,) = await _resolve_cycle(
+        restarted,
+        _ad(
+            address="43:33:33:33:33:33",
+            address_type="rpa",
+            local_name="DevB",
+            manufacturer_data={"76": "ff"},
+        ),
+    )
+    assert id_b2 == id_b
+    assert len(await devices.list_devices()) == 2
+
+
+@pytest.mark.asyncio
 async def test_abort_rolls_back_alias_write(devices) -> None:
     resolver = DeviceResolver(devices)
     founding, rotated = _rotation_pair()

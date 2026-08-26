@@ -185,9 +185,12 @@ Repository surface (the only legal access):
   unit of work as `touch_address` / observation inserts.
   `commit()` / `abort()` stay memory-only publish/discard.
 - Founding-key creates (`upsert`) do **not** insert an alias row.
-- `seed()` warms the exact-key cache and recent window from
-  founding keys **and** each seeded device's aliases, so a later
-  fingerprint can score against a rotated key after restart.
+- `seed()` warms the exact-key cache from founding keys **and** each
+  seeded device's aliases. Founding keys fill the recent-window
+  budget first; aliases backfill leftover slots (newest first) so a
+  later fingerprint can score against a rotated key after restart
+  without letting one device's alias history evict every other
+  identity.
 
 Founding keys stay on `devices.fingerprint`. Alias rows are *later*
 fused keys only — a fingerprint must not be both a founding key and

@@ -321,15 +321,21 @@ class DeviceResolver:
         Restores rotation-join continuity across process restarts
         (2026-08-18 fusion-policy decision): founding fingerprints of
         the most recently updated devices become window candidates,
-        and each device's durable aliases join the exact-key cache
-        and window so a later key can score against a rotated
-        appearance without waiting to re-see it. Stored keys carry no
-        live provenance; address_type seeds None, which the
-        same-address and HAP rules do not need.
+        and each device's durable aliases join the exact-key cache.
+        Aliases backfill leftover window slots so a later key can
+        score against a rotated appearance, without letting one
+        device's alias history evict every other founding key.
+        Stored keys carry no live provenance; address_type seeds
+        None, which the same-address and HAP rules do not need.
         """
         rows = await self._devices.list_recent(self._recent_window)
         # list_recent is newest-first; insert oldest-first so FIFO
         # window eviction discards the oldest seeds, not the newest.
+        # Founding keys take the window budget first (the pre-#148
+        # diversity invariant). Aliases always warm the exact-key
+        # cache; they enter the window only in leftover slots, newest
+        # first, so one chatty rotator cannot evict every other device.
+        alias_seeds: list[tuple[str, Fingerprint, int]] = []
         for row in reversed(rows):
             fingerprint = _fingerprint_from_stored(
                 row["fingerprint"],
@@ -349,10 +355,10 @@ class DeviceResolver:
                     continue
                 alias_key = alias["fingerprint"]
                 self._key_cache[alias_key] = alias["device_id"]
-                self._recent[alias_key] = (
-                    alias_fp,
-                    None,
-                    alias["device_id"],
-                )
-        while len(self._recent) > self._recent_window:
-            self._recent.popitem(last=False)
+                alias_seeds.append((alias_key, alias_fp, alias["device_id"]))
+        for alias_key, alias_fp, device_id in reversed(alias_seeds):
+            if len(self._recent) >= self._recent_window:
+                break
+            if alias_key in self._recent:
+                continue
+            self._recent[alias_key] = (alias_fp, None, device_id)
