@@ -306,3 +306,54 @@ async def test_migration_0003_recency_index_exists(repos) -> None:
     names = {r[0] for r in await cur.fetchall()}
     await cur.close()
     assert "idx_devices_site_updated" in names
+
+
+# ---------------------------------------------------------------------------
+# Resolver affinity (#149): caller-supplied DeviceResolver must share
+# the cycle connection AND site_id. Observation device_id is not
+# site-qualified; a foreign resolver can stamp another site's identity
+# or write outside the cycle transaction.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cycle_rejects_resolver_on_different_connection(
+    tmp_path: Path,
+) -> None:
+    """Resolve writes on another connection escape the cycle transaction."""
+    db = tmp_path / "cycle.db"
+    scan_conn = await connect(db)
+    await apply_migrations(scan_conn)
+    other_conn = await connect(db)
+    try:
+        devices = DeviceRepository(scan_conn, "test-site")
+        observations = ObservationRepository(scan_conn, "test-site")
+        resolver = DeviceResolver(DeviceRepository(other_conn, "test-site"))
+        with pytest.raises(ValueError, match="cycle connection"):
+            await run_cycle(
+                MockScanner(scenarios=[[]]),
+                devices,
+                observations,
+                duration=0.0,
+                resolver=resolver,
+            )
+    finally:
+        await other_conn.close()
+        await scan_conn.close()
+
+
+@pytest.mark.asyncio
+async def test_cycle_rejects_resolver_on_different_site(repos) -> None:
+    """A same-connection resolver on another site can stamp foreign ids."""
+    devices, observations = repos
+    resolver = DeviceResolver(
+        DeviceRepository(devices.connection, "other-site")
+    )
+    with pytest.raises(ValueError, match="cycle site"):
+        await run_cycle(
+            MockScanner(scenarios=[[]]),
+            devices,
+            observations,
+            duration=0.0,
+            resolver=resolver,
+        )

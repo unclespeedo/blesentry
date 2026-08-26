@@ -214,6 +214,11 @@ class DeviceResolver:
         """The repository connection, for the cycle transaction."""
         return self._devices.connection
 
+    @property
+    def site_id(self) -> str:
+        """The repository site, for the cycle fail-fast (#149)."""
+        return self._devices.site_id
+
     async def resolve(self, advertisement: Advertisement) -> int:
         """Resolve to an existing device id or create a new device.
 

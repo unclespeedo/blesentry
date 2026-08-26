@@ -80,7 +80,7 @@ advertisement heard becomes a row.
 |---|---|---|
 | `id` | INTEGER PK | |
 | `site_id` | TEXT NOT NULL | |
-| `device_id` | INTEGER NOT NULL | FK → `devices(id)`. |
+| `device_id` | INTEGER NOT NULL | FK → `devices(id)` only — not site-qualified. A resolver on another site can stamp this with a foreign identity; `run_cycle` fail-fasts if the resolver's connection or `site_id` differs from the cycle `devices` repo (#149). |
 | `rssi` | INTEGER NOT NULL | dBm, typically negative. |
 | `observed_at` | TEXT NOT NULL | When the advertisement was heard. Indexed with `site_id` and `device_id` for the P1-6 recent-window queries. |
 | `adapter_id` | TEXT NULL | Which radio adapter heard it (from the `Advertisement` model). |

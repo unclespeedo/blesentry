@@ -22,7 +22,9 @@
 - Respect the seams: Scanner and Notifier protocols per ADR-0002;
   Resolver lifecycle (`resolve`/`commit`/`abort`/`seed`) per
   ADR-0005 — one instance across cycles, resolve inside the cycle
-  transaction, commit only after COMMIT. New external dependencies
+  transaction, commit only after COMMIT. `run_cycle` fail-fasts if a
+  caller-supplied resolver's connection or `site_id` differs from
+  the cycle `devices` repo (#149). New external dependencies
   require justification in the PR (512MB RAM target).
 - CI never touches a radio. Drive the Scanner seam with ``MockScanner``:
   batch scenarios for appear / disappear / MAC rotation, and
