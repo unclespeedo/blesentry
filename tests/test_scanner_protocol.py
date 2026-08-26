@@ -180,3 +180,139 @@ async def test_from_corpus_single_window() -> None:
     second = await scanner.scan(duration=1.0)
     assert len(first) == 13
     assert second == []
+
+
+# ---------------------------------------------------------------------------
+# Per-device RSSI sequences (#58)
+# ---------------------------------------------------------------------------
+
+
+def _proto(address: str, rssi: int = -50, ts: float = 1.0) -> Advertisement:
+    return Advertisement(
+        address=address, rssi=rssi, timestamp=ts, adapter_id="test"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rssi_sequence_applies_per_window() -> None:
+    """Each scan() window carries the next RSSI in the sequence."""
+    addr = "AA:00:00:00:00:01"
+    scanner = MockScanner.from_rssi_sequences(
+        templates={addr: _proto(addr, rssi=-99)},
+        sequences={addr: [-90, -70, -50]},
+    )
+    assert [a.rssi for a in await scanner.scan(1.0)] == [-90]
+    assert [a.rssi for a in await scanner.scan(1.0)] == [-70]
+    assert [a.rssi for a in await scanner.scan(1.0)] == [-50]
+    assert await scanner.scan(1.0) == []
+
+
+@pytest.mark.asyncio
+async def test_rssi_sequence_none_omits_device() -> None:
+    """None in the sequence means the device is absent that window."""
+    addr = "AA:00:00:00:00:02"
+    scanner = MockScanner.from_rssi_sequences(
+        templates={addr: _proto(addr)},
+        sequences={addr: [-60, None, -60]},
+    )
+    assert len(await scanner.scan(1.0)) == 1
+    assert await scanner.scan(1.0) == []
+    assert len(await scanner.scan(1.0)) == 1
+
+
+@pytest.mark.asyncio
+async def test_rssi_sequence_shorter_device_drops_out() -> None:
+    """A shorter sequence ends; the other device keeps emitting."""
+    a, b = "AA:00:00:00:00:0A", "AA:00:00:00:00:0B"
+    scanner = MockScanner.from_rssi_sequences(
+        templates={a: _proto(a), b: _proto(b)},
+        sequences={a: [-40, -40], b: [-50, -50, -50]},
+    )
+    assert {x.address for x in await scanner.scan(1.0)} == {a, b}
+    assert {x.address for x in await scanner.scan(1.0)} == {a, b}
+    assert {x.address for x in await scanner.scan(1.0)} == {b}
+
+
+@pytest.mark.asyncio
+async def test_rssi_sequence_does_not_mutate_template() -> None:
+    """Prototype advertisements stay frozen at their original RSSI."""
+    addr = "AA:00:00:00:00:03"
+    template = _proto(addr, rssi=-42)
+    scanner = MockScanner.from_rssi_sequences(
+        templates={addr: template},
+        sequences={addr: [-80, -60]},
+    )
+    await scanner.scan(1.0)
+    await scanner.scan(1.0)
+    assert template.rssi == -42
+
+
+@pytest.mark.asyncio
+async def test_rssi_sequence_window_dt_advances_timestamps() -> None:
+    """window_dt offsets each window's timestamp from the prototype."""
+    addr = "AA:00:00:00:00:04"
+    scanner = MockScanner.from_rssi_sequences(
+        templates={addr: _proto(addr, ts=100.0)},
+        sequences={addr: [-50, -50, -50]},
+        window_dt=15.0,
+    )
+    stamps = [(await scanner.scan(1.0))[0].timestamp for _ in range(3)]
+    assert stamps == [100.0, 115.0, 130.0]
+
+
+@pytest.mark.asyncio
+async def test_rssi_sequence_near_threshold_flicker() -> None:
+    """Flicker around the gate: above, below, above — RSSI as scripted."""
+    addr = "AA:00:00:00:00:05"
+    gate = -80
+    scanner = MockScanner.from_rssi_sequences(
+        templates={addr: _proto(addr)},
+        sequences={addr: [gate + 5, gate - 5, gate + 1]},
+    )
+    rssi = [(await scanner.scan(1.0))[0].rssi for _ in range(3)]
+    assert rssi == [-75, -85, -79]
+
+
+@pytest.mark.asyncio
+async def test_rssi_sequence_gradual_approach() -> None:
+    """Rising trajectory: far → near across successive windows."""
+    addr = "AA:00:00:00:00:06"
+    profile = [-95, -85, -75, -65, -55]
+    scanner = MockScanner.from_rssi_sequences(
+        templates={addr: _proto(addr)},
+        sequences={addr: profile},
+    )
+    rssi = [(await scanner.scan(1.0))[0].rssi for _ in profile]
+    assert rssi == profile
+
+
+@pytest.mark.asyncio
+async def test_rssi_sequence_brief_spike_then_gone() -> None:
+    """Car pass-by: two strong windows, then absent."""
+    addr = "AA:00:00:00:00:07"
+    scanner = MockScanner.from_rssi_sequences(
+        templates={addr: _proto(addr)},
+        sequences={addr: [-40, -42, None, None]},
+    )
+    assert [(await scanner.scan(1.0))[0].rssi] == [-40]
+    assert [(await scanner.scan(1.0))[0].rssi] == [-42]
+    assert await scanner.scan(1.0) == []
+    assert await scanner.scan(1.0) == []
+
+
+def test_rssi_sequence_unknown_address_raises() -> None:
+    """A sequence address with no prototype is a caller error."""
+    with pytest.raises(ValueError, match="no prototype"):
+        MockScanner.from_rssi_sequences(
+            templates={"AA:00:00:00:00:08": _proto("AA:00:00:00:00:08")},
+            sequences={"AA:00:00:00:00:99": [-50]},
+        )
+
+
+def test_rssi_sequence_key_must_match_advertisement_address() -> None:
+    """The templates dict key must equal Advertisement.address."""
+    with pytest.raises(ValueError, match="address"):
+        MockScanner.from_rssi_sequences(
+            templates={"AA:00:00:00:00:0C": _proto("AA:00:00:00:00:0D")},
+            sequences={"AA:00:00:00:00:0C": [-50]},
+        )
