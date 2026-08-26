@@ -104,6 +104,7 @@ class InitSessionRow(TypedDict):
     expires_at: str
     created_at: str
     updated_at: str
+    last_message_id: int | None
 
 
 class DeviceRepository:
@@ -992,13 +993,14 @@ class InitSessionRepository:
             expires_at=r[5],
             created_at=r[6],
             updated_at=r[7],
+            last_message_id=r[8],
         )
 
     async def get_active(self) -> InitSessionRow | None:
         """Return the site's ACTIVE session, or ``None``."""
         cur = await self._conn.execute(
             "SELECT id, site_id, status, cursor, device_ids, "
-            "expires_at, created_at, updated_at "
+            "expires_at, created_at, updated_at, last_message_id "
             "FROM init_sessions WHERE site_id = ? AND status = 'ACTIVE'",
             (self._site,),
         )
@@ -1019,7 +1021,7 @@ class InitSessionRepository:
                 "(site_id, status, cursor, device_ids, expires_at) "
                 "VALUES (?, 'ACTIVE', 0, ?, ?) "
                 "RETURNING id, site_id, status, cursor, device_ids, "
-                "expires_at, created_at, updated_at",
+                "expires_at, created_at, updated_at, last_message_id",
                 (self._site, payload, expires_at),
             )
             row = await cur.fetchone()
@@ -1028,22 +1030,46 @@ class InitSessionRepository:
                 raise RuntimeError("RETURNING produced no row")
             return self._row(row)
 
-    async def set_cursor(self, session_id: int, cursor: int) -> None:
+    async def set_cursor(
+        self,
+        session_id: int,
+        cursor: int,
+        *,
+        last_message_id: int | None = None,
+    ) -> None:
         """Advance the prompt cursor on this site's session."""
         async with transaction(self._conn):
             await self._conn.execute(
                 "UPDATE init_sessions SET cursor = ?, "
+                "last_message_id = COALESCE(?, last_message_id), "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                 "WHERE id = ? AND site_id = ?",
-                (cursor, session_id, self._site),
+                (cursor, last_message_id, session_id, self._site),
             )
 
-    async def set_status(self, session_id: int, status: str) -> None:
+    async def set_status(
+        self,
+        session_id: int,
+        status: str,
+        *,
+        last_message_id: int | None = None,
+    ) -> None:
         """Flip status (DONE / CANCELLED / EXPIRED) on this site's session."""
         async with transaction(self._conn):
             await self._conn.execute(
                 "UPDATE init_sessions SET status = ?, "
+                "last_message_id = COALESCE(?, last_message_id), "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                 "WHERE id = ? AND site_id = ?",
-                (status, session_id, self._site),
+                (status, last_message_id, session_id, self._site),
+            )
+
+    async def remember_inbound(self, session_id: int, message_id: int) -> None:
+        """Record the last Telegram update applied to this session."""
+        async with transaction(self._conn):
+            await self._conn.execute(
+                "UPDATE init_sessions SET last_message_id = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ? AND site_id = ?",
+                (message_id, session_id, self._site),
             )

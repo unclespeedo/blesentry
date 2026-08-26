@@ -166,5 +166,8 @@ alerts), or `/done`. The session is snapshotted at start and time-boxed to
 `/init` (or `blesentry init`) starts a fresh snapshot. A daemon restart or a
 switch between chat and CLI resumes the same cursor rather than building a
 new list. `/init cancel` abandons it. On the CLI, EOF (Ctrl-D) pauses the
-session for later resume rather than cancelling it.
+session for later resume rather than cancelling it. Drive one surface at a
+time: if the CLI is waiting for a name, EOF-pause it before answering in
+chat (and vice versa) — a name typed against a prompt that another surface
+already consumed is discarded and the current device is re-prompted.
 Presence tuning trims the population; labeling accounts for the residents.

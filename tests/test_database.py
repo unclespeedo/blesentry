@@ -404,6 +404,7 @@ async def test_migration_0005_creates_init_sessions(tmp_path) -> None:
         "expires_at",
         "created_at",
         "updated_at",
+        "last_message_id",
     } <= cols
     cur = await conn.execute(
         "SELECT name FROM sqlite_master "
@@ -412,6 +413,13 @@ async def test_migration_0005_creates_init_sessions(tmp_path) -> None:
     names = {r[0] for r in await cur.fetchall()}
     await cur.close()
     assert "idx_init_sessions_one_active" in names
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='presence_events'"
+    )
+    presence_idx = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_presence_events_site_device_id" in presence_idx
     await conn.close()
 
 

@@ -223,6 +223,7 @@ def _init_deps(ctx: CommandContext) -> InitDeps | None:
         now=ctx.now,
         timeout=ctx.init_timeout,
         ignored_label=IGNORED_LABEL,
+        message_id=ctx.command.message_id,
     )
 
 

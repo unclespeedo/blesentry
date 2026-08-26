@@ -100,6 +100,10 @@ One row per ABSENT↔PRESENT transition from the presence state machine
 | `event_type` | TEXT NOT NULL | CHECK constraint: `PRESENT` or `ABSENT`. |
 | `occurred_at` | TEXT NOT NULL | Indexed with `device_id`. |
 
+`idx_presence_events_site_device_id` on `(site_id, device_id, id)` (added
+in `0005`) serves `list_present_unlabeled`: latest row per device is
+`MAX(id)` grouped by `device_id` for one site.
+
 ### `outbox`
 
 Every outbound message (alert, summary, deferred command reply) is written
@@ -182,6 +186,7 @@ module may touch this table.
 | `cursor` | INTEGER NOT NULL | 0-based index into `device_ids` of the device currently being prompted. Default 0. |
 | `device_ids` | TEXT NOT NULL | JSON array of integer device ids, **snapshotted at session start**. Resume walks this list (skipping any that have since been labeled), never a freshly queried present set — so a device that appears mid-session is not injected, and a device that leaves stays in the queue until skipped or labeled. |
 | `expires_at` | TEXT NOT NULL | ISO-8601 UTC, same fixed-width format as other timestamps. Default time-box is 30 minutes from start (`blesentry.init.DEFAULT_TIMEOUT_SECONDS`). Compared lexicographically against `iso_utc(now)`. Any init-session touch (`/init`, free-text name, `/skip`, `/done`, bare `/ignore`, `/init cancel`, or `blesentry init`) flips a stale `ACTIVE` row to `EXPIRED`. Only `/init` / `blesentry init` then start a new snapshot; other expired touches reply `init session expired; send /init to start over` and do not apply the in-flight name. |
+| `last_message_id` | INTEGER NULL | Telegram `message_id` of the last inbound update that mutated this session. A redelivered update with the same id re-prompts and does not apply again (getUpdates is at-least-once). CLI has no message id and leaves this unchanged. |
 | `created_at` / `updated_at` | TEXT NOT NULL | ISO-8601 UTC; `updated_at` bumps on cursor/status changes. |
 
 `device_ids` is JSON rather than a child table because the snapshot is

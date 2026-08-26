@@ -16,6 +16,7 @@ CREATE TABLE init_sessions (
     cursor INTEGER NOT NULL DEFAULT 0,
     device_ids TEXT NOT NULL,
     expires_at TEXT NOT NULL,
+    last_message_id INTEGER,
     created_at TEXT NOT NULL
         DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL
@@ -26,3 +27,7 @@ CREATE UNIQUE INDEX idx_init_sessions_one_active
     ON init_sessions (site_id) WHERE status = 'ACTIVE';
 
 CREATE INDEX idx_init_sessions_site ON init_sessions (site_id);
+
+-- Speeds list_present_unlabeled: MAX(id) GROUP BY device_id per site.
+CREATE INDEX idx_presence_events_site_device_id
+    ON presence_events (site_id, device_id, id);

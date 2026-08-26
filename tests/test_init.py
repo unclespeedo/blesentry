@@ -10,6 +10,7 @@ devices; a partial session resumes at the next snapshot member.
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from blesentry.storage import (
 SITE = "init-site"
 USER = 200
 CHAT = 100
+_MESSAGE_IDS = itertools.count(1)
 
 
 @pytest.fixture
@@ -66,9 +68,13 @@ def presence(db: aiosqlite.Connection) -> PresenceEventRepository:
     return PresenceEventRepository(db, SITE)
 
 
-def _cmd(text: str, *, user_id: int = USER) -> InboundCommand:
+def _cmd(
+    text: str, *, user_id: int = USER, message_id: int | None = None
+) -> InboundCommand:
+    if message_id is None:
+        message_id = next(_MESSAGE_IDS)
     return InboundCommand(
-        chat_id=CHAT, user_id=user_id, message_id=1, text=text
+        chat_id=CHAT, user_id=user_id, message_id=message_id, text=text
     )
 
 
@@ -80,9 +86,10 @@ async def _reply(
     now: float = 1_700_000_000.0,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     user_id: int = USER,
+    message_id: int | None = None,
 ) -> str:
     ctx = CommandContext(
-        _cmd(text, user_id=user_id),
+        _cmd(text, user_id=user_id, message_id=message_id),
         devices,
         outbox,
         "x.db",
@@ -244,7 +251,9 @@ async def test_init_skip_and_done(
     assert kept is not None and kept["label"] == "Kept"
     assert leftover is not None and leftover["label"] is None
     again = await _reply("/skip", devices, outbox)
-    assert "no init session" in again.lower()
+    assert "unknown command" in again.lower()
+    done_again = await _reply("/done", devices, outbox)
+    assert "unknown command" in done_again.lower()
 
 
 async def test_init_ignore_current_advances(
@@ -467,3 +476,114 @@ async def test_cli_eof_pauses_session(
         devices.connection, devices.site_id
     ).get_active()
     assert active is not None
+
+
+async def test_redelivered_name_does_not_label_next_device(
+    devices: DeviceRepository,
+    outbox: OutboxRepository,
+    presence: PresenceEventRepository,
+) -> None:
+    """Telegram acks offset only after handle_inbound returns (#28)."""
+    ids = await _seed_present(devices, presence, 2)
+    await _reply("/init", devices, outbox)
+    first = await _reply("Kitchen", devices, outbox, message_id=9001)
+    assert f"device {ids[0]}" in first or "Kitchen" in first
+    replay = await _reply("Kitchen", devices, outbox, message_id=9001)
+    kitchen = await devices.get(ids[0])
+    leftover = await devices.get(ids[1])
+    assert kitchen is not None and kitchen["label"] == "Kitchen"
+    assert leftover is not None and leftover["label"] is None
+    assert f"device {ids[1]}" in replay
+
+
+async def test_cli_stale_prompt_does_not_label_next_device(
+    devices: DeviceRepository,
+    presence: PresenceEventRepository,
+) -> None:
+    """CLI stdin can lag a chat apply of the same cursor device."""
+    from blesentry.init import InitDeps, handle_inbound, start_or_resume
+
+    ids = await _seed_present(devices, presence, 2)
+    sessions = InitSessionRepository(devices.connection, devices.site_id)
+    chat = InitDeps(
+        devices,
+        sessions,
+        actor="tg:200",
+        now=lambda: 1_700_000_000.0,
+        timeout=1800.0,
+    )
+    await start_or_resume(chat)
+    await handle_inbound("Kitchen", chat)
+    cli = chat._replace(expected_device_id=ids[0], actor="cli")
+    reply = await handle_inbound("TV", cli)
+    kitchen = await devices.get(ids[0])
+    leftover = await devices.get(ids[1])
+    assert kitchen is not None and kitchen["label"] == "Kitchen"
+    assert leftover is not None and leftover["label"] is None
+    assert reply is not None and f"device {ids[1]}" in reply
+
+
+async def test_start_or_resume_recovers_from_create_race(
+    devices: DeviceRepository,
+    presence: PresenceEventRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from blesentry.init import InitDeps, start_or_resume
+
+    ids = await _seed_present(devices, presence, 1)
+    sessions = InitSessionRepository(devices.connection, devices.site_id)
+    await sessions.create(
+        device_ids=ids, expires_at=iso_utc(1_700_000_000.0 + 1800.0)
+    )
+    seen = {"gets": 0}
+
+    async def flaky_get() -> object:
+        seen["gets"] += 1
+        if seen["gets"] == 1:
+            return None
+        return await InitSessionRepository.get_active(sessions)
+
+    async def boom(**_kwargs: object) -> object:
+        raise aiosqlite.IntegrityError("UNIQUE")
+
+    monkeypatch.setattr(sessions, "get_active", flaky_get)
+    monkeypatch.setattr(sessions, "create", boom)
+    deps = InitDeps(
+        devices,
+        sessions,
+        actor="tg:200",
+        now=lambda: 1_700_000_000.0,
+        timeout=1800.0,
+    )
+    reply = await start_or_resume(deps)
+    assert f"device {ids[0]}" in reply
+
+
+async def test_ignore_id_of_current_device_advances(
+    devices: DeviceRepository,
+    outbox: OutboxRepository,
+    presence: PresenceEventRepository,
+) -> None:
+    ids = await _seed_present(devices, presence, 2)
+    await _reply("/init", devices, outbox)
+    reply = await _reply(f"/ignore {ids[0]}", devices, outbox)
+    ignored = await devices.get(ids[0])
+    leftover = await devices.get(ids[1])
+    assert ignored is not None and ignored["label"] == IGNORED_LABEL
+    assert leftover is not None and leftover["label"] is None
+    assert f"device {ids[1]}" in reply
+    await _reply("Named", devices, outbox)
+    named = await devices.get(ids[1])
+    assert named is not None and named["label"] == "Named"
+
+
+async def test_free_text_label_collapses_whitespace(
+    devices: DeviceRepository,
+    outbox: OutboxRepository,
+    presence: PresenceEventRepository,
+) -> None:
+    ids = await _seed_present(devices, presence, 1)
+    await _reply("/init", devices, outbox)
+    await _reply("Kitchen\n  TV", devices, outbox)
+    row = await devices.get(ids[0])
+    assert row is not None and row["label"] == "Kitchen TV"

@@ -1080,6 +1080,7 @@ async def test_init_session_create_and_get_active(
     assert row["cursor"] == 0
     assert row["device_ids"] == [a, b]
     assert row["expires_at"] == _ts(3, 0)
+    assert row["last_message_id"] is None
     fetched = await init_repo.get_active()
     assert fetched is not None
     assert fetched["id"] == row["id"]
@@ -1098,9 +1099,10 @@ async def test_init_session_cursor_and_status(
     init_repo: InitSessionRepository,
 ) -> None:
     row = await init_repo.create(device_ids=[7, 8], expires_at=_ts(3, 0))
-    await init_repo.set_cursor(row["id"], 1)
+    await init_repo.set_cursor(row["id"], 1, last_message_id=42)
     active = await init_repo.get_active()
     assert active is not None and active["cursor"] == 1
+    assert active["last_message_id"] == 42
     await init_repo.set_status(row["id"], "DONE")
     assert await init_repo.get_active() is None
 

@@ -82,8 +82,9 @@ PRESENT unlabeled devices (reply with a name — no slash — then `/skip` /
 `/ignore` / `/done` / `/init cancel`). After 30 minutes the session
 expires; `/init` starts a fresh list. The same session is reachable on
 the host with `blesentry init --config config.local.toml` — useful for
-the first on-site pass; Ctrl-D pauses it for later resume. See
-`docs/tuning.md`.
+the first on-site pass; Ctrl-D pauses it for later resume. Don't type a
+name on a CLI prompt after answering the same device in chat (EOF-pause
+the CLI first); the session is shared. See `docs/tuning.md`.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under
