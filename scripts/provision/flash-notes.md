@@ -111,7 +111,14 @@ Installs the boot-enabled collector enforcing the operational
 invariants: scan on every boot with no network dependency, restart
 on failure indefinitely, deploy-restart authorization (so the latest
 deployed code is always the running code), persistent bounded
-journals.
+journals (`Storage=persistent`, `SystemMaxUse=64M`). The daemon logs
+at INFO; per-cycle scan stats are DEBUG so they do not consume that
+cap. INFO is a first-cycle liveness line, a rollup every 60 cycles
+(~15 min at `--window 10 --pause 5`), and a leftover rollup on
+graceful shutdown (SIGTERM / deploy restart). Unclean power loss
+skips that leftover — at most one rollup interval without a tail
+line. See `docs/tuning.md` ("Reading the journal"). Do not raise
+`SystemMaxUse` without revisiting SD wear.
 
 1. Copy `install-service.sh.template` (this directory) and fill in
    every `{{PLACEHOLDER}}` (username, site id); save the result as

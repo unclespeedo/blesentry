@@ -38,6 +38,11 @@ from blesentry.storage.repository import (
 
 logger = logging.getLogger(__name__)
 
+# Default INFO heartbeat: 60 cycles × (window + pause) ≈ 15 min at
+# the shipped 10 s + 5 s cadence. Per-cycle stats stay at DEBUG so
+# they do not fill the 64M journald cap (#100).
+CYCLE_LOG_ROLLUP_EVERY = 60
+
 
 class CycleStats(NamedTuple):
     """Summary of one scan cycle."""
@@ -58,7 +63,14 @@ def iso_utc(timestamp: float) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{millis:03d}Z"
 
 
-__all__ = ["CycleStats", "fingerprint_key", "iso_utc", "run_cycle", "run_loop"]
+__all__ = [
+    "CYCLE_LOG_ROLLUP_EVERY",
+    "CycleStats",
+    "fingerprint_key",
+    "iso_utc",
+    "run_cycle",
+    "run_loop",
+]
 
 
 def _require_resolver_affinity(
@@ -184,6 +196,28 @@ async def run_cycle(
     )
 
 
+def _log_cycle_rollup(
+    first: int,
+    last: int,
+    heard: int,
+    device_windows: int,
+    observations: int,
+) -> None:
+    """INFO heartbeat covering cycles ``first`` through ``last`` inclusive.
+
+    ``device_windows`` is the sum of per-cycle unique device counts,
+    not a distinct-id union. ``heard`` and ``observations`` are sums.
+    """
+    logger.info(
+        "cycles %d-%d: heard=%d devices=%d observations=%d",
+        first,
+        last,
+        heard,
+        device_windows,
+        observations,
+    )
+
+
 async def run_loop(
     scanner: Scanner,
     devices: DeviceRepository,
@@ -197,6 +231,7 @@ async def run_loop(
     presence_events: PresenceEventRepository | None = None,
     alerter: UnknownDeviceAlerter | None = None,
     now: Callable[[], float] = time.time,
+    rollup_every: int = CYCLE_LOG_ROLLUP_EVERY,
 ) -> int:
     """Scan continuously: window, persist, pause, repeat.
 
@@ -220,36 +255,86 @@ async def run_loop(
         alerter: Unknown-device alerter (P2-6); enqueues an alert when
             an unlabeled device becomes PRESENT. ``None`` disables it.
         now: Clock for stamping presence transitions (injectable).
+        rollup_every: Emit one INFO heartbeat every this many completed
+            cycles (#100). Per-cycle stats stay at DEBUG. Cycle 1 also
+            emits one INFO liveness line so a restart is immediately
+            visible at INFO. A leftover window is flushed on exit.
+            Must be >= 1.
 
     Returns:
         Number of cycles completed.
+
+    Raises:
+        ValueError: If ``rollup_every`` is less than 1, or if a
+            caller-supplied resolver does not share the cycle
+            connection and ``site_id``.
     """
+    if rollup_every < 1:
+        raise ValueError("rollup_every must be >= 1")
     cycles = 0
     if resolver is None:
         resolver = DeviceResolver(devices)
     _require_resolver_affinity(resolver, devices)
     await resolver.seed()
-    while max_cycles is None or cycles < max_cycles:
-        stats = await run_cycle(
-            scanner,
-            devices,
-            observations,
-            duration,
-            resolver,
-            presence=presence,
-            presence_events=presence_events,
-            alerter=alerter,
-            now=now,
-        )
-        cycles += 1
-        logger.info(
-            "cycle %d: heard=%d devices=%d observations=%d",
-            cycles,
-            stats.heard,
-            stats.devices,
-            stats.observations,
-        )
-        if max_cycles is not None and cycles >= max_cycles:
-            break
-        await asyncio.sleep(pause)
+    window_first = 1
+    heard = 0
+    device_windows = 0
+    observation_count = 0
+    try:
+        while max_cycles is None or cycles < max_cycles:
+            stats = await run_cycle(
+                scanner,
+                devices,
+                observations,
+                duration,
+                resolver,
+                presence=presence,
+                presence_events=presence_events,
+                alerter=alerter,
+                now=now,
+            )
+            cycles += 1
+            logger.debug(
+                "cycle %d: heard=%d devices=%d observations=%d",
+                cycles,
+                stats.heard,
+                stats.devices,
+                stats.observations,
+            )
+            if cycles == 1:
+                # One INFO per process so journalctl -f shows liveness
+                # immediately; the 60-cycle rollup is the steady-state
+                # heartbeat (#100). Do not use a "cycle N:" prefix —
+                # that shape is DEBUG-only.
+                logger.info(
+                    "scanning; INFO rollup every %d cycles",
+                    rollup_every,
+                )
+            heard += stats.heard
+            device_windows += stats.devices
+            observation_count += stats.observations
+            if cycles % rollup_every == 0:
+                _log_cycle_rollup(
+                    window_first,
+                    cycles,
+                    heard,
+                    device_windows,
+                    observation_count,
+                )
+                window_first = cycles + 1
+                heard = 0
+                device_windows = 0
+                observation_count = 0
+            if max_cycles is not None and cycles >= max_cycles:
+                break
+            await asyncio.sleep(pause)
+    finally:
+        if cycles >= window_first:
+            _log_cycle_rollup(
+                window_first,
+                cycles,
+                heard,
+                device_windows,
+                observation_count,
+            )
     return cycles
