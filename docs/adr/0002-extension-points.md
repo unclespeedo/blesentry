@@ -211,10 +211,11 @@ The README's **Device resolver** box is a fourth *named* seam.  It is
 does not pick a backend.  Duplicate-MAC policy (above) still defers
 deduplication and identity fusion to this seam.
 
-Lifecycle (`resolve` / `commit` / `abort` / `seed`), the
-cycle-transaction contract, the `min_score` floor, and the durable
-`device_aliases` path are ADR-0005.  Changing that surface is a new
-ADR, not an ADR-0002 amendment.
+Lifecycle, the `min_score` floor, and the durable `device_aliases`
+path are drafted in **ADR-0005 (Proposed)**. Until a human accepts
+that ADR, those rules are not frozen by this document — they are a
+pointer, not a second source of truth. After acceptance, changing
+that surface is a new ADR, not an ADR-0002 amendment.
 
 ## Consequences
 

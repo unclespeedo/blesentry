@@ -104,14 +104,12 @@ class ResolverConfig(_Section):
     vendor's rotation cloud collapses into one device.
     """
 
-    # Upper bound guards against a typo (e.g. 7) that would silently
-    # exceed the max achievable fusion score (~1.6 with the current
-    # provisional weights; the HAP path caps at 1.0) and disable all
-    # fusion. 2.0 leaves headroom for weight retuning; a threshold no
-    # advertisement can reach is a misconfig, not a valid setting.
-    # Lower bound is the company-only weight (ADR-0005), applied in
-    # ``_above_company_only`` — Field(ge=0) would still admit vendor
-    # collapse.
+    # Upper bound is a gross-typo net (catches 7) with headroom for
+    # weight retuning. 2.0 is *not* the max achievable fusion score
+    # (~1.6 non-HAP; HAP caps at 1.0) — values in (1.6, 2.0] still
+    # load and disable fusion. Lower bound is the company-only weight
+    # (ADR-0005), applied in ``_above_company_only``; Field(ge=0)
+    # alone would still admit vendor collapse.
     min_score: float = Field(default=0.55, ge=0, le=2.0)
     recent_window: int = Field(default=512, ge=1)
 

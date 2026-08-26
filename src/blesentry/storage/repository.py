@@ -221,7 +221,7 @@ class DeviceRepository:
 
         Site-scoped: an unknown or other-site ``device_id`` raises.
         Re-binding the same fingerprint to a different device raises
-        (alias conflict). Same device is idempotent.
+        (alias conflict). Same device is idempotent (no write).
 
         Returns the alias row ``id``.
         """
@@ -247,12 +247,9 @@ class DeviceRepository:
                         "alias conflict: fingerprint already bound "
                         f"to device {existing[1]}"
                     )
-                await self._conn.execute(
-                    "UPDATE device_aliases SET updated_at = "
-                    "strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
-                    "WHERE id = ?",
-                    (existing[0],),
-                )
+                # Same binding: no write. Bumping updated_at here would
+                # WAL-churn the SD on every future persist-on-resolve
+                # of a known alias (the #84 / touch_address lesson).
                 return int(existing[0])
             cur = await self._conn.execute(
                 "INSERT INTO device_aliases "
@@ -267,7 +264,13 @@ class DeviceRepository:
             return int(row[0])
 
     async def get_by_alias(self, fingerprint: str) -> DeviceRow | None:
-        """Return the device owning this alias fingerprint, if any."""
+        """Return the device owning this alias fingerprint, if any.
+
+        The row is the device's *founding-key* ``DeviceRow``, not a
+        projection of the queried alias — ``row["fingerprint"]`` is
+        ``devices.fingerprint``, which generally differs from the
+        argument.
+        """
         cur = await self._conn.execute(
             "SELECT d.id, d.site_id, d.fingerprint, d.address, "
             "d.label, d.description, d.created_at, d.updated_at "

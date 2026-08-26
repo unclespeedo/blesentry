@@ -122,7 +122,7 @@ delivers. Nothing is ever fire-and-forget.
 Durable fusion aliases (ADR-0005 / #96). One row per *later* fused
 fingerprint bound to an existing device — the audit trail of which
 keys were absorbed into which identity, and the restart-stable lookup
-path once the resolver wires persist-on-commit. Founding keys stay on
+path once the resolver wires persist-inside-`resolve`. Founding keys stay on
 `devices.fingerprint`; they must not also appear here.
 
 All access is through `DeviceRepository` (`record_alias`,
@@ -135,11 +135,12 @@ table.
 | `site_id` | TEXT NOT NULL | |
 | `fingerprint` | TEXT NOT NULL | Canonical fusion key (`fingerprint_key` JSON). `UNIQUE (site_id, fingerprint)`. |
 | `device_id` | INTEGER NOT NULL | FK → `devices(id)`. Site-scoped at the repository (unknown or other-site id raises). Re-binding the same fingerprint to a *different* device is an alias conflict and raises — the trail must not silently rewrite identity. |
-| `created_at` / `updated_at` | TEXT NOT NULL | ISO-8601 UTC, same `strftime` default as `devices`. `updated_at` bumps on idempotent same-device re-record. |
+| `created_at` / `updated_at` | TEXT NOT NULL | ISO-8601 UTC, same `strftime` default as `devices`. Set at insert; an idempotent same-device `record_alias` is a no-write (does not bump `updated_at`). |
 
 Indexed `(site_id, device_id)` for per-device audit listing. Added in
 `0004` (#96). Empty in production until the resolver follow-up writes
-on `commit()`.
+from inside `resolve()` (not from `commit()` — that method is
+synchronous and runs after the cycle COMMIT).
 
 ### `label_audit`
 

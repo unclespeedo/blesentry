@@ -711,6 +711,9 @@ async def test_record_alias_binds_fingerprint_to_device(
     assert bound is not None
     assert bound["id"] == device_id
     assert bound["fingerprint"] == "fp-founding"
+    assert bound["site_id"] == SITE
+    aliases = await device_repo.list_aliases(device_id)
+    assert aliases[0]["site_id"] == SITE
 
 
 async def test_record_alias_unknown_device_raises(
@@ -739,6 +742,7 @@ async def test_record_alias_idempotent_same_device(
     first = await device_repo.record_alias(
         fingerprint="fp-rot", device_id=device_id
     )
+    before = (await device_repo.list_aliases(device_id))[0]["updated_at"]
     second = await device_repo.record_alias(
         fingerprint="fp-rot", device_id=device_id
     )
@@ -747,7 +751,7 @@ async def test_record_alias_idempotent_same_device(
     assert len(aliases) == 1
     assert aliases[0]["fingerprint"] == "fp-rot"
     assert aliases[0]["created_at"]
-    assert aliases[0]["updated_at"]
+    assert aliases[0]["updated_at"] == before
 
 
 async def test_record_alias_conflict_different_device(

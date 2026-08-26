@@ -235,9 +235,11 @@ def test_wrong_type_rejected(tmp_path: Path) -> None:
         "[resolver]\nmin_score = -0.1\n",
         # At or below the company-only weight: vendor-collapse.
         "[resolver]\nmin_score = 0.3\n",
+        "[resolver]\nmin_score = 0.15\n",
         "[resolver]\nmin_score = 0.0\n",
         # Above the max achievable fusion score: unreachable, not valid.
         "[resolver]\nmin_score = 7.0\n",
+        "[resolver]\nmin_score = 2.01\n",
         "[resolver]\nrecent_window = 0\n",
         "[presence]\nappear_windows = 0\n",
         "[presence]\ndisappear_windows = 0\n",
@@ -269,6 +271,13 @@ def test_min_score_floor_tracks_company_only_weight(
     )
     cfg = load_config(_write(tmp_path, above))
     assert cfg.resolver.min_score == pytest.approx(COMPANY_ONLY_WEIGHT + 0.01)
+
+
+def test_min_score_upper_bound_accepted(tmp_path: Path) -> None:
+    cfg = load_config(
+        _write(tmp_path, MINIMAL + "\n[resolver]\nmin_score = 2.0\n")
+    )
+    assert cfg.resolver.min_score == 2.0
 
 
 def test_validation_error_does_not_leak_input_value(tmp_path: Path) -> None:

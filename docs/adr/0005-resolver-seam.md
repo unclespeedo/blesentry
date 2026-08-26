@@ -62,6 +62,10 @@ class DeviceResolver:
     async def seed(self) -> None: ...
 ```
 
+`connection` (the underlying repository connection) is an
+implementation convenience for the scan loop's ambient transaction,
+not part of the frozen surface.
+
 `fusion_score(candidate, other, *, address_type, other_address_type)
 -> float` is a pure function: no I/O, no mutation, no repository.
 Identity *policy* (weights, HAP veto, stable-address mismatch veto)
@@ -130,11 +134,15 @@ strictly greater than the company-only weight (0.3). At or below
 into one identity — the rotation cloud becomes one row per vendor,
 silently. `ResolverConfig` rejects `min_score <= 0.3` at load time.
 The default 0.55 already satisfies the floor. Programmatic
-`DeviceResolver(min_score=…)` used in tests is not floored; the
-daemon always goes through config.
+`DeviceResolver(min_score=…)` used in tests is not floored. The
+config-backed `blesentry run --config` path is the enforcement
+point; flag mode (`--db` / `--site-id`) uses constructor defaults
+that currently satisfy the floor but do not re-validate a custom
+`DeviceResolver` injected by a caller.
 
-Upper bound remains 2.0 (headroom for weight retuning; a threshold
-no advertisement can reach is a misconfig).
+Upper bound remains 2.0 — headroom for weight retuning, a
+gross-typo net (catches `7`), not a promise that every accepted
+value is reachable under the current weights (~1.6 non-HAP max).
 
 ### Durable-alias path (schema sketch, shipped; resolver unwired)
 
@@ -152,13 +160,16 @@ Fusion aliases persist in `device_aliases`, deployed by migration
 
 Repository surface (the only legal access):
 
-- `record_alias(fingerprint, device_id) -> int` — bind a fused key
-  to a device. Same site only; unknown `device_id` raises. Re-bind
-  of the same fingerprint to a **different** device raises (alias
-  conflict — the audit trail must not silently rewrite identity).
-  Same device is idempotent (`updated_at` bumps).
+- `record_alias(*, fingerprint, device_id) -> int` — bind a fused
+  key to a device. Same site only; unknown `device_id` raises.
+  Re-bind of the same fingerprint to a **different** device raises
+  (alias conflict — the audit trail must not silently rewrite
+  identity). Same device is idempotent: return the existing row id
+  with **no write** (do not bump `updated_at` — SD-longevity, the
+  `touch_address` / #84 lesson).
 - `get_by_alias(fingerprint) -> DeviceRow | None` — exact alias
-  lookup, site-scoped.
+  lookup, site-scoped. Returns the device's **founding-key** row;
+  `row["fingerprint"]` is not the queried alias.
 - `list_aliases(device_id) -> list[DeviceAliasRow]` — the fusion
   audit trail for one identity, oldest first.
 
@@ -166,13 +177,13 @@ Repository surface (the only legal access):
 consume aliases.** v1 fusion memory remains in-process (exact-key
 cache + recent window + `seed()` from founding keys). The table is
 the durable path and the impersonation audit trail
-`docs/risks.md` asked for; a follow-up consumes it on
-commit/seed so rotated keys survive restart without re-scoring.
+`docs/risks.md` asked for; a follow-up consumes it so rotated keys
+survive restart without re-scoring.
 
 Founding keys stay on `devices.fingerprint`. Alias rows are *later*
 fused keys only — a fingerprint must not be both a founding key and
 an alias. The repository does not yet enforce that cross-table rule;
-the follow-up that wires persist-on-commit must.
+the follow-up that wires persist must.
 
 ## Consequences
 
@@ -183,19 +194,24 @@ the follow-up that wires persist-on-commit must.
   choice.
 - `device_aliases` exists from this migration forward even while
   unused by the resolver — empty in production until the follow-up
-  wires persist-on-commit. Schema-changing deploys still follow
-  `docs/schema.md` (stop collector, deploy, start).
+  wires persist-inside-`resolve`. Schema-changing deploys still
+  follow `docs/schema.md` (stop collector, deploy, start).
 - Accepting this ADR is human-only (`Proposed` until then).
 - ADR-0002 grows a pointer: Resolver is a named internal seam, not a
   fourth plugin.
 
 ## Future Considerations
 
-- **Resolver persist-on-commit.** On `commit()`, write staged fused
-  keys through `record_alias`. On `resolve()`, consult `get_by_alias`
-  after the founding-key lookup. On `seed()`, optionally warm from
-  aliases. That follow-up is the remaining half of restart-stable
-  rotation joins (today only founding keys + window re-score).
+- **Resolver persist-inside-`resolve`.** `commit()` is synchronous
+  and runs *after* the cycle SQL transaction has COMMIT-ed — it
+  cannot legally await `record_alias` or write aliases. The follow-up
+  must insert alias rows from async `resolve()` (inside the ambient
+  cycle transaction, same as `touch_address` today) and keep
+  `commit()`/`abort()` as memory-only publish/discard. `resolve()`
+  should consult `get_by_alias` after the founding-key lookup;
+  `seed()` may warm from aliases. That is the remaining half of
+  restart-stable rotation joins (today only founding keys + window
+  re-score). Changing `commit()` to async would itself be a new ADR.
 - **Cross-table uniqueness** (founding key vs alias) and an
   append-only fusion *event* log if operators need history of
   re-binds rather than current binding.
