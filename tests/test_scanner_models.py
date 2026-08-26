@@ -6,7 +6,8 @@
 
 TDD against the P0-3 captured corpus: every fixture record must
 deserialize into an ``Advertisement``, and derived ``Fingerprint``
-instances must be stable, hashable identity keys.
+instances must be stable, hashable sighting keys (equality is not a
+device-identity test — see #57).
 """
 
 from __future__ import annotations
@@ -128,7 +129,7 @@ def test_fingerprint_derived_from_advertisement() -> None:
 
 
 def test_fingerprint_ignores_observation_artifacts() -> None:
-    """RSSI, timestamp and adapter must not change the identity key."""
+    """RSSI, timestamp and adapter must not change the sighting key."""
     base = _corpus()[0]
     fp1 = Fingerprint.from_advertisement(_sample_ad(rssi=-62, timestamp=1.0))
     fp2 = Fingerprint.from_advertisement(
@@ -288,3 +289,38 @@ def test_adv_type_defaults_none_and_accepts_values() -> None:
 def test_fingerprint_uses_address_field() -> None:
     fp = Fingerprint.from_advertisement(_sample_ad(address="AB:CD"))
     assert fp.address == "AB:CD"
+
+
+# ---------------------------------------------------------------------------
+# Equality is not identity (#57): MAC rotation of a stable payload
+# produces unequal fingerprints. Callers must use resolver fusion
+# scoring, not Fingerprint ==.
+# ---------------------------------------------------------------------------
+
+
+def test_fingerprint_equality_fails_under_mac_rotation() -> None:
+    """Same payload on a rotated address is not Fingerprint-equal."""
+    payload = {
+        "local_name": "payload-stable",
+        "service_uuids": ["180a"],
+        "manufacturer_data": {"76": "0601aabbccddee"},
+    }
+    first = Fingerprint.from_advertisement(
+        _sample_ad(address="AA:AA:AA:AA:AA:01", **payload)
+    )
+    rotated = Fingerprint.from_advertisement(
+        _sample_ad(address="AA:AA:AA:AA:AA:02", **payload)
+    )
+    assert first != rotated
+    assert first.manufacturer_data == rotated.manufacturer_data
+    assert first.service_uuids == rotated.service_uuids
+    assert first.local_name == rotated.local_name
+
+
+def test_fingerprint_docstring_warns_equality_is_not_identity() -> None:
+    """Class docstring must say == is not a device-identity test (#57)."""
+    doc = Fingerprint.__doc__
+    assert doc is not None
+    lowered = doc.lower()
+    assert "not an identity test" in lowered
+    assert "rotation" in lowered or "random" in lowered
