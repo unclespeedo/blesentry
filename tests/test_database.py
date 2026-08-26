@@ -446,7 +446,7 @@ async def test_migration_0006_creates_site_state(tmp_path) -> None:
     await cur.close()
     assert row is not None
     sql = row[0].lower()
-    assert "unique" in sql
+    assert "unique (site_id, key)" in sql
     cur = await conn.execute(
         "SELECT name FROM sqlite_master "
         "WHERE type='index' AND tbl_name='presence_events'"
@@ -461,6 +461,13 @@ async def test_migration_0006_creates_site_state(tmp_path) -> None:
     device_idx = {r[0] for r in await cur.fetchall()}
     await cur.close()
     assert "idx_devices_site_created" in device_idx
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='outbox'"
+    )
+    outbox_idx = {r[0] for r in await cur.fetchall()}
+    await cur.close()
+    assert "idx_outbox_site_status" in outbox_idx
     await conn.close()
 
 

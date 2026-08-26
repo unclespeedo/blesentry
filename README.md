@@ -88,8 +88,8 @@ name on a CLI prompt after answering the same device in chat (EOF-pause
 the CLI first); the session is shared. See `docs/tuning.md`.
 
 A **daily digest** (devices seen, new devices, presence transitions,
-outbox health) is enqueued at `[summary] hour_utc` (default 12:00 UTC)
-and delivered through the same outbox. Disable with
+outbox health) is enqueued at or after `[summary] hour_utc` (default
+12:00 UTC) and delivered through the same outbox. Disable with
 `[summary] enabled = false`. See `docs/tuning.md`.
 
 ## Contributing

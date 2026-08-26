@@ -17,7 +17,10 @@ CREATE TABLE site_state (
 );
 
 CREATE INDEX idx_presence_events_site_time
-    ON presence_events (site_id, occurred_at);
+    ON presence_events (site_id, occurred_at, id);
 
 CREATE INDEX idx_devices_site_created
     ON devices (site_id, created_at);
+
+CREATE INDEX idx_outbox_site_status
+    ON outbox (site_id, status);

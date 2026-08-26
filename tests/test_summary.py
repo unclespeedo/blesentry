@@ -178,8 +178,8 @@ devices seen: 2
 new devices: 1
   #2 (unlabeled)
 presence: 1 PRESENT, 1 ABSENT
-  #1 PRESENT
-  #1 ABSENT
+  #1 kitchen PRESENT
+  #1 kitchen ABSENT
 outbox: 1 pending, 1 failed"""
 
 
@@ -201,6 +201,12 @@ def test_is_due_after_hour_same_utc_day_as_marker() -> None:
     last = iso_utc(NOON_TS)
     later = NOON_TS + 3 * HOUR  # 15:00 same day
     assert is_due(later, hour_utc=12, last_sent=last) is False
+
+
+def test_is_due_future_marker_is_not_due() -> None:
+    """Clock rollback / fast RTC: a future last_sent must not re-fire."""
+    future = iso_utc(NOON_TS + DAY)
+    assert is_due(NOON_TS, hour_utc=12, last_sent=future) is False
 
 
 def test_is_due_next_utc_day_at_hour() -> None:
@@ -238,7 +244,7 @@ async def test_summary_content_snapshot(
         if row["payload"] != "still-pending"
     ]
     assert texts == [SNAPSHOT]
-    assert SECRET_ADDRESS not in SNAPSHOT
+    assert SECRET_ADDRESS not in texts[0]
     assert SECRET_FINGERPRINT not in texts[0]
     assert "11:22:33:44:55:66" not in texts[0]
 
@@ -286,6 +292,30 @@ async def test_label_newlines_collapsed_and_not_forged_rows(
     ).text
     assert "living room" in text
     assert "living\nroom" not in text
+
+
+async def test_long_label_is_truncated(
+    db: aiosqlite.Connection,
+    devices: DeviceRepository,
+    observations: ObservationRepository,
+    presence: PresenceEventRepository,
+    outbox: OutboxRepository,
+    state: SiteStateRepository,
+) -> None:
+    device_id = await devices.upsert(fingerprint="fp-long", address="x")
+    await devices.set_label(device_id, label="L" * 80, actor="test")
+    await _backdate_created(db, device_id, iso_utc(NOON_TS - 2 * DAY))
+    await observations.append(
+        device_id=device_id,
+        rssi=-50,
+        observed_at=iso_utc(NOON_TS - HOUR),
+    )
+    await tick(_deps(devices, observations, presence, outbox, state))
+    text = OutboundMessage.model_validate_json(
+        (await outbox.list_pending())[0]["payload"]
+    ).text
+    assert "L" * 40 in text
+    assert "L" * 41 not in text
 
 
 async def test_seen_list_is_capped(
@@ -391,7 +421,7 @@ async def test_tick_records_marker_and_skips_same_day(
 async def test_schedule_survives_restart_no_double_send(
     db: aiosqlite.Connection,
 ) -> None:
-    """DoD: persisted marker; a new connection does not re-send today."""
+    """DoD: persisted marker on one connection is visible to a later tick."""
     conn1 = db
     devices = DeviceRepository(conn1, SITE)
     outbox = OutboxRepository(conn1, SITE)

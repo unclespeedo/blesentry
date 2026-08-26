@@ -248,8 +248,9 @@ Append-only record of every label change: who, what, when (`P2-6`).
 - `P2-7` adds `init_sessions` (migration `0005`) and
   `DeviceRepository.list_present_unlabeled`.
 - `P2-9` adds `site_state` (migration `0006`) plus
-  `idx_presence_events_site_time` / `idx_devices_site_created` for the
-  digest window queries (`DeviceRepository.list_observed_between`,
+  `idx_presence_events_site_time` / `idx_devices_site_created` /
+  `idx_outbox_site_status` for the digest window queries
+  (`DeviceRepository.list_observed_between`,
   `DeviceRepository.list_created_between`,
   `PresenceEventRepository.list_between`, `OutboxRepository.count_failed`).
 - Retention, clock-skew backfill, and integrity hardening are `P3-4`/`P4-5`

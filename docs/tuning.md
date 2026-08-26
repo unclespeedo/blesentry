@@ -121,7 +121,12 @@ created device rows, PRESENT/ABSENT transitions, and current outbox
 depth (pending + failed). It is just another outbox message: a WAN
 outage delays delivery; nothing is dropped. Device ids and operator
 labels appear; addresses, fingerprints, and advertisement payloads do
-not.
+not. Operator-chosen labels are trusted (the operator already named
+the device) but are sanitised: control characters stripped, whitespace
+collapsed, truncated to 40 characters so the digest stays under
+Telegram's message cap. Each of the devices-seen, new-devices, and
+presence-roster lists is capped at 20 rows (`…and N more` after that);
+the counts on those lines are still the untruncated totals.
 
 | Key | Default | Notes |
 | --- | --- | --- |

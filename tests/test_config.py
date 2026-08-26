@@ -147,6 +147,13 @@ def test_full_config_wires_every_knob(tmp_path: Path) -> None:
     assert cfg.summary.hour_utc == 8
 
 
+def test_summary_hour_utc_boundaries_accepted(tmp_path: Path) -> None:
+    for hour in (0, 23):
+        body = MINIMAL + f"\n[summary]\nhour_utc = {hour}\n"
+        cfg = load_config(_write(tmp_path, body))
+        assert cfg.summary.hour_utc == hour
+
+
 def test_config_type_is_base_settings(tmp_path: Path) -> None:
     # pydantic-settings gives env overlay for omitted fields for free.
     from pydantic_settings import BaseSettings
