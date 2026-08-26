@@ -38,7 +38,7 @@ From ~8 days of continuous passive collection (~293k observations):
   P4-1), independent of this plan.
 - Per-window **near count (RSSI ≥ −70): mean ≈ 4**, smooth and unimodal;
   above 12 in only ~3% of windows — a baselineable signal.
-- In the target regime (a low-traffic remote site) the **adjacent-to-Pi band
+- In the target regime (a low-traffic site) the **adjacent-to-Pi band
   (RSSI ≥ −55) is normally near-empty**, so a *sustained* device there is a
   high-SNR signal. This is the design assumption the Inside detector
   exploits, not a measured property of any specific deployment.
@@ -218,7 +218,10 @@ ambiguous DoD.
   unfamiliarity are at most **weak features, not gates** (novelty-by-address
   is ~always true under RPA — DC-7). Define W, Δ, the peak floor, and the
   covered fraction of real approaches (DC-7); relabel −55 adjacent-to-Pi
-  (DC-6). **DoD:** ADR committed with W/Δ/peak/coverage bound. **Deps:** F2
+  (DC-6). The trigger needs the full span to accumulate, so the alert fires
+  once the device is already close — inherently late lead time, which the
+  coverage bound must state honestly. **DoD:** ADR committed with
+  W/Δ/peak/coverage bound. **Deps:** F2
   **Size:** S **Labels:** `epic:detection type:docs priority:p1`
 - **A2 · Per-address trajectory tracker (online).** Bounded rolling
   per-address RSSI (fixed-size `deque`) → span, slope, dwell; hard address
@@ -232,8 +235,10 @@ ambiguous DoD.
   its peak; alert text snapshot-tested. **Deps:** A2, A1, F1 **Size:** M
   **Labels:** `epic:detection type:feature priority:p1`
 - **A4 · Walk vs drive-by discrimination + "vehicle passed" class.** Dwell/
-  slope heuristic (walk ≈ minutes, vehicle ≈ seconds; optional mfr-data
-  signature), tolerant of dedup gaps (DC-5). **This issue owns** the
+  slope heuristic (walk ≈ minutes, vehicle ≈ seconds); a slow or idling
+  vehicle dwells like a walk, so lean on the mfr-data signature
+  (CarPlay/TPMS), not dwell alone, to separate them; tolerant of dedup gaps
+  (DC-5). **This issue owns** the
   low-priority "vehicle passed" event class; P4-2 consumes it.
   **DoD:** labeled walk → "person"; synthetic fast pass classified vehicle.
   **Deps:** A3 **Size:** M **Labels:** `epic:detection type:feature priority:p2`
