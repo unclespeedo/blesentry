@@ -86,10 +86,10 @@ Every other caller must obey the same rules.
 2. **`seed()` before the first cycle**, outside any cycle
    transaction. Seeding warms the exact-key cache and the recent
    window from `DeviceRepository.list_recent` founding keys, then
-   each device's `list_aliases` (cache always; window leftover
-   slots only). It is optional-cache warming: a tampered row is
-   skipped, never fatal (fail-fast is for scanning, not for an
-   optional cache).
+   one `list_aliases_for_devices` query for that window (cache
+   always; window leftover slots only — #153). It is
+   optional-cache warming: a tampered row is skipped, never fatal
+   (fail-fast is for scanning, not for an optional cache).
 3. **`resolve()` runs only inside the caller's cycle transaction.**
    Creates, address-touches, and alias inserts are SQL writes; they
    must share the ambient unit of work
@@ -176,6 +176,12 @@ Repository surface (the only legal access):
   `row["fingerprint"]` is not the queried alias.
 - `list_aliases(device_id) -> list[DeviceAliasRow]` — the fusion
   audit trail for one identity, oldest first.
+- `list_aliases_for_devices(device_ids) -> list[DeviceAliasRow]` —
+  the same rows for many devices in one query, site-scoped,
+  oldest first. Empty `device_ids` is a no-query empty list.
+  `seed()` uses this so N seeded devices are not N+1 alias
+  round-trips (#153). `list_aliases` stays the per-device audit
+  listing.
 
 `DeviceResolver.resolve` persists and consumes aliases (#148):
 
@@ -183,17 +189,22 @@ Repository surface (the only legal access):
   `resolve()` consults `get_by_alias`. A hit is the same device;
   `touch_address` still runs when the advertisement carries an
   address. No second `record_alias` write (idempotent anyway).
+- An exact-key **cache** hit on an alias key also `touch_address`
+  when the advertisement carries an address (#153). Seeded aliases
+  live in the cache, so without this the restart path would skip
+  the touch that the cold `get_by_alias` path performs. Founding-key
+  cache hits stay a no-touch (the #84 SD-longevity lesson).
 - On a window fusion (`_best_match`), `resolve()` calls
   `record_alias` inside the ambient cycle transaction — the same
   unit of work as `touch_address` / observation inserts.
   `commit()` / `abort()` stay memory-only publish/discard.
 - Founding-key creates (`upsert`) do **not** insert an alias row.
-- `seed()` warms the exact-key cache from founding keys **and** each
-  seeded device's aliases. Founding keys fill the recent-window
-  budget first; aliases backfill leftover slots (newest first) so a
-  later fingerprint can score against a rotated key after restart
-  without letting one device's alias history evict every other
-  identity.
+- `seed()` warms the exact-key cache from founding keys **and** the
+  seeded window's aliases, loaded in one `list_aliases_for_devices`
+  query (#153). Founding keys fill the recent-window budget first;
+  aliases backfill leftover slots (newest first) so a later
+  fingerprint can score against a rotated key after restart without
+  letting one device's alias history evict every other identity.
 
 Founding keys stay on `devices.fingerprint`. Alias rows are *later*
 fused keys only — a fingerprint must not be both a founding key and

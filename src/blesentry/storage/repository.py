@@ -401,13 +401,28 @@ class DeviceRepository:
 
     async def list_aliases(self, device_id: int) -> list[DeviceAliasRow]:
         """Return fused fingerprints bound to this device, oldest first."""
+        return await self.list_aliases_for_devices((device_id,))
+
+    async def list_aliases_for_devices(
+        self, device_ids: Sequence[int]
+    ) -> list[DeviceAliasRow]:
+        """Return aliases for many devices in one query, oldest first.
+
+        Site-scoped. Empty ``device_ids`` is a no-query empty list so
+        callers (``seed()``) do not emit ``IN ()``. Unknown or
+        other-site ids contribute no rows. ``list_aliases`` is this
+        with one id — the per-identity audit listing (#153).
+        """
+        if not device_ids:
+            return []
+        placeholders = ",".join("?" * len(device_ids))
         cur = await self._conn.execute(
             "SELECT id, site_id, fingerprint, device_id, "
             "created_at, updated_at "
             "FROM device_aliases "
-            "WHERE site_id = ? AND device_id = ? "
+            f"WHERE site_id = ? AND device_id IN ({placeholders}) "
             "ORDER BY created_at ASC, id ASC",
-            (self._site, device_id),
+            (self._site, *device_ids),
         )
         rows = await cur.fetchall()
         await cur.close()

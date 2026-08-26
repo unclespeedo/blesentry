@@ -30,7 +30,7 @@ from collections import OrderedDict
 import aiosqlite
 
 from blesentry.scanner.models import Advertisement, Fingerprint
-from blesentry.storage.repository import DeviceRepository
+from blesentry.storage.repository import DeviceAliasRow, DeviceRepository
 
 # Signal weights. Sum of non-address signals (0.5 + 0.25 + 0.25) = 1.0;
 # the default threshold 0.55 means: full manufacturer-payload equality
@@ -201,10 +201,12 @@ class DeviceResolver:
         self._min_score = min_score
         self._recent_window = recent_window
         self._key_cache: dict[str, int] = {}
+        self._alias_keys: set[str] = set()
         self._recent: OrderedDict[str, tuple[Fingerprint, str | None, int]] = (
             OrderedDict()
         )
         self._pending_keys: dict[str, int] = {}
+        self._pending_alias_keys: set[str] = set()
         self._pending_recent: list[
             tuple[str, Fingerprint, str | None, int]
         ] = []
@@ -238,6 +240,12 @@ class DeviceResolver:
         if device_id is not None:
             if key in self._recent:
                 self._recent.move_to_end(key)
+            if advertisement.address and (
+                key in self._alias_keys or key in self._pending_alias_keys
+            ):
+                await self._devices.touch_address(
+                    device_id, advertisement.address
+                )
             return device_id
 
         a_type = advertisement.address_type
@@ -256,6 +264,7 @@ class DeviceResolver:
                     aliased["id"], advertisement.address
                 )
             self._pending_keys[key] = aliased["id"]
+            self._pending_alias_keys.add(key)
             self._pending_recent.append(
                 (key, fingerprint, a_type, aliased["id"])
             )
@@ -267,6 +276,7 @@ class DeviceResolver:
                 await self._devices.touch_address(fused, advertisement.address)
             await self._devices.record_alias(fingerprint=key, device_id=fused)
             self._pending_keys[key] = fused
+            self._pending_alias_keys.add(key)
             self._pending_recent.append((key, fingerprint, a_type, fused))
             return fused
 
@@ -306,18 +316,22 @@ class DeviceResolver:
         """Publish staged identities after the transaction commits."""
         if len(self._key_cache) + len(self._pending_keys) > _MAX_KEY_CACHE:
             self._key_cache.clear()
+            self._alias_keys.clear()
         self._key_cache.update(self._pending_keys)
+        self._alias_keys.update(self._pending_alias_keys)
         for key, fingerprint, a_type, device_id in self._pending_recent:
             self._recent[key] = (fingerprint, a_type, device_id)
             self._recent.move_to_end(key)
         while len(self._recent) > self._recent_window:
             self._recent.popitem(last=False)
         self._pending_keys.clear()
+        self._pending_alias_keys.clear()
         self._pending_recent.clear()
 
     def abort(self) -> None:
         """Discard staged identities after a rolled-back transaction."""
         self._pending_keys.clear()
+        self._pending_alias_keys.clear()
         self._pending_recent.clear()
 
     async def seed(self) -> None:
@@ -326,15 +340,16 @@ class DeviceResolver:
         Restores rotation-join continuity across process restarts
         (2026-08-18 fusion-policy decision): founding fingerprints of
         the most recently updated devices become window candidates,
-        and each device's durable aliases join the exact-key cache.
-        Aliases backfill leftover window slots so a later key can
-        score against a rotated appearance, without letting one
-        device's alias history evict every other founding key.
-        Cache fills up to ``_MAX_KEY_CACHE`` (founding keys first;
-        newest aliases take leftover slots). A seed-time alias
-        sweep bounds the table before warming. Stored keys carry
-        no live provenance; address_type seeds None, which the
-        same-address and HAP rules do not need.
+        and the window's durable aliases join the exact-key cache
+        from one ``list_aliases_for_devices`` query (#153). Aliases
+        backfill leftover window slots so a later key can score
+        against a rotated appearance, without letting one device's
+        alias history evict every other founding key. Cache fills
+        up to ``_MAX_KEY_CACHE`` (founding keys first; newest
+        aliases take leftover slots). A seed-time alias sweep
+        bounds the table before warming. Stored keys carry no live
+        provenance; address_type seeds None, which the same-address
+        and HAP rules do not need.
         """
         await self._devices.prune_excess_aliases()
         rows = await self._devices.list_recent(self._recent_window)
@@ -346,6 +361,11 @@ class DeviceResolver:
         # newest first, so one chatty rotator cannot evict every
         # other device; they enter the cache the same way, and only
         # while under ``_MAX_KEY_CACHE``.
+        aliases_by_device: dict[int, list[DeviceAliasRow]] = {}
+        for alias in await self._devices.list_aliases_for_devices(
+            [row["id"] for row in rows]
+        ):
+            aliases_by_device.setdefault(alias["device_id"], []).append(alias)
         alias_seeds: list[tuple[str, Fingerprint, int]] = []
         for row in reversed(rows):
             fingerprint = _fingerprint_from_stored(
@@ -361,7 +381,7 @@ class DeviceResolver:
             if len(self._key_cache) < _MAX_KEY_CACHE:
                 self._key_cache[key] = row["id"]
             self._recent[key] = (fingerprint, None, row["id"])
-            for alias in await self._devices.list_aliases(row["id"]):
+            for alias in aliases_by_device.get(row["id"], ()):
                 alias_fp = _fingerprint_from_stored(alias["fingerprint"])
                 if alias_fp is None:
                     continue
@@ -374,6 +394,7 @@ class DeviceResolver:
                 and len(self._key_cache) < _MAX_KEY_CACHE
             ):
                 self._key_cache[alias_key] = device_id
+                self._alias_keys.add(alias_key)
             if len(self._recent) >= self._recent_window:
                 continue
             if alias_key in self._recent:

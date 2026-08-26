@@ -66,7 +66,7 @@ One row per resolved identity. Identity is the fingerprint fusion key
 | `id` | INTEGER PK | |
 | `site_id` | TEXT NOT NULL | |
 | `fingerprint` | TEXT NOT NULL | The identity's *founding* (first-seen) key, versioned (`\"v\":2`). Fusion aliases (later fingerprints resolved to the same device) persist in `device_aliases` (ADR-0005 / #148): `DeviceResolver.resolve` writes them inside the cycle transaction and consults them after this founding-key lookup; `seed()` warms the exact-key cache from both, and backfills leftover window slots with aliases (founding keys keep the budget). A fingerprint must not be both a founding key and an alias (enforced in `DeviceRepository`). `UNIQUE (site_id, fingerprint)`. |
-| `address` | TEXT NULL | Currently-known source address (a peripheral UUID on CoreBluetooth captures); updated on each fused rotation (#19), so it tracks the most recent fusion event. Indexed (`idx_devices_address`). Renamed from `mac` in `0002`. |
+| `address` | TEXT NULL | Currently-known source address (a peripheral UUID on CoreBluetooth captures); updated on each fused rotation (#19) and on an exact-key cache hit of an alias key (#153). Founding-key cache hits do not bump it (#84). Indexed (`idx_devices_address`). Renamed from `mac` in `0002`. |
 | `label` | TEXT NULL | Operator-assigned friendly name (`P2-6/P2-7`); null until labeled. |
 | `description` | TEXT NULL | Optional operator notes. |
 | `created_at` / `updated_at` | TEXT NOT NULL | `updated_at` means *identity/metadata changed*, not last-seen (observations carry last-seen); the per-sighting bump was removed in #84. |
@@ -129,7 +129,9 @@ keys. `DeviceResolver.resolve` persists a fused key via
 consults `get_by_alias` after the founding-key exact match;
 `seed()` warms cache and window from aliases as well as founding
 keys (founding keys keep the window budget; aliases backfill
-leftover slots). Founding keys stay on `devices.fingerprint`; they
+leftover slots). Alias rows for the seeded window load in **one**
+`list_aliases_for_devices` query (#153) — not one `list_aliases`
+per device. Founding keys stay on `devices.fingerprint`; they
 must not also appear here (repository-enforced). Per-device
 retention keeps the 32 newest alias rows (highest `id` = insert
 order, not wall clock — NTP steps must not delete the row just
@@ -141,11 +143,15 @@ absorption history. Do not export alias rows into issues or CI
 prunes on insert and `prune_excess_aliases` sweeps at `seed()` so
 a pre-retention database is bounded without waiting for the next
 rotation. `seed()` also caps the in-process exact-key cache at the
-resolver's `_MAX_KEY_CACHE` (founding keys first).
+resolver's `_MAX_KEY_CACHE` (founding keys first). An exact-key
+cache hit on an **alias** key still `touch_address` when the
+advertisement carries an address, so `devices.address` tracks that
+sighting (after restart via seed, and live via `commit()`);
+founding-key cache hits stay a no-touch (#84).
 
 All access is through `DeviceRepository` (`record_alias`,
-`get_by_alias`, `list_aliases`, `prune_excess_aliases`). No other
-module may touch this table.
+`get_by_alias`, `list_aliases`, `list_aliases_for_devices`,
+`prune_excess_aliases`). No other module may touch this table.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -157,7 +163,8 @@ module may touch this table.
 
 Indexed `(site_id, device_id)` for per-device audit listing. Added in
 `0004` (#96); resolver persist/consume wired in #148; per-device
-retention (32 newest) in #151.
+retention (32 newest) in #151; seed batch-load + alias cache-hit
+touch in #153.
 
 ### `label_audit`
 
