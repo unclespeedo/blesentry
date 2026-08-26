@@ -79,6 +79,31 @@ def hap_device_id(fingerprint: Fingerprint) -> str | None:
 _MAX_KEY_CACHE = 100_000
 
 
+def _fingerprint_from_stored(
+    key: str, *, address: str | None = None
+) -> Fingerprint | None:
+    """Parse a stored ``fingerprint_key`` JSON blob, or skip it.
+
+    A tampered or corrupt row must never take the sentinel down at
+    boot: return ``None`` so callers can continue (fail-fast is for
+    scanning, not for warming an optional cache).
+    """
+    try:
+        data = json.loads(key)
+        if not isinstance(data, dict) or data.get("v") != 2:
+            return None
+        return Fingerprint(
+            address=address or data.get("address"),
+            service_uuids=frozenset(data.get("service_uuids") or []),
+            manufacturer_data=frozenset(
+                (k, v) for k, v in (data.get("manufacturer_data") or [])
+            ),
+            local_name=data.get("local_name"),
+        )
+    except (ValueError, TypeError):
+        return None
+
+
 def fingerprint_key(fingerprint: Fingerprint) -> str:
     """Canonical, deterministic string form of a Fingerprint.
 
@@ -194,6 +219,10 @@ class DeviceResolver:
 
         Must run inside the caller's cycle transaction; pair with
         :meth:`commit` / :meth:`abort`.
+
+        Lookup order: in-process cache, founding key, durable alias,
+        window fusion (which records the fused key as an alias), then
+        create. Alias writes happen here, not in :meth:`commit`.
         """
         fingerprint = Fingerprint.from_advertisement(advertisement)
         key = fingerprint_key(fingerprint)
@@ -215,10 +244,23 @@ class DeviceResolver:
             )
             return stored["id"]
 
+        aliased = await self._devices.get_by_alias(key)
+        if aliased is not None:
+            if advertisement.address:
+                await self._devices.touch_address(
+                    aliased["id"], advertisement.address
+                )
+            self._pending_keys[key] = aliased["id"]
+            self._pending_recent.append(
+                (key, fingerprint, a_type, aliased["id"])
+            )
+            return aliased["id"]
+
         fused = self._best_match(fingerprint, a_type)
         if fused is not None:
             if advertisement.address:
                 await self._devices.touch_address(fused, advertisement.address)
+            await self._devices.record_alias(fingerprint=key, device_id=fused)
             self._pending_keys[key] = fused
             self._pending_recent.append((key, fingerprint, a_type, fused))
             return fused
@@ -274,39 +316,43 @@ class DeviceResolver:
         self._pending_recent.clear()
 
     async def seed(self) -> None:
-        """Warm fusion memory from the newest stored devices.
+        """Warm fusion memory from stored devices and their aliases.
 
         Restores rotation-join continuity across process restarts
-        (2026-08-18 fusion-policy decision): the founding fingerprints
-        of the most recently updated devices become window candidates.
-        Stored keys carry no live provenance; address_type seeds None,
-        which the same-address and HAP rules do not need.
+        (2026-08-18 fusion-policy decision): founding fingerprints of
+        the most recently updated devices become window candidates,
+        and each device's durable aliases join the exact-key cache
+        and window so a later key can score against a rotated
+        appearance without waiting to re-see it. Stored keys carry no
+        live provenance; address_type seeds None, which the
+        same-address and HAP rules do not need.
         """
         rows = await self._devices.list_recent(self._recent_window)
         # list_recent is newest-first; insert oldest-first so FIFO
         # window eviction discards the oldest seeds, not the newest.
         for row in reversed(rows):
-            try:
-                data = json.loads(row["fingerprint"])
-                if not isinstance(data, dict) or data.get("v") != 2:
-                    continue
-                fingerprint = Fingerprint(
-                    # prefer the touched current address over the
-                    # founding-key address: the same-address signal
-                    # must survive a restart within an RPA lifetime
-                    address=row["address"] or data.get("address"),
-                    service_uuids=frozenset(data.get("service_uuids") or []),
-                    manufacturer_data=frozenset(
-                        (k, v)
-                        for k, v in (data.get("manufacturer_data") or [])
-                    ),
-                    local_name=data.get("local_name"),
-                )
-            except (ValueError, TypeError):
-                # A tampered or corrupt row must never take the
-                # sentinel down at boot: skip it (fail-fast is for
-                # scanning, not for warming an optional cache).
+            fingerprint = _fingerprint_from_stored(
+                row["fingerprint"],
+                # prefer the touched current address over the
+                # founding-key address: the same-address signal
+                # must survive a restart within an RPA lifetime
+                address=row["address"],
+            )
+            if fingerprint is None:
                 continue
             key = row["fingerprint"]
             self._key_cache[key] = row["id"]
             self._recent[key] = (fingerprint, None, row["id"])
+            for alias in await self._devices.list_aliases(row["id"]):
+                alias_fp = _fingerprint_from_stored(alias["fingerprint"])
+                if alias_fp is None:
+                    continue
+                alias_key = alias["fingerprint"]
+                self._key_cache[alias_key] = alias["device_id"]
+                self._recent[alias_key] = (
+                    alias_fp,
+                    None,
+                    alias["device_id"],
+                )
+        while len(self._recent) > self._recent_window:
+            self._recent.popitem(last=False)

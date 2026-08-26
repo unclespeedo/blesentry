@@ -112,8 +112,23 @@ class DeviceRepository:
         existing operator-assigned metadata.
 
         Returns the device ``id`` (new or existing).
+
+        Raises:
+            ValueError: If ``fingerprint`` is already an alias for this
+                site (cross-table uniqueness, ADR-0005 / #148).
         """
         async with transaction(self._conn):
+            cur = await self._conn.execute(
+                "SELECT 1 FROM device_aliases "
+                "WHERE site_id = ? AND fingerprint = ?",
+                (self._site, fingerprint),
+            )
+            taken = await cur.fetchone()
+            await cur.close()
+            if taken is not None:
+                raise ValueError(
+                    "cannot create device: fingerprint is already an alias"
+                )
             cur = await self._conn.execute(
                 "INSERT INTO devices "
                 "(site_id, fingerprint, address, label, "
@@ -222,6 +237,8 @@ class DeviceRepository:
         Site-scoped: an unknown or other-site ``device_id`` raises.
         Re-binding the same fingerprint to a different device raises
         (alias conflict). Same device is idempotent (no write).
+        A fingerprint that is already a founding ``devices.fingerprint``
+        on this site raises (cross-table uniqueness, ADR-0005 / #148).
 
         Returns the alias row ``id``.
         """
@@ -234,6 +251,16 @@ class DeviceRepository:
             await cur.close()
             if owner is None:
                 raise ValueError(f"device {device_id} not found for this site")
+            cur = await self._conn.execute(
+                "SELECT id FROM devices WHERE site_id = ? AND fingerprint = ?",
+                (self._site, fingerprint),
+            )
+            founding = await cur.fetchone()
+            await cur.close()
+            if founding is not None:
+                raise ValueError(
+                    "alias conflict: fingerprint is a founding key"
+                )
             cur = await self._conn.execute(
                 "SELECT id, device_id FROM device_aliases "
                 "WHERE site_id = ? AND fingerprint = ?",
