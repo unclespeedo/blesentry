@@ -141,12 +141,14 @@ gaps, from the adversarial review:
   window slots with aliases so a *new* rotation can score against
   a recently fused key — founding keys keep the window budget so
   one chatty rotator cannot evict every other device. A cache hit
-  on an alias key still ``touch_address`` so ``devices.address``
-  tracks that sighting after restart (and live, after
-  ``commit()``); founding-key cache hits do not. A device absent longer than the window whose current key
-  is neither founding nor a stored alias still opens a new device
-  row. An advertisement flood can flush the window (availability of
-  fusion, not correctness — ties to the #85 flood posture).
+  on an alias key still ``touch_address`` when the advertisement
+  carries an address, so ``devices.address`` tracks that sighting
+  after restart (and live, after ``commit()``); founding-key cache
+  hits do not. A device absent longer than the window whose current
+  key is neither founding nor a stored alias still opens a new
+  device row. An advertisement flood can flush the window
+  (availability of fusion, not correctness — ties to the #85 flood
+  posture).
 - **Alias-table growth vs founding-key collapse (#151).** These are
   opposite failure modes. Founding-key collapse is many distinct
   devices fused into one identity (the company-id-only config
