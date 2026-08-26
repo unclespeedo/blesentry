@@ -85,13 +85,16 @@ Every other caller must obey the same rules.
    rotation window and silently disables fusion across windows.
 2. **`seed()` before the first cycle**, outside any cycle
    transaction. Seeding warms the exact-key cache and the recent
-   window from `DeviceRepository.list_recent`. It is optional-cache
-   warming: a tampered row is skipped, never fatal (fail-fast is for
-   scanning, not for an optional cache).
+   window from `DeviceRepository.list_recent` founding keys, then
+   each device's `list_aliases` (cache always; window leftover
+   slots only). It is optional-cache warming: a tampered row is
+   skipped, never fatal (fail-fast is for scanning, not for an
+   optional cache).
 3. **`resolve()` runs only inside the caller's cycle transaction.**
-   Creates and address-touches are SQL writes; they must share the
-   ambient unit of work (`storage.database.transaction`) with the
-   observations (and presence events, alerts) of that window.
+   Creates, address-touches, and alias inserts are SQL writes; they
+   must share the ambient unit of work
+   (`storage.database.transaction`) with the observations (and
+   presence events, alerts) of that window.
 4. **`commit()` only after the transaction COMMITs.** Staged exact
    keys and window entries publish to committed-state maps. Calling
    `commit()` before COMMIT (or after a rollback) would leak phantom
