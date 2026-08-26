@@ -16,6 +16,7 @@ from blesentry.storage import apply_migrations, connect, transaction
 from blesentry.storage import repository as repo_mod
 from blesentry.storage.repository import (
     DeviceRepository,
+    InitSessionRepository,
     ObservationRepository,
     PresenceEventRepository,
 )
@@ -996,3 +997,119 @@ async def test_presence_rejects_bad_event_type(
         await presence_repo.append(
             device_id=device_id, event_type="MAYBE", occurred_at=_ts(1, 0)
         )
+
+
+# -- list_present_unlabeled / init_sessions (P2-7) --
+
+
+@pytest.fixture
+def init_repo(db: aiosqlite.Connection) -> InitSessionRepository:
+    return InitSessionRepository(db, SITE)
+
+
+async def _present(
+    device_repo: DeviceRepository,
+    presence_repo: PresenceEventRepository,
+    fingerprint: str,
+    *,
+    address: str | None = None,
+    occurred_at: str = _ts(1, 0),
+) -> int:
+    device_id = await device_repo.upsert(
+        fingerprint=fingerprint, address=address
+    )
+    await presence_repo.append(
+        device_id=device_id, event_type="PRESENT", occurred_at=occurred_at
+    )
+    return device_id
+
+
+async def test_list_present_unlabeled_filters_absent_and_labeled(
+    device_repo: DeviceRepository,
+    presence_repo: PresenceEventRepository,
+) -> None:
+    keep = await _present(device_repo, presence_repo, "fp-keep")
+    gone = await _present(device_repo, presence_repo, "fp-gone")
+    await presence_repo.append(
+        device_id=gone, event_type="ABSENT", occurred_at=_ts(1, 5)
+    )
+    named = await _present(device_repo, presence_repo, "fp-named")
+    await device_repo.set_label(named, label="TV", actor="op")
+    await device_repo.upsert(fingerprint="fp-never-seen")
+    rows = await device_repo.list_present_unlabeled()
+    assert [r["id"] for r in rows] == [keep]
+
+
+async def test_list_present_unlabeled_uses_insert_id_not_wall_clock(
+    device_repo: DeviceRepository,
+    presence_repo: PresenceEventRepository,
+) -> None:
+    # Later row id with *earlier* occurred_at must win (NTP step).
+    device_id = await device_repo.upsert(fingerprint="fp-skew")
+    await presence_repo.append(
+        device_id=device_id, event_type="PRESENT", occurred_at=_ts(2, 0)
+    )
+    await presence_repo.append(
+        device_id=device_id, event_type="ABSENT", occurred_at=_ts(1, 0)
+    )
+    assert await device_repo.list_present_unlabeled() == []
+
+
+async def test_list_present_unlabeled_is_site_scoped(
+    db: aiosqlite.Connection,
+) -> None:
+    here = DeviceRepository(db, "site-a")
+    there = DeviceRepository(db, "site-b")
+    device_id = await here.upsert(fingerprint="fp")
+    await PresenceEventRepository(db, "site-a").append(
+        device_id=device_id, event_type="PRESENT", occurred_at=_ts(1, 0)
+    )
+    assert await there.list_present_unlabeled() == []
+    assert [r["id"] for r in await here.list_present_unlabeled()] == [
+        device_id
+    ]
+
+
+async def test_init_session_create_and_get_active(
+    device_repo: DeviceRepository, init_repo: InitSessionRepository
+) -> None:
+    a = await device_repo.upsert(fingerprint="a")
+    b = await device_repo.upsert(fingerprint="b")
+    row = await init_repo.create(device_ids=[a, b], expires_at=_ts(3, 0))
+    assert row["status"] == "ACTIVE"
+    assert row["cursor"] == 0
+    assert row["device_ids"] == [a, b]
+    assert row["expires_at"] == _ts(3, 0)
+    assert row["last_message_id"] is None
+    fetched = await init_repo.get_active()
+    assert fetched is not None
+    assert fetched["id"] == row["id"]
+    assert fetched["device_ids"] == [a, b]
+
+
+async def test_init_session_one_active_per_site(
+    init_repo: InitSessionRepository,
+) -> None:
+    await init_repo.create(device_ids=[1], expires_at=_ts(3, 0))
+    with pytest.raises(Exception):  # noqa: B017 - unique partial index
+        await init_repo.create(device_ids=[2], expires_at=_ts(4, 0))
+
+
+async def test_init_session_cursor_and_status(
+    init_repo: InitSessionRepository,
+) -> None:
+    row = await init_repo.create(device_ids=[7, 8], expires_at=_ts(3, 0))
+    await init_repo.set_cursor(row["id"], 1, last_message_id=42)
+    active = await init_repo.get_active()
+    assert active is not None and active["cursor"] == 1
+    assert active["last_message_id"] == 42
+    await init_repo.set_status(row["id"], "DONE")
+    assert await init_repo.get_active() is None
+
+
+async def test_init_session_is_site_scoped(db: aiosqlite.Connection) -> None:
+    here = InitSessionRepository(db, "site-a")
+    there = InitSessionRepository(db, "site-b")
+    await here.create(device_ids=[1], expires_at=_ts(3, 0))
+    assert await there.get_active() is None
+    assert await here.get_active() is not None

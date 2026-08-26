@@ -13,6 +13,7 @@ from blesentry.storage.database import (
 )
 from blesentry.storage.repository import (
     DeviceRepository,
+    InitSessionRepository,
     ObservationRepository,
     OutboxRepository,
     PresenceEventRepository,
@@ -21,6 +22,7 @@ from blesentry.storage.repository import (
 __all__ = [
     "DEFAULT_MIGRATIONS_DIR",
     "DeviceRepository",
+    "InitSessionRepository",
     "MigrationError",
     "ObservationRepository",
     "OutboxRepository",
