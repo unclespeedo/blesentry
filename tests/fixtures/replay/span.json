@@ -1,0 +1,35 @@
+[
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -80,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000000.0,
+    "adapter_id": "test"
+  },
+  {
+    "address": "AA:BB:00:00:00:02",
+    "rssi": -70,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000015.0,
+    "adapter_id": "test"
+  },
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -60,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000045.0,
+    "adapter_id": "test"
+  }
+]

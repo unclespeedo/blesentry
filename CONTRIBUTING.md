@@ -18,6 +18,13 @@
 - ruff, line length 79 (check + format). ty for type checking. pytest +
   pytest-asyncio for tests. TDD: the failing test lands before the fix.
 - Pydantic V2 with ConfigDict for all data models. src/ layout, py.typed.
+- Finite floats on duration / rate / threshold knobs: ``math.isfinite(x)``
+  **and** the sign/range check. ``argparse`` ``type=float`` and Pydantic
+  ``Field(gt=0)`` / ``ge=0`` both admit ``inf`` / ``nan`` (``inf > 0``
+  is true); those collapse ``//`` buckets to zero and ``json.dumps``
+  emits non-JSON ``Infinity``. CLI tests for ``type=float`` knobs
+  include ``inf`` and ``nan``, not only ``0`` and negatives. Integers
+  are unaffected.
 - All SQL lives in repository modules; nothing else touches the database.
 - Respect the seams: Scanner and Notifier protocols per ADR-0002;
   Detector protocol per ADR-0006; Resolver lifecycle
@@ -33,7 +40,11 @@
   ``MockScanner.from_rssi_sequences`` when a test needs a per-device
   RSSI profile (near-threshold flicker, gradual approach, brief spike).
   Drive the Detector seam with ``MockDetector`` / ``NullDetector``
-  (ADR-0006); never a live detector backend in CI.
+  (ADR-0006); never a live detector backend in CI. Offline replay
+  (``blesentry replay``, ``blesentry.detection.replay``) is the F1
+  harness: synthetic fixtures under ``tests/fixtures/replay/``, a
+  read-only observations snapshot, golden-file JSON — never a live
+  WAL and never a capture corpus dumped to CI logs (``docs/replay.md``).
 
 ## Workflow
 - One issue per PR; `Closes #N` in the description. No scope creep — file a

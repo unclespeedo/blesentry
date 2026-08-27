@@ -103,6 +103,14 @@ outbox health) is enqueued at or after `[summary] hour_utc` (default
 12:00 UTC) and delivered through the same outbox. Disable with
 `[summary] enabled = false`. See `docs/tuning.md`.
 
+### Offline detector replay
+
+`blesentry replay` feeds a sanitized advertisement fixture or a
+**copied** observations snapshot through any Detector (ADR-0006) and
+prints a JSON report of would-be alerts. Clock-free window indexes,
+read-only, no outbox writes. Use a snapshot copy, never the live
+daemon database. See `docs/replay.md`.
+
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under
 [AGENTS.md](AGENTS.md). This project's instances observe real sites — read

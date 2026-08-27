@@ -174,6 +174,41 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="site identifier; required unless --config is given",
     )
+
+    replay = sub.add_parser(
+        "replay",
+        help="offline detector replay against a fixture or snapshot (F1)",
+    )
+    replay.add_argument(
+        "--fixture",
+        default=None,
+        help="JSON advertisement array (sanitized fixture). "
+        "Cannot be combined with --db/--site-id.",
+    )
+    replay.add_argument(
+        "--db",
+        default=None,
+        help="copied SQLite snapshot (not the live daemon DB); "
+        "requires --site-id",
+    )
+    replay.add_argument(
+        "--site-id",
+        default=None,
+        help="site identifier for --db snapshot replay",
+    )
+    replay.add_argument(
+        "--period",
+        type=float,
+        default=None,
+        help="window bucket width in seconds "
+        "(default: 15, scan.window + scan.pause)",
+    )
+    replay.add_argument(
+        "--backend",
+        choices=("none", "mock"),
+        default="none",
+        help="detector backend (default: none)",
+    )
     return parser
 
 
@@ -538,6 +573,34 @@ async def _run_init(args: argparse.Namespace) -> int:
         await conn.close()
 
 
+async def _run_replay(args: argparse.Namespace) -> int:
+    """Replay a fixture or read-only snapshot through a Detector."""
+    from blesentry.detection.replay import (
+        DEFAULT_REPLAY_PERIOD,
+        detector_for_backend,
+        format_report,
+        replay_fixture,
+        replay_snapshot,
+    )
+
+    period = DEFAULT_REPLAY_PERIOD if args.period is None else args.period
+    detector = detector_for_backend(args.backend)
+    if args.fixture is not None:
+        if args.db is not None or args.site_id is not None:
+            raise ValueError(
+                "--fixture cannot be combined with --db/--site-id"
+            )
+        report = replay_fixture(args.fixture, detector, period)
+    elif args.db is not None and args.site_id is not None:
+        report = await replay_snapshot(args.db, args.site_id, detector, period)
+    else:
+        raise ValueError(
+            "replay requires --fixture, or both --db and --site-id"
+        )
+    print(format_report(report))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point; returns the process exit code."""
     args = build_parser().parse_args(argv)
@@ -550,6 +613,8 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_run_daemon(args))
         if args.command == "init":
             return asyncio.run(_run_init(args))
+        if args.command == "replay":
+            return asyncio.run(_run_replay(args))
         scanner = _build_scanner(args)
         advertisements = asyncio.run(run_scan(scanner, duration=args.duration))
     except KeyboardInterrupt:
@@ -557,7 +622,7 @@ def main(argv: list[str] | None = None) -> int:
         # the loop task and closes the connection via finally.
         print("interrupted; shutting down", file=sys.stderr)
         return 0
-    except (ValueError, OSError, BleakError, MigrationError) as exc:
+    except (ValueError, TypeError, OSError, BleakError, MigrationError) as exc:
         # Fail fast and loud (ADR-0002): a sentinel that cannot scan
         # must say so, with a non-zero exit for scripts.
         print(f"error: {exc}", file=sys.stderr)

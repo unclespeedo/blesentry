@@ -10,5 +10,8 @@ to turn a scan window into would-be alerts. Concrete backends
 and F1 replay; approach / crowd / inside later) are config-selected
 and imported lazily by :func:`blesentry.config.build_detector` —
 this package ``__init__`` stays docstring-only so the ``none`` path
-never loads ``mock`` (mirrors ``blesentry.notifier``).
+never loads ``mock`` (mirrors ``blesentry.notifier``). Offline
+replay (``blesentry.detection.replay``, ``blesentry replay``) feeds
+historical windows through the same ``observe`` surface without
+touching the scan loop or the outbox.
 """

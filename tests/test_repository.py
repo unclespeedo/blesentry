@@ -390,6 +390,31 @@ async def test_observation_survives_reopen(
 # -- ObservationRepository: query_recent_rssi --
 
 
+async def test_list_ordered_is_site_scoped_and_chronological(
+    obs_repo: ObservationRepository,
+    device_repo: DeviceRepository,
+    db: aiosqlite.Connection,
+) -> None:
+    here = await device_repo.upsert(
+        fingerprint="fp-here", address="AA:00:00:00:00:01"
+    )
+    other_devs = DeviceRepository(db, "other-site")
+    other_obs = ObservationRepository(db, "other-site")
+    there = await other_devs.upsert(
+        fingerprint="fp-there", address="AA:00:00:00:00:02"
+    )
+    await obs_repo.append(device_id=here, rssi=-80, observed_at=_ts(12, 0))
+    await other_obs.append(device_id=there, rssi=-40, observed_at=_ts(11, 0))
+    await obs_repo.append(device_id=here, rssi=-70, observed_at=_ts(11, 30))
+    rows = await obs_repo.list_ordered()
+    assert [r["rssi"] for r in rows] == [-70, -80]
+    assert all(r["site_id"] == SITE for r in rows)
+
+
+async def test_list_ordered_empty(obs_repo: ObservationRepository) -> None:
+    assert await obs_repo.list_ordered() == []
+
+
 async def test_query_recent_rssi_empty_when_no_observations(
     obs_repo: ObservationRepository,
     device_repo: DeviceRepository,

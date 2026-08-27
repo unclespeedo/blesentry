@@ -174,6 +174,9 @@ ambiguous DoD.
   timestamps — clock-free, deterministic, off-device, read-only (DC-9).
   **DoD:** replays N days reproducibly; golden-file test. **Deps:** F2
   **Size:** M **Labels:** `epic:detection type:feature priority:p1`
+  **Shipped:** `docs/replay.md`, `blesentry replay`,
+  `blesentry.detection.replay` (#120). Snapshot path feeds `heard`
+  only; fixture path feeds `advertisements` only.
 - **F2 · Detector seam (protocol) + ADR.** One interface all three implement
   (per-window `heard` + observation stream → `DetectionEvent`), selected via
   a `[detection]` config section with lazy-imported backends (DC-1). Because
