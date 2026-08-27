@@ -14,10 +14,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from blesentry.scanner.models import Advertisement
+
+type ProximityBand = Literal["adjacent", "near", "far", "beyond-far"]
 
 
 class DetectionWindow(BaseModel):
@@ -57,6 +60,8 @@ class DetectionEvent(BaseModel):
 
     ``kind`` is detector-defined; A1 / C1 / I1 freeze their tokens.
     ``window_index`` is the clock-free timestamp (the window's index).
+    Additive A3 fields (``rssi`` / ``band`` / ``rising``) default to
+    ``None`` so ``mock`` events stay three tokens (ADR-0006).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -64,3 +69,6 @@ class DetectionEvent(BaseModel):
     detector: str = Field(min_length=1)
     kind: str = Field(min_length=1)
     window_index: int = Field(ge=0)
+    rssi: int | None = None
+    band: ProximityBand | None = None
+    rising: bool | None = None

@@ -294,6 +294,29 @@ def test_replay_subcommand_parses_db() -> None:
     assert args.backend == "mock"
 
 
+def test_replay_cli_writes_walkby_approach_golden(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    walkby = REPLAY_DIR / "walkby.json"
+    golden = REPLAY_DIR / "walkby-approach-golden.json"
+    code = main(
+        [
+            "replay",
+            "--fixture",
+            str(walkby),
+            "--period",
+            "15",
+            "--backend",
+            "approach",
+        ]
+    )
+    assert code == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == json.loads(
+        golden.read_text(encoding="utf-8")
+    )
+
+
 def test_replay_cli_writes_golden_json(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -327,11 +350,14 @@ def test_fixture_must_be_a_json_array(tmp_path: Path) -> None:
         load_advertisement_fixture(path)
 
 
-def test_detector_for_backend_none_and_mock() -> None:
+def test_detector_for_backend_none_mock_approach() -> None:
+    from blesentry.detection.approach_detector import ApproachDetector
+
     assert isinstance(detector_for_backend("none"), NullDetector)
     assert isinstance(detector_for_backend("mock"), MockDetector)
+    assert isinstance(detector_for_backend("approach"), ApproachDetector)
     with pytest.raises(ValueError, match="unknown"):
-        detector_for_backend("approach")
+        detector_for_backend("crowd")
 
 
 def test_replay_cli_requires_source(

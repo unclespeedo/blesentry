@@ -1,0 +1,90 @@
+[
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -99,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000000.0,
+    "adapter_id": "test"
+  },
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -96,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000015.0,
+    "adapter_id": "test"
+  },
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -92,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000030.0,
+    "adapter_id": "test"
+  },
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -88,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000045.0,
+    "adapter_id": "test"
+  },
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -84,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000060.0,
+    "adapter_id": "test"
+  },
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -80,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000075.0,
+    "adapter_id": "test"
+  },
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -76,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000090.0,
+    "adapter_id": "test"
+  },
+  {
+    "address": "AA:BB:00:00:00:01",
+    "rssi": -72,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 1700000105.0,
+    "adapter_id": "test"
+  }
+]

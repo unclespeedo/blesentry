@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from blesentry.scanner.protocol import Scanner
 
 __all__ = [
+    "ApproachDetectionConfig",
     "BleakScannerConfig",
     "Config",
     "ConfigError",
@@ -260,9 +261,15 @@ class MockDetectionConfig(_Section):
     backend: Literal["mock"]
 
 
+class ApproachDetectionConfig(_Section):
+    """Rising-RSSI approach backend (A3 / ADR-0007)."""
+
+    backend: Literal["approach"]
+
+
 # Closed union, same posture as Scanner/Notifier. Open registry is #101.
 DetectionConfig = Annotated[
-    NoneDetectionConfig | MockDetectionConfig,
+    NoneDetectionConfig | MockDetectionConfig | ApproachDetectionConfig,
     Field(discriminator="backend"),
 ]
 
@@ -463,9 +470,8 @@ def build_detector(detection: DetectionConfig) -> Detector:
     """Construct the configured Detector backend (ADR-0006 selection).
 
     Backends are imported lazily so the ``none`` path never drags a
-    future learned model into the import graph (DC-8, 512 MB). F2
-    does not call this from the scan loop; the first alert-emitting
-    detector issue wires that.
+    future learned model into the import graph (DC-8, 512 MB). A3
+    wires the result into ``run_cycle``.
 
     Args:
         detection: The validated detection section from :class:`Config`.
@@ -477,6 +483,10 @@ def build_detector(detection: DetectionConfig) -> Detector:
         from blesentry.detection.mock import MockDetector
 
         return MockDetector()
+    if isinstance(detection, ApproachDetectionConfig):
+        from blesentry.detection.approach_detector import ApproachDetector
+
+        return ApproachDetector()
 
     from blesentry.detection.null import NullDetector
 

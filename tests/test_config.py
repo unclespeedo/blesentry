@@ -464,6 +464,30 @@ def test_build_detector_none_does_not_import_mock() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_build_detector_none_does_not_import_approach() -> None:
+    """The none path must not load the A3 backend."""
+    import subprocess
+    import sys
+
+    script = (
+        "from blesentry.config import NoneDetectionConfig, "
+        "build_detector\n"
+        "build_detector(NoneDetectionConfig())\n"
+        "import sys\n"
+        "mods = sys.modules\n"
+        "raise SystemExit(0 if "
+        "'blesentry.detection.approach_detector' not in mods "
+        "else 1)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 # ---------------------------------------------------------------------------
 # The committed example config (DoD: example config committed)
 # ---------------------------------------------------------------------------
@@ -478,4 +502,4 @@ def test_example_config_loads_clean() -> None:
     assert cfg.site_id
     assert cfg.storage.db
     assert cfg.scanner.backend in {"bleak", "mock"}
-    assert cfg.detection.backend in {"none", "mock"}
+    assert cfg.detection.backend in {"none", "mock", "approach"}

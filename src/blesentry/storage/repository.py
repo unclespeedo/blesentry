@@ -850,6 +850,11 @@ class OutboxRepository:
         """The underlying connection, for ambient transactions (#84)."""
         return self._conn
 
+    @property
+    def site_id(self) -> str:
+        """The site this repository is scoped to."""
+        return self._site
+
     async def enqueue(self, *, payload: str) -> int:
         """Append one message as ``PENDING``; return its new id.
 

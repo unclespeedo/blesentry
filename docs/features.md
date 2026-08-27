@@ -58,6 +58,16 @@ gate stays wide; DC-6). Defaults match `docs/detection-plan.md`:
 So `count_adjacent ≤ count_near ≤ count_far ≤ count_all`. An
 identity at −65 counts as near, far, and all — not adjacent.
 
+Exclusive label for one RSSI (A3 alert text; not a second set of
+edges) is `proximity_band(rssi)`:
+
+| Label | Rule |
+|---|---|
+| `adjacent` | RSSI ≥ adjacent (−55) |
+| `near` | adjacent > RSSI ≥ near (−70) |
+| `far` | near > RSSI ≥ far (−80) |
+| `beyond-far` | RSSI < far (−80) |
+
 Edges are a constructor argument (`BandEdges`). They must satisfy
 `adjacent > near > far` (higher dBm = closer). Per-install
 calibration (DC-6, F6) passes different edges; it does not fork
@@ -146,12 +156,13 @@ empties. Same windows + same kwargs → equal vectors. Windows must
 be in strictly increasing unique `index` order (F1 replay and the
 live cycle both are); out-of-order input is undefined.
 
-Public formula helpers (A2 imports these, does not reimplement):
+Public formula helpers (do not reimplement):
 
-- `max_rssi_by_identity(window, source)`
-- `band_counts(max_rssi, bands)`
-- `rssi_slope(points)` — `points` is `(index, rssi)*`
-- `rssi_span(rssis)`
+- `max_rssi_by_identity(window, source)` — A2
+- `band_counts(max_rssi, bands)` — Crowd/Inside (C/I), not A2
+- `rssi_slope(points)` — `points` is `(index, rssi)*` — A2
+- `rssi_span(rssis)` — A2
+- `proximity_band(rssi, bands)` — exclusive label; A3 alert text
 
 ## What this is not
 

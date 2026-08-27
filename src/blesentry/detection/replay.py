@@ -249,8 +249,9 @@ async def replay_snapshot(
 
 
 def detector_for_backend(backend: str) -> Detector:
-    """Build ``none`` / ``mock`` the same way the daemon config does."""
+    """Build ``none`` / ``mock`` / ``approach`` like the daemon config."""
     from blesentry.config import (
+        ApproachDetectionConfig,
         MockDetectionConfig,
         NoneDetectionConfig,
         build_detector,
@@ -258,6 +259,8 @@ def detector_for_backend(backend: str) -> Detector:
 
     if backend == "mock":
         return build_detector(MockDetectionConfig(backend="mock"))
+    if backend == "approach":
+        return build_detector(ApproachDetectionConfig(backend="approach"))
     if backend == "none":
         return build_detector(NoneDetectionConfig())
     raise ValueError(f"unknown detection backend: {backend}")

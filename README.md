@@ -33,9 +33,10 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
                 │  (N-consecutive-window RSSI, cooldowns)      │
                 │        │                                     │
                 │        ▼                                     │
-                │ Detector (protocol; not yet in scan loop)    │
+                │ Detector (protocol; A3 in scan loop)         │
                 │   ├─ NullDetector  (none, default)           │
-                │   └─ MockDetector  (CI / F1 replay)          │
+                │   ├─ MockDetector  (CI / F1 replay)          │
+                │   └─ ApproachDetector (approach; A3)         │
                 │        │                                     │
                 │        ▼                                     │
                 │ Outbox ──▶ Drain loop (exp. backoff) ──▶     │
@@ -53,11 +54,11 @@ Every external dependency sits behind a small config-selected interface
 implementations is a config edit, no code change. See
 `docs/adr/0002-extension-points.md` for those plugin contracts.
 Detector's frozen surface (`observe(window) → events`) is ADR-0006;
-v1 backends are `none` (default, no events) and `mock` (CI / replay).
-Approach / crowd / inside detectors are later issues. The diagram
-shows the seam on the path to the outbox; `run_cycle` does **not**
-call `observe` yet — the first alert-emitting detector issue wires
-that. The Device resolver is a *named
+v1 backends are `none` (default, no events), `mock` (CI / replay),
+and `approach` (A3 rising-RSSI). Crowd / inside are later issues.
+`run_cycle` calls `observe` inside the cycle transaction and
+enqueues returned events (DC-1); default `none` does not change
+alert behaviour. The Device resolver is a *named
 internal* seam (ADR-0005), not a backend selector: one instance, one
 lifecycle, no plugin registry.
 
@@ -116,12 +117,14 @@ Canonical per-window / per-identity **feature vectors** for eval
 `blesentry.detection.features` — offline batch, not a detector.
 See `docs/features.md`.
 
-The **approach** trigger (rising RSSI span; kind `approaching`) is
-specified in ADR-0007 / `docs/approach.md` as
-`blesentry.detection.approach.is_rising_approach`. The **online
-per-address tracker** is `blesentry.detection.trajectory` (bounded
-deque, fade/cap). Neither is a `[detection]` backend yet — A3 adds
-that union member and wires `observe`.
+The **approach** detector (`[detection] backend = "approach"`) is
+A3: ADR-0007 / `docs/approach.md`. It wraps the A1 predicate
+(`is_rising_approach`) and the A2 tracker (`TrajectoryTracker`)
+and emits `kind="approaching"` inside the scan-cycle transaction.
+Default `backend` is still `none`. Replay a labeled walk-by with
+`blesentry replay --fixture tests/fixtures/replay/walkby.json
+--backend approach`. Alert text reports the F3 coarse band and
+RSSI, never a distance.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under

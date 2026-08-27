@@ -48,15 +48,19 @@
   Canonical detection feature vectors (F3) live in
   ``blesentry.detection.features``; formulas are pinned in
   ``docs/features.md``. A2 reuses ``rssi_slope`` / ``rssi_span`` /
-  ``band_counts`` — do not invent a second slope or band-count
-  definition. The A1 approach trigger (ADR-0007, ``docs/approach.md``)
+  ``max_rssi_by_identity`` — do not invent a second slope. Crowd/
+  Inside own ``band_counts``. A3 alert text uses ``proximity_band``
+  (exclusive F3 label of the terminal RSSI). The A1 approach
+  trigger (ADR-0007, ``docs/approach.md``)
   is ``blesentry.detection.approach.is_rising_approach``; A2/A3 call
   it and do not fork W/Δ/peak. The A2 online tracker is
   ``blesentry.detection.trajectory.TrajectoryTracker`` (cap 256,
-  fade-after 12, deque maxlen = A1 W). Neither is a Detector
-  backend; they are not in the ``[detection]`` union (A3). Do not
-  dump feature vectors of a real capture into CI logs (same hygiene
-  as replay).
+  fade-after 12, deque maxlen = A1 W). The A3 backend is
+  ``blesentry.detection.approach_detector.ApproachDetector``
+  (``[detection] backend = "approach"``, ``kind="approaching"``);
+  default remains ``none``. Alert text never uses metres or a raw
+  address. Do not dump feature vectors of a real capture into CI
+  logs (same hygiene as replay).
 
 ## Workflow
 - One issue per PR; `Closes #N` in the description. No scope creep — file a

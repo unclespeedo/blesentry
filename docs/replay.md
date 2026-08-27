@@ -11,11 +11,11 @@ without the scan loop, and without writing the source. Clock-free,
 deterministic, off-device (DC-9). The live cycle and this harness
 share one input type: `DetectionWindow` (ADR-0006).
 
-This is an evaluation tool. It does **not** enqueue to the outbox
-and it does **not** call `observe` from `run_cycle` — that wiring
-is a later alert-emitting detector issue. Canonical feature
-vectors over the same windows are F3 (`docs/features.md`); replay
-does not emit them.
+This is an evaluation tool. It does **not** enqueue to the outbox.
+Live `run_cycle` wiring is A3 (`docs/approach.md`): the daemon
+calls the same `observe` inside the cycle transaction. Canonical
+feature vectors over the same windows are F3 (`docs/features.md`);
+replay does not emit them.
 
 ## Why
 
@@ -65,10 +65,14 @@ with a 86400 s period so the count stays small.
 
 ## Detector
 
-`--backend none` (default) or `mock` — the same closed union as
-`[detection]` (ADR-0006). `none` emits nothing; unscripted `mock`
-records windows and also emits nothing. Scripted `MockDetector`
-events are a unit-test concern, not a CLI flag.
+`--backend none` (default), `mock`, or `approach` — the same closed
+union as `[detection]` (ADR-0006). `none` emits nothing; unscripted
+`mock` records windows and also emits nothing. `approach` is A3
+(`ApproachDetector`); it reads `advertisements` only, so
+`--fixture` is the path that can fire. `--db` snapshot replay has
+empty `advertisements` and will not produce approach events.
+Scripted `MockDetector` events are a unit-test concern, not a CLI
+flag.
 
 `observe` is synchronous and I/O-free. Replay just loops:
 
@@ -118,6 +122,7 @@ not matter.
 ```text
 blesentry replay --fixture tests/fixtures/replay/span.json
 blesentry replay --fixture path.json --period 15 --backend mock
+blesentry replay --fixture tests/fixtures/replay/walkby.json --backend approach
 blesentry replay --db snapshot.db --site-id example-site --period 15
 ```
 
@@ -129,5 +134,6 @@ backend is a load-time error (fail-fast, ADR-0002).
 Synthetic fixtures live under `tests/fixtures/replay/` — not a
 capture corpus. `tests/fixtures/*.json` remains the sanitized
 advertisement schema (`tests/test_fixtures.py` is non-recursive).
-The golden file pins windowing + empty `none` events, not a live
-site log.
+The span golden pins windowing + empty `none` events. The walk-by
+golden pins one `approaching` event at the peak (A3). Neither is a
+live site log.

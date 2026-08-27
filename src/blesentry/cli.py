@@ -27,6 +27,7 @@ from typing import Any, NamedTuple
 
 from bleak.exc import BleakError
 
+from blesentry.detection.protocol import Detector
 from blesentry.notifier.protocol import Notifier
 from blesentry.presence import PresenceTracker
 from blesentry.scanner.models import Advertisement
@@ -51,6 +52,7 @@ class _RunSettings(NamedTuple):
     scanner: Scanner
     notifier: Notifier
     presence: PresenceTracker
+    detector: Detector
     db: str
     site_id: str
     window: float
@@ -205,7 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay.add_argument(
         "--backend",
-        choices=("none", "mock"),
+        choices=("none", "mock", "approach"),
         default="none",
         help="detector backend (default: none)",
     )
@@ -287,6 +289,7 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
         if args.db is not None or args.site_id is not None:
             raise ValueError("--config cannot be combined with --db/--site-id")
         from blesentry.config import (
+            build_detector,
             build_notifier,
             build_presence,
             build_scanner,
@@ -298,6 +301,7 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
             scanner=build_scanner(cfg.scanner),
             notifier=build_notifier(cfg.notifier),
             presence=build_presence(cfg.presence),
+            detector=build_detector(cfg.detection),
             db=str(cfg.storage.db),
             site_id=cfg.site_id,
             window=cfg.scan.window,
@@ -310,6 +314,7 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
         )
     if args.db is None or args.site_id is None:
         raise ValueError("run requires --config, or both --db and --site-id")
+    from blesentry.detection.null import NullDetector
     from blesentry.notifier.null import NullNotifier
 
     return _RunSettings(
@@ -318,6 +323,7 @@ def _resolve_run_settings(args: argparse.Namespace) -> _RunSettings:
         # Flag mode has no config file to carry thresholds; the P2-1
         # defaults (PRESENT after 3 windows, -80 dBm gate) apply.
         presence=PresenceTracker(),
+        detector=NullDetector(),
         db=args.db,
         site_id=args.site_id,
         window=args.window,
@@ -426,6 +432,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
         # database; a second connection is a supported reader/writer.
         drain_conn = await connect(settings.db)
         devices = DeviceRepository(scan_conn, settings.site_id)
+        scan_outbox = OutboxRepository(scan_conn, settings.site_id)
         resolver = None
         if settings.min_score is not None and (
             settings.recent_window is not None
@@ -457,8 +464,10 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                 # by the drain, answered by the command loop.
                 alerter=UnknownDeviceAlerter(
                     devices,
-                    OutboxRepository(scan_conn, settings.site_id),
+                    scan_outbox,
                 ),
+                detector=settings.detector,
+                outbox=scan_outbox,
             ),
             run_drain(
                 OutboxRepository(drain_conn, settings.site_id),

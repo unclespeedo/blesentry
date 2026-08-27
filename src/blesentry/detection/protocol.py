@@ -28,7 +28,7 @@ class Detector(Protocol):
 
     ``observe`` is synchronous and must not perform I/O, touch a
     repository, or enqueue to the outbox. The scan-cycle consumer
-    (later issues) enqueues from the returned events inside the cycle
+    (A3) enqueues from the returned events inside the cycle
     transaction.
     """
 
