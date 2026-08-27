@@ -33,7 +33,11 @@
   ``MockScanner.from_rssi_sequences`` when a test needs a per-device
   RSSI profile (near-threshold flicker, gradual approach, brief spike).
   Drive the Detector seam with ``MockDetector`` / ``NullDetector``
-  (ADR-0006); never a live detector backend in CI.
+  (ADR-0006); never a live detector backend in CI. Offline replay
+  (``blesentry replay``, ``blesentry.detection.replay``) is the F1
+  harness: synthetic fixtures under ``tests/fixtures/replay/``, a
+  read-only observations snapshot, golden-file JSON — never a live
+  WAL and never a capture corpus dumped to CI logs (``docs/replay.md``).
 
 ## Workflow
 - One issue per PR; `Closes #N` in the description. No scope creep — file a

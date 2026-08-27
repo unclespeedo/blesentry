@@ -9,6 +9,7 @@ from blesentry.storage.database import (
     MigrationError,
     apply_migrations,
     connect,
+    connect_readonly,
     transaction,
 )
 from blesentry.storage.repository import (
@@ -31,5 +32,6 @@ __all__ = [
     "SiteStateRepository",
     "apply_migrations",
     "connect",
+    "connect_readonly",
     "transaction",
 ]

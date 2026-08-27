@@ -10,6 +10,7 @@ import hashlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 import aiosqlite
 
@@ -87,6 +88,40 @@ async def connect(path: str | Path) -> aiosqlite.Connection:
     try:
         for pragma in _CONNECT_PRAGMAS:
             await conn.execute(pragma)
+    except aiosqlite.Error:
+        await conn.close()
+        raise
+    return conn
+
+
+async def connect_readonly(path: str | Path) -> aiosqlite.Connection:
+    """Open an existing SQLite file read-only (F1 / DC-9).
+
+    Does not create the file, does not run migrations, and does not
+    set ``journal_mode`` (that pragma can mutate a non-WAL file).
+    ``query_only`` plus URI ``mode=ro`` reject writes. Pass a copied
+    snapshot, not the live daemon database — a long reader against
+    the live WAL pins checkpointing.
+
+    Args:
+        path: Path to an existing database file.
+
+    Returns:
+        A connection that rejects writes.
+
+    Raises:
+        FileNotFoundError: ``path`` is not an existing file.
+        aiosqlite.Error: SQLite refused the open or a pragma.
+    """
+    resolved = Path(path).resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"snapshot not found: {resolved}")
+    uri = f"file:{quote(resolved.as_posix(), safe='/')}?mode=ro"
+    conn = await aiosqlite.connect(uri, uri=True)
+    try:
+        await conn.execute("PRAGMA query_only=ON")
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.execute("PRAGMA busy_timeout=5000")
     except aiosqlite.Error:
         await conn.close()
         raise

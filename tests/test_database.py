@@ -17,6 +17,7 @@ from blesentry.storage import (
     MigrationError,
     apply_migrations,
     connect,
+    connect_readonly,
     transaction,
 )
 
@@ -73,6 +74,37 @@ async def test_connect_sets_pragmas(conn: aiosqlite.Connection) -> None:
     assert await _pragma(conn, "synchronous") == "1"
     assert await _pragma(conn, "foreign_keys") == "1"
     assert int(await _pragma(conn, "busy_timeout")) > 0
+
+
+async def test_connect_readonly_rejects_writes(tmp_path: Path) -> None:
+    path = tmp_path / "ro.db"
+    db = await connect(path)
+    await apply_migrations(db)
+    await db.close()
+    ro = await connect_readonly(path)
+    try:
+        with pytest.raises(aiosqlite.Error, match="readonly"):
+            await ro.execute("CREATE TABLE nope (x INTEGER)")
+            await ro.commit()
+    finally:
+        await ro.close()
+
+
+async def test_connect_readonly_accepts_uri_reserved_filename(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "snap#shot.db"
+    db = await connect(path)
+    await apply_migrations(db)
+    await db.close()
+    ro = await connect_readonly(path)
+    try:
+        cur = await ro.execute("SELECT COUNT(*) FROM observations")
+        row = await cur.fetchone()
+        await cur.close()
+        assert row == (0,)
+    finally:
+        await ro.close()
 
 
 async def test_wal_persists_across_reconnect(tmp_path: Path) -> None:

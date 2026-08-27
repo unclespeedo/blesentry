@@ -33,6 +33,16 @@ machine; the committed file is the sanitized derivative.
 - Absolute timestamps: shift the whole corpus by one random offset
   (deltas preserved; wall-clock occupancy signal destroyed)
 
+## Replay harness fixtures (`replay/`)
+
+`replay/` is **not** a capture corpus. Files there are synthetic
+(fake addresses, invented timestamps) for the F1 offline replay
+harness (`docs/replay.md`). `test_fixtures.py` only globs
+top-level `*.json`, so this subdirectory is not required to match
+the advertisement capture schema — the golden report is counts and
+events, never payloads. Do not copy a real snapshot or a sanitized
+site corpus into this directory.
+
 ## Ground-truth labeled sessions (P0-11)
 
 Labels are the point of those captures and cannot be anonymized

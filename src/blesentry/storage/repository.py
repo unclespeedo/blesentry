@@ -765,16 +765,41 @@ class ObservationRepository:
         await cur.close()
         if row is None:
             return None
-        return ObservationRow(
-            id=row[0],
-            site_id=row[1],
-            device_id=row[2],
-            rssi=row[3],
-            observed_at=row[4],
-            adapter_id=row[5],
-            address_type=row[6],
-            adv_type=row[7],
+        return _to_observation_row(row)
+
+    async def list_ordered(self) -> list[ObservationRow]:
+        """Return this site's observations, oldest first.
+
+        Used by offline replay (F1). Read-only; does not open a
+        transaction. Order is ``observed_at``, then ``id`` so rows
+        that share a timestamp stay insertion-stable.
+        """
+        cur = await self._conn.execute(
+            "SELECT id, site_id, device_id, rssi, "
+            "observed_at, adapter_id, "
+            "address_type, adv_type "
+            "FROM observations "
+            "WHERE site_id = ? "
+            "ORDER BY observed_at ASC, id ASC",
+            (self._site,),
         )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [_to_observation_row(row) for row in rows]
+
+
+def _to_observation_row(row: Sequence[Any]) -> ObservationRow:
+    """Map a full-column ``observations`` result to ``ObservationRow``."""
+    return ObservationRow(
+        id=row[0],
+        site_id=row[1],
+        device_id=row[2],
+        rssi=row[3],
+        observed_at=row[4],
+        adapter_id=row[5],
+        address_type=row[6],
+        adv_type=row[7],
+    )
 
 
 def _to_outbox_row(row: Sequence[Any]) -> OutboxRow:
