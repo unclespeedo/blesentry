@@ -45,7 +45,7 @@ reproducible (DC-9). The harness opens the file `mode=ro` with
 Windows are indexed, not wall-clocked (DC-4 / DC-9).
 
 - **Period** defaults to the scan cadence: `scan.window + scan.pause`
-  = **15 s**. Override with `--period`. Must be `> 0`.
+  = **15 s**. Override with `--period`. Must be finite and `> 0`.
 - `t0` is the earliest timestamp in the source (advertisement
   `timestamp`, or `observations.observed_at` parsed as UTC).
 - Window index `i = floor((t − t0) / period)`, dense from `0`

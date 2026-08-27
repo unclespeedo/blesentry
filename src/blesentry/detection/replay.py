@@ -11,6 +11,7 @@ outbox and does not run inside ``run_cycle``. See ``docs/replay.md``.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
@@ -48,9 +49,9 @@ class ReplayReport(BaseModel):
 
 
 def _require_period(period: float) -> float:
-    """Reject a non-positive bucket width."""
-    if period <= 0:
-        raise ValueError("period must be > 0")
+    """Reject a non-finite or non-positive bucket width."""
+    if not math.isfinite(period) or period <= 0:
+        raise ValueError("period must be finite and > 0")
     return period
 
 

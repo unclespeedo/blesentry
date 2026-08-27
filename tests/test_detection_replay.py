@@ -128,6 +128,13 @@ def test_rejects_non_positive_period() -> None:
         )
 
 
+@pytest.mark.parametrize("period", [float("inf"), float("-inf"), float("nan")])
+def test_rejects_non_finite_period(period: float) -> None:
+    ads = [_ad(address="AA:BB:00:00:00:01", rssi=-80, timestamp=T0)]
+    with pytest.raises(ValueError, match="period"):
+        windows_from_advertisements(ads, period=period)
+
+
 # --- windowing: N-day span -------------------------------------------
 
 
@@ -332,6 +339,15 @@ def test_replay_cli_requires_source(
 ) -> None:
     assert main(["replay"]) == 1
     assert "requires --fixture" in capsys.readouterr().err
+
+
+def test_replay_cli_rejects_infinite_period(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["replay", "--fixture", str(SPAN), "--period", "inf"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "period" in err
 
 
 def test_replay_cli_rejects_fixture_with_db(
