@@ -45,6 +45,12 @@
   harness: synthetic fixtures under ``tests/fixtures/replay/``, a
   read-only observations snapshot, golden-file JSON — never a live
   WAL and never a capture corpus dumped to CI logs (``docs/replay.md``).
+  Canonical detection feature vectors (F3) live in
+  ``blesentry.detection.features``; formulas are pinned in
+  ``docs/features.md``. A2 reuses ``rssi_slope`` / ``rssi_span`` /
+  ``band_counts`` — do not invent a second slope or band-count
+  definition. Do not dump feature vectors of a real capture into
+  CI logs (same hygiene as replay).
 
 ## Workflow
 - One issue per PR; `Closes #N` in the description. No scope creep — file a

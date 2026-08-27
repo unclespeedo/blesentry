@@ -13,5 +13,7 @@ this package ``__init__`` stays docstring-only so the ``none`` path
 never loads ``mock`` (mirrors ``blesentry.notifier``). Offline
 replay (``blesentry.detection.replay``, ``blesentry replay``) feeds
 historical windows through the same ``observe`` surface without
-touching the scan loop or the outbox.
+touching the scan loop or the outbox. Canonical eval feature
+vectors (F3) live in ``blesentry.detection.features`` and read
+those windows; they are not a Detector backend.
 """
