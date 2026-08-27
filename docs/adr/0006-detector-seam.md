@@ -6,9 +6,9 @@
 -->
 # ADR-0006: Detector seam — protocol, window, config selection
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-26
-- **Deciders:** pending human sign-off (agents may draft, never accept)
+- **Deciders:** Ryan Speed
 
 ## Context
 
@@ -173,7 +173,7 @@ alert-emitting detector issue wires that.
 - The protocol stays I/O-free, so F1 can run off-device against an
   immutable snapshot without pinning the live WAL (DC-9).
 - Closed union keeps fail-fast tags; an open plugin path is #101.
-- This ADR is **Proposed** until a human accepts it on the F2 PR.
+- This ADR is **Accepted** (human sign-off 2026-08-27 on #169).
   Changing the frozen surface after accept is a new ADR, not an
   ADR-0002 amendment beyond the pointer this PR adds.
 
