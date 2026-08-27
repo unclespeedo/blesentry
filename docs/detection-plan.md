@@ -246,6 +246,11 @@ ambiguous DoD.
   **DoD:** unit tests incl. rise/fall; stated numeric memory cap asserted
   under RPA churn. **Deps:** F3, A1 **Size:** M
   **Labels:** `epic:detection type:feature priority:p1`
+  **Shipped:** `docs/approach.md` (A2 section),
+  `blesentry.detection.trajectory` (#127). Deque maxlen = A1 W (8);
+  cap **256** addresses / **2048** samples; fade after **12** missed
+  indexes; `visit_min` is metadata, not an A1 gate. Not a
+  `[detection]` backend (A3).
 - **A3 · Approach trigger + alert.** Emit an "approaching" event (current
   RSSI + trend + coarse proximity band, never a distance — DC-6) inside the
   cycle transaction (DC-1). **DoD:** replay flags the labeled approach near

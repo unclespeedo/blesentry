@@ -4,16 +4,22 @@
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
 -->
-# Approach trigger (A1)
+# Approach trigger (A1) and online tracker (A2)
 
 Magnitude-based rising RSSI span on a **raw BLE address**. Frozen in
 ADR-0007. This document is the implementer-facing copy of those
-numbers so A2 / A3 / A5 do not fork them.
+numbers so A3 / A5 do not fork them.
 
-Not a Detector backend. `[detection] backend = "approach"` is still
-illegal (ADR-0006 closed union). A3 adds that member and calls
-`observe`. This module only answers "do these last-W heard samples
-look like an approach?"
+Two modules, neither a Detector backend (`[detection] backend =
+"approach"` is still illegal until A3):
+
+| Piece | Module | Job |
+|---|---|---|
+| **A1 predicate** | `blesentry.detection.approach.is_rising_approach` | Do these last-W heard samples look like an approach? |
+| **A2 tracker** | `blesentry.detection.trajectory.TrajectoryTracker` | Bounded per-identity deques + fade/cap; feeds A1 |
+
+A3 adds the union member, owns a tracker inside `observe`, and
+enqueues. This document does not wire `run_cycle`.
 
 ## Why
 
@@ -77,11 +83,97 @@ is_rising_approach(points) -> bool
 
 No I/O. No `DetectionEvent`. A2's deque contents are a valid
 `points` argument. All inequalities use the last W samples only
-(a visit-lifetime min is A2).
+(a visit-lifetime min is tracked by A2 and is **not** a gate).
 
 A3 fire-once / fade-reset is **not** in the predicate: once a rise
 crosses the bar, later windows of the same visit still match until
 the address fades (A2 eviction).
+
+## Online tracker (A2)
+
+```text
+TrajectoryTracker.observe(window, *, source="advertisements")
+    -> tuple[AddressTrajectory, ...]
+```
+
+One call per scan window. Default `source` is pre-fusion
+`advertisements` (ADR-0007). `heard` is supported so tests can drive
+the same object F3 uses; A3 still feeds advertisements. Identity
+strings are opaque — do not dump them in CI logs (SECURITY.md).
+
+Implementation: `blesentry.detection.trajectory`. Pure and
+synchronous. No SQL, no outbox, no `DetectionEvent`.
+
+### Per-identity state (DC-2)
+
+Each live track holds:
+
+| Field | Bound | Notes |
+|---|---|---|
+| `samples` | `deque(maxlen=W)` | `(window_index, rssi)` oldest-first. W = A1 `APPROACH_WINDOWS` (8), **not** F3's eval default (equal today; pass A1's W in). |
+| `visit_min` | one int | Min RSSI since the track was created. Survives deque truncation. **Not** an A1 gate. |
+| `dwell` | one int | F3 consecutive-index streak: `last_heard == index - 1` → +1, else reset to 1. |
+| `windows_seen` / `first_seen_index` | counters | Not a second RSSI buffer (`docs/features.md`). |
+
+`span` / `slope` are computed on the deque via F3 `rssi_span` /
+`rssi_slope`. `rising` is `is_rising_approach(samples)`. Do not
+copy Δ / peak / far-start / W into this module.
+
+`observe` returns one `AddressTrajectory` per identity **heard this
+window and admitted**. Quiet windows return `()`. Missed windows are
+omitted from `samples` (DC-5), same as F3.
+
+Window `index` must be **strictly increasing** across calls
+(fail-loud). Out-of-order is a caller bug, not a fade.
+
+### Memory cap (stated, tested)
+
+Cadence reminder: default cycle is 15 s. These are window-index
+counts, not wall-clock.
+
+| Knob | Value | Role |
+|---|---|---|
+| `TRACKER_MAX_ADDRESSES` | **256** | Hard cap on live tracks. ~10× a busy window's unique count; a few dozen persist >30 min (`docs/detection-plan.md`). |
+| `TRACKER_FADE_AFTER_WINDOWS` | **12** | Evict when `index - last_heard_index >= 12` and the identity was not heard this window. Same default as presence prune (`4 * disappear_windows`). |
+| Peak RSSI samples | **2048** | `256 × 8`. Address cap is asserted under RPA churn; sample cap is asserted with 256 full deques. |
+
+Eviction order, each `observe`:
+
+1. **Fade.** Unheard tracks whose index-delta ≥ 12 are dropped.
+   "Unheard" means absent from this window's identity set, not
+   "too weak to keep."
+2. **Update heard incumbents.** Every already-tracked identity that
+   advertised this window is pushed, even if it is quieter than
+   newcomers. A mid-approach track is not a miss just because a
+   crowd appeared.
+3. **LRU admit.** New identities that would exceed 256: evict
+   unheard tracks, oldest `last_heard_index` first, until there is
+   room. Remaining slots go to the **strongest** newcomers
+   (`max_rssi`). If every remaining track was heard this window,
+   newcomers that do not fit are not admitted (hard cap, not a
+   fade).
+
+Constructor kwargs (`max_addresses`, `fade_after_windows`) exist so
+unit tests can shrink the cap. Production callers use the module
+constants. Deque maxlen is A1 ``APPROACH_WINDOWS`` — not a
+constructor knob (changing it would fork W). Integers only
+(``bool`` / ``float`` → ``TypeError``; ``< 1`` → ``ValueError``).
+
+### Rise / fall
+
+A monotonic W-sample climb that satisfies A1 (the motivating
+−99 → −72 walk-by) reports `rising=True` on the last window. The
+same samples reversed (a fade) report `rising=False`. Mid-visit,
+`rising` can stay true until fade-eviction — fire-once is A3.
+
+### What the tracker is not
+
+- **Not a Detector.** No `DetectionEvent`, no `[detection]` backend.
+- **Not wired into `run_cycle` or replay CLI.** A3.
+- **Not `is_familiar`.** F6.
+- **Not a visit-min gate.** Last-W far-start stays last-W (A1).
+- **Not persistence.** Tracks die on process restart; F3's offline
+  batch remains the eval path.
 
 ## Coverage bound (DC-7)
 
@@ -106,9 +198,9 @@ Empirical fraction of labeled approaches in the class is unmeasured
 until F4. A5: recall = 1 **on that class**; also report overall
 labeled-walk-by recall.
 
-## What this is not
+## What the predicate is not
 
-- **Not a Detector.** No `observe`, no `[detection]` backend.
+- **Not a Detector.** No `DetectionEvent`, no `[detection]` backend.
 - **Not wired into replay CLI or `run_cycle`.** A3.
 - **Not a distance.** Alert text (A3) uses F3 coarse bands of the
   terminal RSSI, never metres (DC-6).

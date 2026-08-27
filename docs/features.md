@@ -119,12 +119,15 @@ Denominator 0 → `None` (should not happen with distinct window
 indexes). A monotonic −90 → −80 → −70 over indexes 0,1,2 is
 exactly **+10.0** dBm/window — the unit test pins that.
 
-A2 keeps a bounded deque of size W (DC-2). Feeding that deque to
-`rssi_slope` / `rssi_span` is the reuse contract. Dwell is an O(1)
-counter (last heard index + streak), not a rescan of history. F3's
-offline batch may retain unbounded history so `windows_seen` /
-`first_seen_index` stay exact; those are counters on the online
-side, not a second buffer.
+A2 keeps a bounded deque of size W (DC-2) in
+`blesentry.detection.trajectory.TrajectoryTracker`. Feeding that
+deque to `rssi_slope` / `rssi_span` is the reuse contract. Dwell is
+an O(1) counter (last heard index + streak), not a rescan of
+history. F3's offline batch may retain unbounded history so
+`windows_seen` / `first_seen_index` stay exact; those are counters
+on the online side, not a second buffer. A2's deque maxlen is A1's
+`APPROACH_WINDOWS`, passed into these helpers — not
+`DEFAULT_SLOPE_WINDOWS` by silent alias.
 
 `W < 2` is rejected (`ValueError`). A non-`int` W (`bool`,
 `float`, `inf`, `nan`) is `TypeError`. A rolling window that

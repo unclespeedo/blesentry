@@ -17,5 +17,7 @@ touching the scan loop or the outbox. Canonical eval feature
 vectors (F3) live in ``blesentry.detection.features`` and read
 those windows; they are not a Detector backend. The A1 approach
 trigger (ADR-0007) lives in ``blesentry.detection.approach`` —
-a predicate over F3 slope/span, not a backend.
+a predicate over F3 slope/span, not a backend. The A2 online
+tracker (``blesentry.detection.trajectory``) feeds that predicate
+from bounded per-identity deques; it is also not a backend.
 """

@@ -51,9 +51,12 @@
   ``band_counts`` — do not invent a second slope or band-count
   definition. The A1 approach trigger (ADR-0007, ``docs/approach.md``)
   is ``blesentry.detection.approach.is_rising_approach``; A2/A3 call
-  it and do not fork W/Δ/peak. It is not a Detector backend and is
-  not in the ``[detection]`` union (A3). Do not dump feature vectors
-  of a real capture into CI logs (same hygiene as replay).
+  it and do not fork W/Δ/peak. The A2 online tracker is
+  ``blesentry.detection.trajectory.TrajectoryTracker`` (cap 256,
+  fade-after 12, deque maxlen = A1 W). Neither is a Detector
+  backend; they are not in the ``[detection]`` union (A3). Do not
+  dump feature vectors of a real capture into CI logs (same hygiene
+  as replay).
 
 ## Workflow
 - One issue per PR; `Closes #N` in the description. No scope creep — file a
