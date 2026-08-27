@@ -12,9 +12,10 @@
 
 ## Context
 
-ADR-0002 names three extension points (Scanner / Notifier / Storage).
-The README architecture diagram has a fourth box — **Device resolver**
-— that P1-7 (`DeviceResolver`) already implements. Its contract lived
+ADR-0002 names four config-selected extension points (Scanner /
+Notifier / Storage / Detector). The README architecture diagram has
+a further box — **Device resolver** — that P1-7 (`DeviceResolver`)
+already implements. Its contract lived
 only in docstrings: temporal coupling to the scan-cycle transaction,
 a single-instance rule, and a pure scoring function. P2's presence
 engine and unknown-device alerter key off the `device_id` this seam
@@ -215,16 +216,17 @@ an alias. `DeviceRepository` enforces that cross-table rule on
 
 - Presence, alerts, and bot commands can treat `device_id` as stable
   across a process lifetime without re-reading resolver internals.
-- A second consumer (eval harness, force-scan, a future detector
-  seam) has a written lifecycle; violating it is a bug, not a style
-  choice.
+- A second consumer (eval harness, force-scan, Detector seam
+  ADR-0006) has a written lifecycle; violating it is a bug, not a
+  style choice.
 - `device_aliases` is the durable fusion path and the impersonation
   audit trail `docs/risks.md` asked for. Schema-changing deploys
   still follow `docs/schema.md` (stop collector, deploy, start).
 - This ADR is **Accepted** (human sign-off 2026-08-26). Changing the
   frozen surface is a new ADR, not an ADR-0002 amendment.
 - ADR-0002 grows a pointer: Resolver is a named internal seam, not a
-  fourth plugin.
+  plugin. Detector (ADR-0006) is the fourth *plugin* seam; Resolver
+  remains internal.
 
 ## Future Considerations
 

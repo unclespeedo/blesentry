@@ -5,9 +5,10 @@
 """Config system (P1-9): one TOML file → a validated settings object.
 
 This is where ADR-0002's modularity contract becomes real: selecting a
-scanner backend, tuning the resolver, or pointing at a different site is
-a config edit, not a code change. ``site_id`` and the database path are
-required; everything else has a deployment-sane default.
+scanner backend, a detector backend, tuning the resolver, or pointing
+at a different site is a config edit, not a code change. ``site_id``
+and the database path are required; everything else has a
+deployment-sane default.
 
 The file is parsed with stdlib ``tomllib`` (precise, per-file error
 messages) and validated by a ``pydantic-settings`` ``BaseSettings``
@@ -39,6 +40,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
+    from blesentry.detection.protocol import Detector
     from blesentry.notifier.protocol import Notifier
     from blesentry.presence import PresenceTracker
     from blesentry.scanner.protocol import Scanner
@@ -47,7 +49,9 @@ __all__ = [
     "BleakScannerConfig",
     "Config",
     "ConfigError",
+    "MockDetectionConfig",
     "MockScannerConfig",
+    "NoneDetectionConfig",
     "NoneNotifierConfig",
     "NotifierConfig",
     "PresenceConfig",
@@ -56,6 +60,7 @@ __all__ = [
     "StorageConfig",
     "SummaryConfig",
     "TelegramNotifierConfig",
+    "build_detector",
     "build_notifier",
     "build_presence",
     "build_scanner",
@@ -243,6 +248,25 @@ ScannerConfig = Annotated[
 ]
 
 
+class NoneDetectionConfig(_Section):
+    """The disabled backend — a daemon that runs without detectors."""
+
+    backend: Literal["none"] = "none"
+
+
+class MockDetectionConfig(_Section):
+    """Fixture-replay backend (tests, F1 harness)."""
+
+    backend: Literal["mock"]
+
+
+# Closed union, same posture as Scanner/Notifier. Open registry is #101.
+DetectionConfig = Annotated[
+    NoneDetectionConfig | MockDetectionConfig,
+    Field(discriminator="backend"),
+]
+
+
 class Config(BaseSettings):
     """The whole of blesentry's runtime configuration.
 
@@ -264,6 +288,7 @@ class Config(BaseSettings):
     presence: PresenceConfig = PresenceConfig()
     notifier: NotifierConfig = NoneNotifierConfig()
     summary: SummaryConfig = SummaryConfig()
+    detection: DetectionConfig = NoneDetectionConfig()
 
 
 def _safe_message(err: Mapping[str, object]) -> str:
@@ -432,3 +457,27 @@ def build_notifier(notifier: NotifierConfig) -> Notifier:
     from blesentry.notifier.null import NullNotifier
 
     return NullNotifier()
+
+
+def build_detector(detection: DetectionConfig) -> Detector:
+    """Construct the configured Detector backend (ADR-0006 selection).
+
+    Backends are imported lazily so the ``none`` path never drags a
+    future learned model into the import graph (DC-8, 512 MB). F2
+    does not call this from the scan loop; the first alert-emitting
+    detector issue wires that.
+
+    Args:
+        detection: The validated detection section from :class:`Config`.
+
+    Returns:
+        A ready-to-use Detector implementation.
+    """
+    if isinstance(detection, MockDetectionConfig):
+        from blesentry.detection.mock import MockDetector
+
+        return MockDetector()
+
+    from blesentry.detection.null import NullDetector
+
+    return NullDetector()

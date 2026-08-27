@@ -3,9 +3,9 @@
 ## Licensing
 - Inbound = outbound: all contributions are accepted under MPL-2.0.
 - Every commit requires DCO sign-off (`git commit -s`). No CLA.
-- Out-of-tree plugins (custom Scanner/Notifier implementations against our
-  protocols) may use ANY license — that boundary is intentional (ADR-0002,
-  ADR-0004).
+- Out-of-tree plugins (custom Scanner/Notifier/Detector implementations
+  against our protocols) may use ANY license — that boundary is
+  intentional (ADR-0002, ADR-0004, ADR-0006).
 - Every new source file carries this header (template wired at repo root
   in `mpl-header.txt`):
 
@@ -20,9 +20,10 @@
 - Pydantic V2 with ConfigDict for all data models. src/ layout, py.typed.
 - All SQL lives in repository modules; nothing else touches the database.
 - Respect the seams: Scanner and Notifier protocols per ADR-0002;
-  Resolver lifecycle (`resolve`/`commit`/`abort`/`seed`) per
-  ADR-0005 — one instance across cycles, resolve inside the cycle
-  transaction, commit only after COMMIT. `run_loop` fail-fasts
+  Detector protocol per ADR-0006; Resolver lifecycle
+  (`resolve`/`commit`/`abort`/`seed`) per ADR-0005 — one instance
+  across cycles, resolve inside the cycle transaction, commit only
+  after COMMIT. `run_loop` fail-fasts
   before `seed()` if a caller-supplied resolver's connection or
   `site_id` differs from the cycle `devices` repo; `run_cycle`
   checks the same (#149). New external dependencies
@@ -31,6 +32,8 @@
   batch scenarios for appear / disappear / MAC rotation, and
   ``MockScanner.from_rssi_sequences`` when a test needs a per-device
   RSSI profile (near-threshold flicker, gradual approach, brief spike).
+  Drive the Detector seam with ``MockDetector`` / ``NullDetector``
+  (ADR-0006); never a live detector backend in CI.
 
 ## Workflow
 - One issue per PR; `Closes #N` in the description. No scope creep — file a

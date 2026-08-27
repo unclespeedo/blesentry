@@ -4,7 +4,7 @@
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
 -->
-# ADR-0002: Extension-Point Architecture (Scanner / Notifier / Storage seams)
+# ADR-0002: Extension-Point Architecture (Scanner / Notifier / Storage / Detector seams)
 
 - **Status:** Accepted
 - **Date:** 2026-08-16 (accepted 2026-08-17)
@@ -17,12 +17,16 @@ brief requires that external dependencies sit behind small interfaces with
 config-selected implementations, so that:
 
 - A third party can add a new scanner transport (e.g. raw HCI, ESP32 remote
-  scanner) or notifier backend (e.g. Discord, ntfy) without forking.
+  scanner), notifier backend (e.g. Discord, ntfy), or detector backend
+  without forking.
 - CI tests run against mock implementations, never touching hardware.
 - Swapping implementations is a config edit, not a code change.
 
-Three seams are identified: **Scanner**, **Notifier**, and **Storage**.  This
-ADR defines the Scanner seam; the others follow in dedicated ADRs.
+Four config-selected seams are identified: **Scanner**, **Notifier**,
+**Storage**, and **Detector**.  This ADR defines the Scanner seam;
+Notifier and Storage follow in dedicated ADRs. Detector's frozen
+surface is **ADR-0006**. The Device resolver is a named *internal*
+seam (ADR-0005), not a plugin.
 
 The first deployment target is a Raspberry Pi 3 A+ (512 MB RAM) with
 BlueZ 5.82 on Raspberry Pi OS Lite Trixie arm64.  Every interface must
@@ -203,9 +207,21 @@ MockNotifier for CI.  Formal ADR deferred to P2-5.
 Repository modules isolate all SQL.  No raw SQL outside repository files.
 aiosqlite is the v1 backend.  Formal ADR deferred to P1-5/P1-6.
 
+### Detector seam (config-selected; details in ADR-0006)
+
+`Detector` is a fourth plugin seam, selected by `[detection] backend`
+with lazy imports — the same recipe as Scanner and Notifier, **not**
+the Resolver pattern. The frozen surface (`observe(window) ->
+events`, `DetectionWindow` / `DetectionEvent` field tables, error
+semantics, `none` / `mock` backends) is **ADR-0006**. Changing that
+surface is a new ADR; this section is the pointer.
+
+v1 backends are `none` (default, emit nothing) and `mock` (CI / replay).
+Approach / crowd / inside backends are later issues.
+
 ### Resolver seam (named internal; not a plugin)
 
-The README's **Device resolver** box is a fourth *named* seam.  It is
+The README's **Device resolver** box is a *named* seam.  It is
 **not** a config-selected extension point — there is one
 `DeviceResolver` implementation; `[resolver]` tunes thresholds, it
 does not pick a backend.  Duplicate-MAC policy (above) still defers
@@ -218,12 +234,14 @@ new ADR, not an ADR-0002 amendment.
 
 ## Consequences
 
-- Adding a new scanner backend is a single-file addition plus a config
-  entry — no core code changes.
+- Adding a new scanner or detector backend is a single-file addition
+  plus a config-union member — no core code changes.
 - All downstream tests use `MockScanner`, never real hardware.
 - Protocol conformance is checked at runtime via `isinstance()` where
   useful, and statically by type checkers.
 - The Scanner protocol is frozen for v1; changes require a new ADR.
+- The Detector protocol is frozen in ADR-0006; changes require a new
+  ADR, not an amendment here beyond this pointer.
 - Error semantics are explicit: callers can distinguish "quiet scan"
   from "hardware failure" without probing implementation internals.
 - The Advertisement field table is the single source of truth for
@@ -239,6 +257,10 @@ new ADR, not an ADR-0002 amendment.
 
 ## Future Considerations
 
+- **Detector backends (approach / crowd / inside).** Real detectors
+  implement ADR-0006's `Detector` protocol and join the `[detection]`
+  union. Cycle wiring and event enqueue are those issues, not a
+  protocol change.
 - **P4-3: raw-HCI scanner backend.** If bleak/BlueZ passive mode
   misses transient advertisements or scan interval/window control
   proves necessary, an `HciScanner` implementing the same protocol
