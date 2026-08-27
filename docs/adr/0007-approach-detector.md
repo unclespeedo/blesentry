@@ -6,9 +6,9 @@
 -->
 # ADR-0007: Approach detector — magnitude trigger
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-27
-- **Deciders:** <human sign-off required — agents may draft, never accept>
+- **Deciders:** Ryan Speed
 
 ## Context
 
@@ -162,6 +162,8 @@ stateless.
   calibration). That is a new ADR, not a silent constant edit.
 - F4 is not required to *write* this spec; it is required to
   *measure* the coverage fraction and FAR (A5).
+- This ADR is **Accepted** (human sign-off 2026-08-27 on #172).
+  Changing the frozen knobs after accept is a new ADR.
 
 ## Future Considerations
 

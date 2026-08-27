@@ -230,7 +230,7 @@ ambiguous DoD.
   coverage bound must state honestly. **DoD:** ADR committed with
   W/Δ/peak/coverage bound. **Deps:** F2
   **Size:** S **Labels:** `epic:detection type:docs priority:p1`
-  **Shipped:** ADR-0007 (Proposed), `docs/approach.md`,
+  **Shipped:** ADR-0007 (Accepted), `docs/approach.md`,
   `blesentry.detection.approach.is_rising_approach` (#126).
   Pinned: W = 8 heard samples, Δ = 18 dB, peak/terminal = −75 dBm,
   far start = −85 dBm, kind `approaching`, FAR ≤ 1/day on benign
