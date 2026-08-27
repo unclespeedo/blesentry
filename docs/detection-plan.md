@@ -190,6 +190,10 @@ ambiguous DoD.
   these definitions; this issue owns them (DC-2 applies to A2's live form).
   **DoD:** unit-tested feature vectors. **Deps:** F2 **Size:** M
   **Labels:** `epic:detection type:feature priority:p1`
+  **Shipped:** `docs/features.md`, `blesentry.detection.features` (#122).
+  Inclusive band counts (−55/−70/−80); OLS slope over last W heard
+  samples; familiarity proxy is `duty` (`windows_seen / age_windows`;
+  F6 owns `is_familiar`).
 - **F4 · Labeled event corpus + schema.** Ground-truth episodes (type,
   start/end, cause) as sanitized fixtures. **Gating:** if the walk-by /
   adjacent-to-Pi / rotation episodes already exist as committed sanitized

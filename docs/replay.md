@@ -13,7 +13,9 @@ share one input type: `DetectionWindow` (ADR-0006).
 
 This is an evaluation tool. It does **not** enqueue to the outbox
 and it does **not** call `observe` from `run_cycle` — that wiring
-is a later alert-emitting detector issue.
+is a later alert-emitting detector issue. Canonical feature
+vectors over the same windows are F3 (`docs/features.md`); replay
+does not emit them.
 
 ## Why
 

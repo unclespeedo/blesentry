@@ -111,6 +111,11 @@ prints a JSON report of would-be alerts. Clock-free window indexes,
 read-only, no outbox writes. Use a snapshot copy, never the live
 daemon database. See `docs/replay.md`.
 
+Canonical per-window / per-identity **feature vectors** for eval
+(band counts, churn, rolling RSSI slope, dwell) are
+`blesentry.detection.features` — offline batch, not a detector.
+See `docs/features.md`.
+
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under
 [AGENTS.md](AGENTS.md). This project's instances observe real sites — read
