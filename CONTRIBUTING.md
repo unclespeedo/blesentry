@@ -49,8 +49,11 @@
   ``blesentry.detection.features``; formulas are pinned in
   ``docs/features.md``. A2 reuses ``rssi_slope`` / ``rssi_span`` /
   ``band_counts`` — do not invent a second slope or band-count
-  definition. Do not dump feature vectors of a real capture into
-  CI logs (same hygiene as replay).
+  definition. The A1 approach trigger (ADR-0007, ``docs/approach.md``)
+  is ``blesentry.detection.approach.is_rising_approach``; A2/A3 call
+  it and do not fork W/Δ/peak. It is not a Detector backend and is
+  not in the ``[detection]`` union (A3). Do not dump feature vectors
+  of a real capture into CI logs (same hygiene as replay).
 
 ## Workflow
 - One issue per PR; `Closes #N` in the description. No scope creep — file a

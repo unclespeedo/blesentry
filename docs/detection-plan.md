@@ -230,6 +230,16 @@ ambiguous DoD.
   coverage bound must state honestly. **DoD:** ADR committed with
   W/Δ/peak/coverage bound. **Deps:** F2
   **Size:** S **Labels:** `epic:detection type:docs priority:p1`
+  **Shipped:** ADR-0007 (Accepted), `docs/approach.md`,
+  `blesentry.detection.approach.is_rising_approach` (#126).
+  Pinned: W = 8 heard samples, Δ = 18 dB, peak/terminal = −75 dBm,
+  far start = −85 dBm, kind `approaching`, FAR ≤ 1/day on benign
+  corpus. Coverage class = last-W tail matching the predicate
+  (span ≥ 18, min ≤ −85, peak **and** terminal ≥ −75, slope > 0,
+  net rise ≥ ½ span); sub-W / drive-by / already-near / aged-out far
+  samples / rotation / short span are accepted misses. −55 remains
+  adjacent-to-Pi, not the peak floor. Not a `[detection]` backend
+  (A3). Gates are last-W only (visit-min is A2).
 - **A2 · Per-address trajectory tracker (online).** Bounded rolling
   per-address RSSI (fixed-size `deque`) → span, slope, dwell; hard address
   cap + evict-on-fade (DC-2), reusing F3 feature definitions.
