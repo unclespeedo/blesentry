@@ -33,6 +33,11 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
                 │  (N-consecutive-window RSSI, cooldowns)      │
                 │        │                                     │
                 │        ▼                                     │
+                │ Detector (protocol; not yet in scan loop)    │
+                │   ├─ NullDetector  (none, default)           │
+                │   └─ MockDetector  (CI / F1 replay)          │
+                │        │                                     │
+                │        ▼                                     │
                 │ Outbox ──▶ Drain loop (exp. backoff) ──▶     │
                 │             Notifier (protocol)              │
                 │               ├─ TelegramNotifier (locked)   │
@@ -49,8 +54,10 @@ implementations is a config edit, no code change. See
 `docs/adr/0002-extension-points.md` for those plugin contracts.
 Detector's frozen surface (`observe(window) → events`) is ADR-0006;
 v1 backends are `none` (default, no events) and `mock` (CI / replay).
-Approach / crowd / inside detectors are later issues and are **not**
-yet invoked from the scan loop. The Device resolver is a *named
+Approach / crowd / inside detectors are later issues. The diagram
+shows the seam on the path to the outbox; `run_cycle` does **not**
+call `observe` yet — the first alert-emitting detector issue wires
+that. The Device resolver is a *named
 internal* seam (ADR-0005), not a backend selector: one instance, one
 lifecycle, no plugin registry.
 
