@@ -15,5 +15,7 @@ replay (``blesentry.detection.replay``, ``blesentry replay``) feeds
 historical windows through the same ``observe`` surface without
 touching the scan loop or the outbox. Canonical eval feature
 vectors (F3) live in ``blesentry.detection.features`` and read
-those windows; they are not a Detector backend.
+those windows; they are not a Detector backend. The A1 approach
+trigger (ADR-0007) lives in ``blesentry.detection.approach`` —
+a predicate over F3 slope/span, not a backend.
 """

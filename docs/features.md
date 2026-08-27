@@ -88,8 +88,10 @@ and including the current window. Missed windows (BlueZ
 duplicate-filtering, F1 gaps) are omitted from the point list so
 slope is not flattened by silence (DC-5 / DC-7). Default
 `W = 8` (`DEFAULT_SLOPE_WINDOWS`) — two minutes at the 15 s scan
-cadence. A1 owns the approach trigger's W; it may pass a
-different value. F3's default is the eval / A2-reuse number.
+cadence. A1 pinned the **trigger** W at 8 as well (ADR-0007,
+`docs/approach.md`); that is a coincidence of numbers, not a
+shared constant. A2's deque uses A1's W and passes it into these
+helpers. Changing F3's eval default does not change the trigger.
 
 | Field | Definition |
 |---|---|
