@@ -118,9 +118,10 @@ See `docs/features.md`.
 
 The **approach** trigger (rising RSSI span; kind `approaching`) is
 specified in ADR-0007 / `docs/approach.md` as
-`blesentry.detection.approach.is_rising_approach`. It is **not** a
-`[detection]` backend yet — A3 adds that union member and wires
-`observe`.
+`blesentry.detection.approach.is_rising_approach`. The **online
+per-address tracker** is `blesentry.detection.trajectory` (bounded
+deque, fade/cap). Neither is a `[detection]` backend yet — A3 adds
+that union member and wires `observe`.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under
