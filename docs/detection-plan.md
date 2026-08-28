@@ -286,6 +286,12 @@ ambiguous DoD.
   per-bucket false-alarm target. **DoD:** ADR with the FAR target + scale/
   model choice. **Deps:** F2 **Size:** S
   **Labels:** `epic:detection type:docs priority:p1`
+  **Shipped:** ADR-0008 (Proposed), `docs/crowd.md`,
+  `blesentry.detection.crowd` (#131). Pinned: source `heard`;
+  primary `count_near`; floored MAD floor **1.5**; CUSUM **k=0.5**,
+  **h=5.0**; EWMA span **56**; seasonal **168** buckets; rolling
+  **40320** windows; cold start **168 h**; kind `crowd-busy`, FAR
+  ≤ 1/day on benign corpus. Not a `[detection]` backend (C4).
 - **C2 · Rolling aggregate persistence.** One band-count row per cycle,
   written **inside the existing cycle transaction on the shared connection**
   (DC-1) — a replay/baseline cache derivable from `observations`, not a new

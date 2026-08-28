@@ -22,5 +22,7 @@ a predicate over F3 slope/span. The A2 online tracker
 bounded per-identity deques. The A3 backend
 (``blesentry.detection.approach_detector``) is the
 ``[detection] backend = "approach"`` union member; this package
-``__init__`` does not re-export it.
+``__init__`` does not re-export it. The C1 crowd spec (ADR-0008)
+lives in ``blesentry.detection.crowd`` — band-count helpers and
+frozen CUSUM knobs; C4 is the ``crowd`` backend.
 """
