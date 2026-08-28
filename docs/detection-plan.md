@@ -323,6 +323,11 @@ ambiguous DoD.
   ceiling / threat-model boundary (Threat model & limits; DC-6). Define N
   devices / M windows. **DoD:** spec with N/M + the stated boundary.
   **Deps:** F2 **Size:** S **Labels:** `epic:detection type:docs priority:p1`
+  **Shipped:** ADR-0009 (Approved), `docs/inside.md`,
+  `blesentry.detection.inside` (#136). Pinned: source `heard`;
+  primary `count_adjacent`; **N=1**, **M=8** consecutive windows;
+  kind `inside-adjacent`, FAR ≤ 1/day on benign corpus. Not a
+  `[detection]` backend (I3).
 - **I2 · Own-gear exclusion.** Subtract familiar/fixed devices *and own
   rotating-address gear* (the hard case — the resolver may not fuse your own
   phone across rotations, so it can sit adjacent-to-Pi and fire) before

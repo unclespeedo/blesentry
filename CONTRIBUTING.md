@@ -58,8 +58,11 @@
   fade-after 12, deque maxlen = A1 W). The A3 backend is
   ``blesentry.detection.approach_detector.ApproachDetector``
   (``[detection] backend = "approach"``, ``kind="approaching"``);
-  default remains ``none``. Alert text never uses metres or a raw
-  address. Do not dump feature vectors of a real capture into CI
+  default remains ``none``. The I1 inside spec (ADR-0009,
+  ``docs/inside.md``) is ``blesentry.detection.inside.inside_count``
+  / ``inside_sustain_step`` (``[detection] backend = "inside"``,
+  ``kind="inside-adjacent"``; I3 backend). Alert text never uses metres
+  or a raw address. Do not dump feature vectors of a real capture into CI
   logs (same hygiene as replay).
 
 ## Workflow
