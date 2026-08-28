@@ -6,9 +6,9 @@
 -->
 # ADR-0008: Crowd detector — robust baseline + CUSUM
 
-- **Status:** Proposed
+- **Status:** Approved
 - **Date:** 2026-08-28
-- **Deciders:** Ryan Speed
+- **Deciders:** Ryan Speed <rspeed@speedo.ca>
 
 ## Context
 
