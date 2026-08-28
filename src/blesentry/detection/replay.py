@@ -185,7 +185,11 @@ def make_report(
 
 def format_report(report: ReplayReport) -> str:
     """Serialize a report with stable key order for golden files."""
-    return json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True)
+    return json.dumps(
+        report.model_dump(mode="json", exclude_none=True),
+        indent=2,
+        sort_keys=True,
+    )
 
 
 def load_advertisement_fixture(path: Path) -> list[Advertisement]:

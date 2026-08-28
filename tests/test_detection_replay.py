@@ -203,6 +203,16 @@ def test_replay_does_not_enqueue_or_write() -> None:
     assert replay(NullDetector(), windows) == []
 
 
+def test_format_report_omits_null_optional_event_fields() -> None:
+    """Mock events stay three tokens in replay JSON (ADR-0006)."""
+    event = DetectionEvent(detector="mock", kind="ping", window_index=0)
+    report = make_report([DetectionWindow(index=0)], [event], period=15.0)
+    raw = json.loads(format_report(report))
+    assert raw["events"] == [
+        {"detector": "mock", "kind": "ping", "window_index": 0}
+    ]
+
+
 # --- golden file -----------------------------------------------------
 
 

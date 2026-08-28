@@ -150,5 +150,6 @@ async def test_run_cycle_alerter_requires_presence(
             devices,
             ObservationRepository(db, SITE),
             0.0,
+            window_index=0,
             alerter=UnknownDeviceAlerter(devices, outbox),
         )

@@ -115,12 +115,12 @@ async def run_cycle(
     duration: float,
     resolver: DeviceResolver | None = None,
     *,
+    window_index: int,
     presence: PresenceTracker | None = None,
     presence_events: PresenceEventRepository | None = None,
     alerter: UnknownDeviceAlerter | None = None,
     detector: Detector | None = None,
     outbox: OutboxRepository | None = None,
-    window_index: int = 0,
     now: Callable[[], float] = time.time,
 ) -> CycleStats:
     """Run one scan window and persist everything heard atomically.
@@ -165,6 +165,10 @@ async def run_cycle(
     ``heard`` map (DC-1). Returned events are formatted and enqueued
     to ``outbox`` (required; same connection). The detector mutates
     before COMMIT under the same fail-loud contract as presence.
+
+    ``window_index`` is required (no default). It must be strictly
+    increasing across cycles when reusing a stateful detector (A3's
+    ``TrajectoryTracker``). ``run_loop`` passes ``0, 1, …``.
     """
     advertisements = await scanner.scan(duration=duration)
     if observations.connection is not devices.connection:

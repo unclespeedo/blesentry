@@ -37,6 +37,7 @@ from blesentry.detection.models import DetectionEvent, DetectionWindow
 from blesentry.detection.protocol import Detector
 from blesentry.detection.replay import (
     detector_for_backend,
+    format_report,
     replay_fixture,
 )
 from blesentry.detection.trajectory import TRACKER_FADE_AFTER_WINDOWS
@@ -256,7 +257,7 @@ def test_alert_text_rejects_incomplete_event() -> None:
 def test_replay_walkby_matches_golden() -> None:
     detector = detector_for_backend("approach")
     report = replay_fixture(WALKBY_FIXTURE, detector, period=15.0)
-    assert json.loads(report.model_dump_json()) == json.loads(
+    assert json.loads(format_report(report)) == json.loads(
         WALKBY_GOLDEN.read_text(encoding="utf-8")
     )
     assert report.events[0].window_index == 7
@@ -311,6 +312,7 @@ async def test_run_cycle_detector_requires_outbox(tmp_path: Path) -> None:
                 devices,
                 observations,
                 0.0,
+                window_index=0,
                 detector=ApproachDetector(),
             )
     finally:
@@ -335,6 +337,7 @@ async def test_run_cycle_outbox_must_share_cycle_connection(
                 devices,
                 observations,
                 0.0,
+                window_index=0,
                 detector=ApproachDetector(),
                 outbox=outbox,
             )
@@ -357,6 +360,7 @@ async def test_run_cycle_outbox_must_share_cycle_site(tmp_path: Path) -> None:
                 devices,
                 observations,
                 0.0,
+                window_index=0,
                 detector=ApproachDetector(),
                 outbox=outbox,
             )

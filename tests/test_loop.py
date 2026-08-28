@@ -102,7 +102,9 @@ async def test_cycle_persists_devices_and_observations(repos) -> None:
     scanner = MockScanner(
         scenarios=[[_ad(), _ad(address="11:22:33:44:55:66", rssi=-80)]]
     )
-    stats = await run_cycle(scanner, devices, observations, duration=1.0)
+    stats = await run_cycle(
+        scanner, devices, observations, duration=1.0, window_index=0
+    )
     # same name/uuids/payload on two addresses: fusion (#19) joins them
     assert stats == CycleStats(heard=2, devices=1, observations=2)
     assert len(await devices.list_devices()) == 1
@@ -117,8 +119,12 @@ async def test_same_device_across_cycles_is_one_row(repos) -> None:
             [_ad(rssi=-70, timestamp=1755400010.0)],
         ]
     )
-    await run_cycle(scanner, devices, observations, duration=1.0)
-    await run_cycle(scanner, devices, observations, duration=1.0)
+    await run_cycle(
+        scanner, devices, observations, duration=1.0, window_index=0
+    )
+    await run_cycle(
+        scanner, devices, observations, duration=1.0, window_index=1
+    )
 
     rows = await devices.list_devices()
     assert len(rows) == 1
@@ -132,7 +138,11 @@ async def test_same_device_across_cycles_is_one_row(repos) -> None:
 async def test_quiet_cycle_is_a_no_op(repos) -> None:
     devices, observations = repos
     stats = await run_cycle(
-        MockScanner(scenarios=[]), devices, observations, duration=1.0
+        MockScanner(scenarios=[]),
+        devices,
+        observations,
+        duration=1.0,
+        window_index=0,
     )
     assert stats == CycleStats(heard=0, devices=0, observations=0)
     assert await devices.list_devices() == []
@@ -142,7 +152,9 @@ async def test_quiet_cycle_is_a_no_op(repos) -> None:
 async def test_observation_carries_advertisement_metadata(repos) -> None:
     devices, observations = repos
     scanner = MockScanner(scenarios=[[_ad(timestamp=1755400000.5)]])
-    await run_cycle(scanner, devices, observations, duration=1.0)
+    await run_cycle(
+        scanner, devices, observations, duration=1.0, window_index=0
+    )
     rows = await devices.list_devices()
     rssi = await observations.query_recent_rssi(
         device_id=rows[0]["id"], since="2025-01-01T00:00:00.000Z"
@@ -370,7 +382,9 @@ async def test_cycle_persists_address_type(repos) -> None:
         adapter_id="mock",
     )
     scanner = MockScanner(scenarios=[[ad]])
-    await run_cycle(scanner, devices, observations, duration=1.0)
+    await run_cycle(
+        scanner, devices, observations, duration=1.0, window_index=0
+    )
     rows = await devices.list_devices()
     obs = await observations.get(1)
     assert obs is not None
@@ -395,7 +409,13 @@ async def test_cycle_rolls_back_atomically_on_mid_batch_failure(
     object.__setattr__(bad, "timestamp", float("nan"))
     scanner = MockScanner(scenarios=[[good, bad]])
     with pytest.raises(ValueError):
-        await run_cycle(scanner, devices, observations, duration=1.0)
+        await run_cycle(
+            scanner,
+            devices,
+            observations,
+            duration=1.0,
+            window_index=0,
+        )
     assert await devices.list_devices() == []
 
 
@@ -411,11 +431,21 @@ async def test_known_device_not_rewritten_every_cycle(repos) -> None:
     )
     resolver = DeviceResolver(devices)
     await run_cycle(
-        scanner, devices, observations, duration=1.0, resolver=resolver
+        scanner,
+        devices,
+        observations,
+        duration=1.0,
+        resolver=resolver,
+        window_index=0,
     )
     first = (await devices.list_devices())[0]["updated_at"]
     await run_cycle(
-        scanner, devices, observations, duration=1.0, resolver=resolver
+        scanner,
+        devices,
+        observations,
+        duration=1.0,
+        resolver=resolver,
+        window_index=1,
     )
     rows = await devices.list_devices()
     assert len(rows) == 1
@@ -437,11 +467,21 @@ async def test_cache_survives_rollback_unpoisoned(repos) -> None:
     failing = MockScanner(scenarios=[[good, bad]])
     with pytest.raises(ValueError):
         await run_cycle(
-            failing, devices, observations, duration=1.0, resolver=resolver
+            failing,
+            devices,
+            observations,
+            duration=1.0,
+            resolver=resolver,
+            window_index=0,
         )
     clean = MockScanner(scenarios=[[good]])
     stats = await run_cycle(
-        clean, devices, observations, duration=1.0, resolver=resolver
+        clean,
+        devices,
+        observations,
+        duration=1.0,
+        resolver=resolver,
+        window_index=1,
     )
     assert stats.observations == 1
     assert len(await devices.list_devices()) == 1
@@ -487,6 +527,7 @@ async def test_cycle_rejects_resolver_on_different_connection(
                 observations,
                 duration=0.0,
                 resolver=resolver,
+                window_index=0,
             )
     finally:
         await other_conn.close()
@@ -507,6 +548,7 @@ async def test_cycle_rejects_resolver_on_different_site(repos) -> None:
             observations,
             duration=0.0,
             resolver=resolver,
+            window_index=0,
         )
 
 

@@ -363,6 +363,7 @@ async def test_presence_requires_both_tracker_and_repo() -> None:
                 DeviceRepository(conn, "s"),
                 ObservationRepository(conn, "s"),
                 0.0,
+                window_index=0,
                 presence=PresenceTracker(),  # no presence_events
             )
     finally:
