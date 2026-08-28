@@ -19,6 +19,7 @@ from blesentry.storage.repository import (
     OutboxRepository,
     PresenceEventRepository,
     SiteStateRepository,
+    WindowBandCountRepository,
 )
 
 __all__ = [
@@ -30,6 +31,7 @@ __all__ = [
     "OutboxRepository",
     "PresenceEventRepository",
     "SiteStateRepository",
+    "WindowBandCountRepository",
     "apply_migrations",
     "connect",
     "connect_readonly",

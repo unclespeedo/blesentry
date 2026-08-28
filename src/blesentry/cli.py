@@ -400,6 +400,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
         OutboxRepository,
         PresenceEventRepository,
         SiteStateRepository,
+        WindowBandCountRepository,
     )
     from blesentry.summary import SummaryDeps, run_summary_loop
 
@@ -433,6 +434,12 @@ async def _run_daemon(args: argparse.Namespace) -> int:
         drain_conn = await connect(settings.db)
         devices = DeviceRepository(scan_conn, settings.site_id)
         scan_outbox = OutboxRepository(scan_conn, settings.site_id)
+        scan_site_state = SiteStateRepository(scan_conn, settings.site_id)
+        window_band_counts = WindowBandCountRepository(
+            scan_conn,
+            settings.site_id,
+            site_state=scan_site_state,
+        )
         resolver = None
         if settings.min_score is not None and (
             settings.recent_window is not None
@@ -468,6 +475,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                 ),
                 detector=settings.detector,
                 outbox=scan_outbox,
+                window_band_counts=window_band_counts,
             ),
             run_drain(
                 OutboxRepository(drain_conn, settings.site_id),

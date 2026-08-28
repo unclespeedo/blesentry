@@ -228,6 +228,34 @@ transaction as the outbox enqueue it records (never a fire-and-forget
 marker outliving a rolled-back digest, never a digest without a
 marker). Added in `0006` (#30).
 
+### `window_band_counts`
+
+Per-cycle inclusive band-count snapshot from the post-resolve **`heard`**
+map (F3 `band_counts`, default `BandEdges`). A replay/baseline cache for
+the crowd (C3/C4) and inside (I3) detectors — derivable from
+`observations`, not a second source of truth. One row per completed scan
+cycle; written inside the cycle transaction (DC-1 / #132). Retention is
+an incremental time-window `DELETE` at most once per UTC day (no
+`VACUUM`; SD wear). Rows older than **8** wall-clock days are removed
+(seven-day rolling fallback at the default 15 s cadence plus one day
+buffer — `CROWD_ROLLING_WINDOWS` in `docs/crowd.md`).
+
+All access is through `WindowBandCountRepository` — no other module may
+touch this table.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `site_id` | TEXT NOT NULL | |
+| `window_index` | INTEGER NOT NULL | Monotonic cycle ordinal from `run_cycle` / `run_loop`. |
+| `observed_at` | TEXT NOT NULL | Cycle wall time (ISO-8601 UTC, schema timestamp format). Indexed with `site_id` for retention and C3 reads. |
+| `count_all` | INTEGER NOT NULL | CHECK ≥ 0. Inclusive nested band counts: adjacent ≤ near ≤ far ≤ all. |
+| `count_far` | INTEGER NOT NULL | CHECK ≥ 0. RSSI ≥ −80 (F3 default). |
+| `count_near` | INTEGER NOT NULL | CHECK ≥ 0. RSSI ≥ −70 — crowd primary (ADR-0008). |
+| `count_adjacent` | INTEGER NOT NULL | CHECK ≥ 0. RSSI ≥ −55 — inside feature band. |
+
+Added in `0007` (#132).
+
 ### `label_audit`
 
 Append-only record of every label change: who, what, when (`P2-6`).

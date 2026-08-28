@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from typing import NamedTuple
 
 from blesentry.alerts import UnknownDeviceAlerter
+from blesentry.detection.features import band_counts
 from blesentry.detection.models import DetectionEvent, DetectionWindow
 from blesentry.detection.protocol import Detector
 from blesentry.notifier.models import OutboundMessage
@@ -38,6 +39,7 @@ from blesentry.storage.repository import (
     ObservationRepository,
     OutboxRepository,
     PresenceEventRepository,
+    WindowBandCountRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,6 +123,7 @@ async def run_cycle(
     alerter: UnknownDeviceAlerter | None = None,
     detector: Detector | None = None,
     outbox: OutboxRepository | None = None,
+    window_band_counts: WindowBandCountRepository | None = None,
     now: Callable[[], float] = time.time,
 ) -> CycleStats:
     """Run one scan window and persist everything heard atomically.
@@ -195,11 +198,24 @@ async def run_cycle(
         )
     if outbox is not None and outbox.site_id != devices.site_id:
         raise ValueError("outbox must share the cycle site")
+    if (
+        window_band_counts is not None
+        and window_band_counts.connection is not devices.connection
+    ):
+        raise ValueError(
+            "window_band_counts must share the cycle connection for atomicity"
+        )
+    if (
+        window_band_counts is not None
+        and window_band_counts.site_id != devices.site_id
+    ):
+        raise ValueError("window_band_counts must share the cycle site")
     r = resolver if resolver is not None else DeviceResolver(devices)
     _require_resolver_affinity(r, devices)
     device_ids: set[int] = set()
     heard: dict[int, int] = {}
     persisted = 0
+    cycle_at = iso_utc(now())
     try:
         async with transaction(devices.connection):
             for ad in advertisements:
@@ -249,10 +265,25 @@ async def run_cycle(
                         event.kind,
                         event.window_index,
                     )
+            if window_band_counts is not None:
+                keyed = {
+                    str(device_id): rssi for device_id, rssi in heard.items()
+                }
+                counts = band_counts(keyed)
+                await window_band_counts.append(
+                    window_index=window_index,
+                    observed_at=cycle_at,
+                    count_all=counts.count_all,
+                    count_far=counts.count_far,
+                    count_near=counts.count_near,
+                    count_adjacent=counts.count_adjacent,
+                )
     except BaseException:
         r.abort()
         raise
     r.commit()
+    if window_band_counts is not None:
+        await window_band_counts.run_retention_if_due(iso_utc(now()))
     return CycleStats(
         heard=len(advertisements),
         devices=len(device_ids),
@@ -296,6 +327,7 @@ async def run_loop(
     alerter: UnknownDeviceAlerter | None = None,
     detector: Detector | None = None,
     outbox: OutboxRepository | None = None,
+    window_band_counts: WindowBandCountRepository | None = None,
     now: Callable[[], float] = time.time,
     rollup_every: int = CYCLE_LOG_ROLLUP_EVERY,
 ) -> int:
@@ -326,6 +358,9 @@ async def run_loop(
             before COMMIT; a rolled-back cycle must not continue.
         outbox: Scan-connection outbox for detection enqueue (DC-1).
             Required when ``detector`` is given.
+        window_band_counts: Optional band-count cache writer (C2).
+            When given, appends one F3 band-count row per cycle inside
+            the transaction and runs daily retention after COMMIT.
         now: Clock for stamping presence transitions (injectable).
         rollup_every: Emit one INFO heartbeat every this many completed
             cycles (#100). Per-cycle stats stay at DEBUG. Cycle 1 also
@@ -365,6 +400,7 @@ async def run_loop(
                 alerter=alerter,
                 detector=detector,
                 outbox=outbox,
+                window_band_counts=window_band_counts,
                 window_index=cycles,
                 now=now,
             )
