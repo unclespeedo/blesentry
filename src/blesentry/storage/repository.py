@@ -8,13 +8,15 @@ All SQL is confined to this module — this is the storage seam per
 ADR-0002.  Callers never touch the database directly.  Devices and
 observations are P1-6; the outbox enqueue API is P2-3; device_aliases
 (ADR-0005) are DeviceRepository-only; init_sessions (P2-7) are
-InitSessionRepository-only; site_state (P2-9) is SiteStateRepository-only.
+InitSessionRepository-only; site_state (P2-9) is SiteStateRepository-only;
+window_band_counts (C2 / #132) are WindowBandCountRepository-only.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 from typing import Any, TypedDict
 
 import aiosqlite
@@ -1257,3 +1259,173 @@ class SiteStateRepository:
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
                 (self._site, key, value),
             )
+
+
+# Seven-day rolling fallback at default 15 s cadence plus one day buffer
+# (CROWD_ROLLING_WINDOWS in docs/crowd.md).
+_WINDOW_BAND_COUNT_RETENTION_DAYS = 8
+_RETENTION_MARKER_KEY = "window_band_counts.last_retention"
+
+
+class WindowBandCountRow(TypedDict):
+    """Shape of a row returned by :class:`WindowBandCountRepository`."""
+
+    id: int
+    site_id: str
+    window_index: int
+    observed_at: str
+    count_all: int
+    count_far: int
+    count_near: int
+    count_adjacent: int
+
+
+class WindowBandCountRepository:
+    """Async repository for the ``window_band_counts`` table (C2 / #132).
+
+    One inclusive band-count row per scan cycle, derived from the
+    post-resolve ``heard`` map. Written inside the cycle transaction;
+    retention runs at most once per UTC day after COMMIT.
+    """
+
+    def __init__(
+        self,
+        conn: aiosqlite.Connection,
+        site_id: str,
+        *,
+        site_state: SiteStateRepository | None = None,
+        retention_days: int = _WINDOW_BAND_COUNT_RETENTION_DAYS,
+    ) -> None:
+        """Initialise with an open connection and target site."""
+        self._conn = conn
+        self._site = site_id
+        self._site_state = site_state
+        self._retention_days = retention_days
+
+    @property
+    def connection(self) -> aiosqlite.Connection:
+        """The underlying connection, for ambient transactions."""
+        return self._conn
+
+    @property
+    def site_id(self) -> str:
+        """The site this repository is scoped to."""
+        return self._site
+
+    async def append(
+        self,
+        *,
+        window_index: int,
+        observed_at: str,
+        count_all: int,
+        count_far: int,
+        count_near: int,
+        count_adjacent: int,
+    ) -> int:
+        """Insert one band-count row for a completed cycle.
+
+        Joins the caller's ambient transaction when one is open.
+
+        Returns:
+            The new row ``id``.
+
+        Raises:
+            ValueError: If nested band counts are invalid.
+        """
+        if not (count_adjacent <= count_near <= count_far <= count_all):
+            raise ValueError(
+                "band counts must satisfy adjacent <= near <= far <= all"
+            )
+        cur = await self._conn.execute(
+            "INSERT INTO window_band_counts "
+            "(site_id, window_index, observed_at, count_all, "
+            "count_far, count_near, count_adjacent) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "RETURNING id",
+            (
+                self._site,
+                window_index,
+                observed_at,
+                count_all,
+                count_far,
+                count_near,
+                count_adjacent,
+            ),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is None:
+            raise RuntimeError("insert returned no id")
+        return int(row[0])
+
+    async def delete_before(self, cutoff: str) -> int:
+        """Delete rows with ``observed_at`` strictly before ``cutoff``.
+
+        Returns:
+            Number of rows deleted.
+        """
+        async with transaction(self._conn):
+            cur = await self._conn.execute(
+                "DELETE FROM window_band_counts "
+                "WHERE site_id = ? AND observed_at < ?",
+                (self._site, cutoff),
+            )
+            deleted = cur.rowcount
+            await cur.close()
+        return max(deleted, 0)
+
+    async def run_retention_if_due(self, now: str) -> int:
+        """Run time-window retention at most once per UTC calendar day.
+
+        Requires ``site_state`` passed at construction. No-op when
+        ``site_state`` is ``None`` or retention already ran today.
+
+        Returns:
+            Rows deleted (0 when skipped or nothing to prune).
+        """
+        if self._site_state is None:
+            return 0
+        last = await self._site_state.get(_RETENTION_MARKER_KEY)
+        today = now[:10]
+        if last is not None and last[:10] == today:
+            return 0
+        cutoff = _retention_cutoff(now, self._retention_days)
+        deleted = await self.delete_before(cutoff)
+        await self._site_state.set(_RETENTION_MARKER_KEY, now)
+        return deleted
+
+    async def list_for_site(self, *, limit: int) -> list[WindowBandCountRow]:
+        """Return recent rows for this site, oldest first (tests / C3)."""
+        cur = await self._conn.execute(
+            "SELECT id, site_id, window_index, observed_at, "
+            "count_all, count_far, count_near, count_adjacent "
+            "FROM window_band_counts "
+            "WHERE site_id = ? "
+            "ORDER BY id ASC LIMIT ?",
+            (self._site, limit),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            WindowBandCountRow(
+                id=int(r[0]),
+                site_id=str(r[1]),
+                window_index=int(r[2]),
+                observed_at=str(r[3]),
+                count_all=int(r[4]),
+                count_far=int(r[5]),
+                count_near=int(r[6]),
+                count_adjacent=int(r[7]),
+            )
+            for r in rows
+        ]
+
+
+def _retention_cutoff(now: str, retention_days: int) -> str:
+    """Return ISO timestamp ``retention_days`` before ``now``."""
+    if retention_days < 1:
+        raise ValueError("retention_days must be >= 1")
+    dt = datetime.fromisoformat(now)
+    cutoff = dt - timedelta(days=retention_days)
+    millis = cutoff.microsecond // 1000
+    return cutoff.strftime("%Y-%m-%dT%H:%M:%S.") + f"{millis:03d}Z"

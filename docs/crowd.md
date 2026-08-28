@@ -15,7 +15,7 @@ Three future modules; only C4 is a Detector backend:
 | Piece | Module (planned) | Job |
 |---|---|---|
 | **C1 helpers** | `blesentry.detection.crowd` | Frozen knobs + `crowd_counts`, `floored_mad`, `cusum_positive` |
-| **C2 persistence** | TBD (#132) | Band-count row per cycle inside the txn |
+| **C2 persistence** | `WindowBandCountRepository` (#132) | Band-count row per cycle inside the txn |
 | **C3 baseline** | TBD (#133) | Seasonal + rolling EWMA, episode freeze |
 | **C4 backend** | TBD (#134) | `[detection] backend = "crowd"`; `kind="crowd-busy"` |
 
@@ -125,7 +125,8 @@ events; do not treat count collapse as quiet. C4 wires the input.
 
 ## Future work
 
-- **C2 (#132).** Migration + per-cycle writer sharing the txn.
+- **C2 (#132).** `window_band_counts` + `WindowBandCountRepository`;
+  per-cycle append inside the txn; daily time-window retention.
 - **C3 (#133).** Online baseline + outlier-day robustness tests.
 - **C4 (#134).** Backend, alert-with-roster, replay busy episode.
 - **C5 (#135).** FAR validation on fixtures; tune only via new ADR.
