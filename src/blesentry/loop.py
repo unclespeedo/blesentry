@@ -283,7 +283,7 @@ async def run_cycle(
         raise
     r.commit()
     if window_band_counts is not None:
-        await window_band_counts.run_retention_if_due(cycle_at)
+        await window_band_counts.run_retention_if_due(iso_utc(now()))
     return CycleStats(
         heard=len(advertisements),
         devices=len(device_ids),

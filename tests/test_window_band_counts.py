@@ -199,6 +199,40 @@ async def test_run_cycle_writes_band_counts_inside_transaction(
     await conn.close()
 
 
+async def test_run_cycle_retention_marker_uses_post_commit_now(
+    tmp_path: Path,
+) -> None:
+    """Retention must stamp the post-COMMIT clock, not pre-txn cycle_at."""
+    conn = await connect(tmp_path / "retention_now.db")
+    await apply_migrations(conn)
+    devices = DeviceRepository(conn, SITE)
+    observations = ObservationRepository(conn, SITE)
+    site_state = SiteStateRepository(conn, SITE)
+    band_counts = WindowBandCountRepository(
+        conn,
+        SITE,
+        site_state=site_state,
+    )
+    times = iter([1735689599.0, 1735690000.0])
+
+    def clock() -> float:
+        return next(times)
+
+    scanner = MockScanner([[_ad()]])
+    await run_cycle(
+        scanner,
+        devices,
+        observations,
+        duration=0.01,
+        window_index=0,
+        window_band_counts=band_counts,
+        now=clock,
+    )
+    marker = await site_state.get("window_band_counts.last_retention")
+    assert marker == "2025-01-01T00:06:40.000Z"
+    await conn.close()
+
+
 async def test_run_cycle_band_count_rolled_back_on_failure(
     tmp_path: Path,
 ) -> None:
