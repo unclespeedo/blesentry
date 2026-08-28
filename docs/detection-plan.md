@@ -249,13 +249,19 @@ ambiguous DoD.
   **Shipped:** `docs/approach.md` (A2 section),
   `blesentry.detection.trajectory` (#127). Deque maxlen = A1 W (8);
   cap **256** addresses / **2048** samples; fade after **12** missed
-  indexes; `visit_min` is metadata, not an A1 gate. Not a
-  `[detection]` backend (A3).
+  indexes; `visit_min` is metadata, not an A1 gate. A3 wraps this;
+  A2 is not itself a `[detection]` backend.
 - **A3 · Approach trigger + alert.** Emit an "approaching" event (current
   RSSI + trend + coarse proximity band, never a distance — DC-6) inside the
   cycle transaction (DC-1). **DoD:** replay flags the labeled approach near
   its peak; alert text snapshot-tested. **Deps:** A2, A1, F1 **Size:** M
   **Labels:** `epic:detection type:feature priority:p1`
+  **Shipped:** `docs/approach.md` (A3 section),
+  `blesentry.detection.approach_detector.ApproachDetector` (#128).
+  `[detection] backend = "approach"`; fire-once per visit; alert
+  text uses F3 `proximity_band` of the terminal RSSI. Replay:
+  `tests/fixtures/replay/walkby.json` + golden. Default remains
+  `none`.
 - **A4 · Walk vs drive-by discrimination + "vehicle passed" class.** Dwell/
   slope heuristic (walk ≈ minutes, vehicle ≈ seconds); a slow or idling
   vehicle dwells like a walk, so lean on the mfr-data signature

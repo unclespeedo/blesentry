@@ -1,0 +1,56 @@
+{
+  "events": [
+    {
+      "band": "far",
+      "detector": "approach",
+      "kind": "approaching",
+      "rising": true,
+      "rssi": -72,
+      "window_index": 7
+    }
+  ],
+  "period": 15.0,
+  "window_count": 8,
+  "windows": [
+    {
+      "advertisement_count": 1,
+      "heard": [],
+      "index": 0
+    },
+    {
+      "advertisement_count": 1,
+      "heard": [],
+      "index": 1
+    },
+    {
+      "advertisement_count": 1,
+      "heard": [],
+      "index": 2
+    },
+    {
+      "advertisement_count": 1,
+      "heard": [],
+      "index": 3
+    },
+    {
+      "advertisement_count": 1,
+      "heard": [],
+      "index": 4
+    },
+    {
+      "advertisement_count": 1,
+      "heard": [],
+      "index": 5
+    },
+    {
+      "advertisement_count": 1,
+      "heard": [],
+      "index": 6
+    },
+    {
+      "advertisement_count": 1,
+      "heard": [],
+      "index": 7
+    }
+  ]
+}

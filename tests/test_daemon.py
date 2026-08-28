@@ -119,10 +119,13 @@ def _args(*extra: str) -> argparse.Namespace:
 
 
 def test_flag_mode_uses_null_notifier(tmp_path: Path) -> None:
+    from blesentry.detection.null import NullDetector
+
     settings = _resolve_run_settings(
         _args("--db", str(tmp_path / "x.db"), "--site-id", "s")
     )
     assert isinstance(settings.notifier, NullNotifier)
+    assert isinstance(settings.detector, NullDetector)
     assert settings.summary_enabled is True
     assert settings.summary_hour_utc == 12
 

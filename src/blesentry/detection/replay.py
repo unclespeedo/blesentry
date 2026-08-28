@@ -185,7 +185,11 @@ def make_report(
 
 def format_report(report: ReplayReport) -> str:
     """Serialize a report with stable key order for golden files."""
-    return json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True)
+    return json.dumps(
+        report.model_dump(mode="json", exclude_none=True),
+        indent=2,
+        sort_keys=True,
+    )
 
 
 def load_advertisement_fixture(path: Path) -> list[Advertisement]:
@@ -249,8 +253,9 @@ async def replay_snapshot(
 
 
 def detector_for_backend(backend: str) -> Detector:
-    """Build ``none`` / ``mock`` the same way the daemon config does."""
+    """Build ``none`` / ``mock`` / ``approach`` like the daemon config."""
     from blesentry.config import (
+        ApproachDetectionConfig,
         MockDetectionConfig,
         NoneDetectionConfig,
         build_detector,
@@ -258,6 +263,8 @@ def detector_for_backend(backend: str) -> Detector:
 
     if backend == "mock":
         return build_detector(MockDetectionConfig(backend="mock"))
+    if backend == "approach":
+        return build_detector(ApproachDetectionConfig(backend="approach"))
     if backend == "none":
         return build_detector(NoneDetectionConfig())
     raise ValueError(f"unknown detection backend: {backend}")

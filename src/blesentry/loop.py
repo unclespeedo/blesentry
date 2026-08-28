@@ -26,6 +26,9 @@ from datetime import UTC, datetime
 from typing import NamedTuple
 
 from blesentry.alerts import UnknownDeviceAlerter
+from blesentry.detection.models import DetectionEvent, DetectionWindow
+from blesentry.detection.protocol import Detector
+from blesentry.notifier.models import OutboundMessage
 from blesentry.presence import PresenceTracker
 from blesentry.resolver import DeviceResolver, fingerprint_key
 from blesentry.scanner.protocol import Scanner
@@ -33,6 +36,7 @@ from blesentry.storage.database import transaction
 from blesentry.storage.repository import (
     DeviceRepository,
     ObservationRepository,
+    OutboxRepository,
     PresenceEventRepository,
 )
 
@@ -85,6 +89,25 @@ def _require_resolver_affinity(
         raise ValueError("resolver must share the cycle site")
 
 
+def _detection_alert_text(event: DetectionEvent) -> str:
+    """Format a detection event for the outbox (no raw address)."""
+    from blesentry.detection.approach import (
+        APPROACH_DETECTOR_ID,
+        APPROACH_KIND,
+    )
+
+    if event.detector == APPROACH_DETECTOR_ID and event.kind == APPROACH_KIND:
+        from blesentry.detection.approach_detector import (
+            format_approach_alert,
+        )
+
+        return format_approach_alert(event)
+    return (
+        f"Detection {event.detector}/{event.kind} "
+        f"at window {event.window_index}."
+    )
+
+
 async def run_cycle(
     scanner: Scanner,
     devices: DeviceRepository,
@@ -92,9 +115,12 @@ async def run_cycle(
     duration: float,
     resolver: DeviceResolver | None = None,
     *,
+    window_index: int,
     presence: PresenceTracker | None = None,
     presence_events: PresenceEventRepository | None = None,
     alerter: UnknownDeviceAlerter | None = None,
+    detector: Detector | None = None,
+    outbox: OutboxRepository | None = None,
     now: Callable[[], float] = time.time,
 ) -> CycleStats:
     """Run one scan window and persist everything heard atomically.
@@ -133,6 +159,16 @@ async def run_cycle(
     PRESENT once it re-clears ``appear_windows`` — an at-least-once
     duplicate the alert layer (P2-6) must tolerate; seeding is a
     follow-up (#112).
+
+    Detection (A3): when a ``detector`` is given, ``observe`` runs
+    inside the same transaction on the in-memory advertisements and
+    ``heard`` map (DC-1). Returned events are formatted and enqueued
+    to ``outbox`` (required; same connection). The detector mutates
+    before COMMIT under the same fail-loud contract as presence.
+
+    ``window_index`` is required (no default). It must be strictly
+    increasing across cycles when reusing a stateful detector (A3's
+    ``TrajectoryTracker``). ``run_loop`` passes ``0, 1, …``.
     """
     advertisements = await scanner.scan(duration=duration)
     if observations.connection is not devices.connection:
@@ -144,6 +180,8 @@ async def run_cycle(
         raise ValueError("presence and presence_events must be given together")
     if alerter is not None and presence is None:
         raise ValueError("alerter requires presence to be given")
+    if detector is not None and outbox is None:
+        raise ValueError("detector requires outbox to be given")
     if (
         presence_events is not None
         and presence_events.connection is not devices.connection
@@ -151,6 +189,12 @@ async def run_cycle(
         raise ValueError(
             "presence_events must share the cycle connection for atomicity"
         )
+    if outbox is not None and outbox.connection is not devices.connection:
+        raise ValueError(
+            "outbox must share the cycle connection for atomicity"
+        )
+    if outbox is not None and outbox.site_id != devices.site_id:
+        raise ValueError("outbox must share the cycle site")
     r = resolver if resolver is not None else DeviceResolver(devices)
     _require_resolver_affinity(r, devices)
     device_ids: set[int] = set()
@@ -185,6 +229,26 @@ async def run_cycle(
                 # triggered it (same cycle transaction).
                 if alerter is not None:
                     await alerter.handle(transitions)
+            if detector is not None and outbox is not None:
+                events = detector.observe(
+                    DetectionWindow(
+                        index=window_index,
+                        advertisements=advertisements,
+                        heard=heard,
+                    )
+                )
+                for event in events:
+                    await outbox.enqueue(
+                        payload=OutboundMessage(
+                            text=_detection_alert_text(event)
+                        ).model_dump_json()
+                    )
+                    logger.info(
+                        "detection %s/%s window=%d",
+                        event.detector,
+                        event.kind,
+                        event.window_index,
+                    )
     except BaseException:
         r.abort()
         raise
@@ -230,6 +294,8 @@ async def run_loop(
     presence: PresenceTracker | None = None,
     presence_events: PresenceEventRepository | None = None,
     alerter: UnknownDeviceAlerter | None = None,
+    detector: Detector | None = None,
+    outbox: OutboxRepository | None = None,
     now: Callable[[], float] = time.time,
     rollup_every: int = CYCLE_LOG_ROLLUP_EVERY,
 ) -> int:
@@ -254,6 +320,12 @@ async def run_loop(
             when ``presence`` is given, on the same connection.
         alerter: Unknown-device alerter (P2-6); enqueues an alert when
             an unlabeled device becomes PRESENT. ``None`` disables it.
+        detector: Adaptive detector (A3). ``None`` skips ``observe``.
+            The same instance must be carried across cycles (like
+            presence) so fire-once / fade state survives. Mutates
+            before COMMIT; a rolled-back cycle must not continue.
+        outbox: Scan-connection outbox for detection enqueue (DC-1).
+            Required when ``detector`` is given.
         now: Clock for stamping presence transitions (injectable).
         rollup_every: Emit one INFO heartbeat every this many completed
             cycles (#100). Per-cycle stats stay at DEBUG. Cycle 1 also
@@ -291,6 +363,9 @@ async def run_loop(
                 presence=presence,
                 presence_events=presence_events,
                 alerter=alerter,
+                detector=detector,
+                outbox=outbox,
+                window_index=cycles,
                 now=now,
             )
             cycles += 1

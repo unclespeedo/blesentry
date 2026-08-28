@@ -26,6 +26,7 @@ from blesentry.detection.features import (
     band_counts,
     extract_features,
     max_rssi_by_identity,
+    proximity_band,
     rssi_slope,
     rssi_span,
 )
@@ -77,6 +78,16 @@ def test_band_edges_are_frozen() -> None:
     frozen_field = "near"
     with pytest.raises(ValidationError):
         setattr(DEFAULT_BANDS, frozen_field, -60)
+
+
+def test_proximity_band_is_exclusive_and_uses_same_edges() -> None:
+    assert proximity_band(-55) == "adjacent"
+    assert proximity_band(-56) == "near"
+    assert proximity_band(-70) == "near"
+    assert proximity_band(-71) == "far"
+    assert proximity_band(-80) == "far"
+    assert proximity_band(-81) == "beyond-far"
+    assert proximity_band(-72) == "far"
 
 
 # --- max_rssi / band counts ------------------------------------------

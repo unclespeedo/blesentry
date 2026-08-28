@@ -4,22 +4,24 @@
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
 -->
-# Approach trigger (A1) and online tracker (A2)
+# Approach trigger (A1), tracker (A2), detector (A3)
 
 Magnitude-based rising RSSI span on a **raw BLE address**. Frozen in
 ADR-0007. This document is the implementer-facing copy of those
-numbers so A3 / A5 do not fork them.
+numbers so A5 does not fork them.
 
-Two modules, neither a Detector backend (`[detection] backend =
-"approach"` is still illegal until A3):
+Three modules; only A3 is a Detector backend:
 
 | Piece | Module | Job |
 |---|---|---|
 | **A1 predicate** | `blesentry.detection.approach.is_rising_approach` | Do these last-W heard samples look like an approach? |
 | **A2 tracker** | `blesentry.detection.trajectory.TrajectoryTracker` | Bounded per-identity deques + fade/cap; feeds A1 |
+| **A3 backend** | `blesentry.detection.approach_detector.ApproachDetector` | `[detection] backend = "approach"`; `kind="approaching"` |
 
-A3 adds the union member, owns a tracker inside `observe`, and
-enqueues. This document does not wire `run_cycle`.
+Default `[detection] backend` stays `"none"`. Enabling approach is a
+config edit. `run_cycle` calls `observe` inside the cycle
+transaction and enqueues via the outbox (DC-1). Replay stays
+read-only (DC-9).
 
 ## Why
 
@@ -53,8 +55,8 @@ Cadence reminder: default window is `scan.window + scan.pause` =
 | Peak / terminal floor | −75 dBm | `max(rssis) >= -75` **and** last sample `>= -75` |
 | Far start | −85 dBm | `min(rssis) <= -85` on the **last W** (not visit-min) |
 | Mostly-monotonic | `rssi_slope(points) > 0` and `(last - first) >= span * APPROACH_MONO_FRACTION` (0.5) | `rssi_slope` is F3's OLS helper; `None` → no trigger |
-| `kind` | `approaching` | A3 fills `DetectionEvent` |
-| `detector` id | `approach` | Reserved; union member is A3 |
+| `kind` | `approaching` | A3 `DetectionEvent.kind` |
+| `detector` id | `approach` | `[detection] backend = "approach"` |
 | FAR (A5) | ≤ 1 false event / 24 h benign corpus | Quiet + rotation cloud + stationary own-gear |
 
 −55 dBm stays **adjacent-to-Pi** (F3 `count_adjacent`, Inside). It
@@ -85,9 +87,9 @@ No I/O. No `DetectionEvent`. A2's deque contents are a valid
 `points` argument. All inequalities use the last W samples only
 (a visit-lifetime min is tracked by A2 and is **not** a gate).
 
-A3 fire-once / fade-reset is **not** in the predicate: once a rise
+Fire-once / fade-reset is **not** in the predicate: once a rise
 crosses the bar, later windows of the same visit still match until
-the address fades (A2 eviction).
+the address fades (A2 eviction). A3 owns fire-once.
 
 ## Online tracker (A2)
 
@@ -98,7 +100,7 @@ TrajectoryTracker.observe(window, *, source="advertisements")
 
 One call per scan window. Default `source` is pre-fusion
 `advertisements` (ADR-0007). `heard` is supported so tests can drive
-the same object F3 uses; A3 still feeds advertisements. Identity
+the same object F3 uses; A3 feeds advertisements. Identity
 strings are opaque — do not dump them in CI logs (SECURITY.md).
 
 Implementation: `blesentry.detection.trajectory`. Pure and
@@ -168,12 +170,72 @@ same samples reversed (a fade) report `rising=False`. Mid-visit,
 
 ### What the tracker is not
 
-- **Not a Detector.** No `DetectionEvent`, no `[detection]` backend.
-- **Not wired into `run_cycle` or replay CLI.** A3.
+- **Not a Detector.** No `DetectionEvent`; A3 wraps it.
 - **Not `is_familiar`.** F6.
 - **Not a visit-min gate.** Last-W far-start stays last-W (A1).
 - **Not persistence.** Tracks die on process restart; F3's offline
   batch remains the eval path.
+
+## Detector backend (A3)
+
+```text
+ApproachDetector.observe(window) -> tuple[DetectionEvent, ...]
+format_approach_alert(event) -> str
+```
+
+Implementation: `blesentry.detection.approach_detector`. Holds one
+`TrajectoryTracker` (A2) and a fire-once set.
+
+`observe` is synchronous and I/O-free (ADR-0006). It feeds
+**pre-fusion `advertisements`** into the tracker (`heard` is
+ignored — snapshot replay cannot drive this backend). For each
+admitted identity whose `rising` is true and that has not already
+fired this visit, it returns one `DetectionEvent`:
+
+| Field | Value |
+|---|---|
+| `detector` | `approach` |
+| `kind` | `approaching` |
+| `window_index` | the window's index |
+| `rssi` | terminal (this-window max) RSSI, dBm |
+| `band` | exclusive F3 label of that RSSI (`proximity_band`) |
+| `rising` | `True` |
+
+No raw address, no metres (DC-6, SECURITY.md). Additive fields on
+`DetectionEvent` default to `None` so `mock` events stay three
+tokens.
+
+**Fire-once per visit.** The predicate stays true on later windows
+of the same climb; A3 emits on the first match only. Fade-eviction
+(A2, 12 missed indexes) clears the identity so a later visit can
+fire again.
+
+**Alert text** (snapshot-tested), never a distance:
+
+```text
+Approaching BLE device (far, RSSI -72 dBm, rising).
+```
+
+`run_cycle` / `run_loop` take a `Detector` and the scan-connection
+`OutboxRepository`. Default daemon config still uses `NullDetector`
+(`none`) — shipping A3 does not change alert behaviour until
+`backend = "approach"`. When that backend is selected, each
+returned event is formatted and enqueued **inside the existing
+cycle transaction**, mirroring `alerter.handle` (DC-1). Replay does
+not enqueue.
+
+The same fail-loud contract as presence: `observe` mutates the
+tracker before COMMIT; a rolled-back cycle re-raises out of
+`run_loop` and the process restarts with a fresh detector.
+
+### Replay (DoD)
+
+Synthetic labeled walk-by: `tests/fixtures/replay/walkby.json`
+(the motivating −99 → −72 climb, one address, W samples at the
+15 s cadence). `blesentry replay --fixture … --backend approach`
+emits one `approaching` event at window index 7 (the peak). Golden:
+`tests/fixtures/replay/walkby-approach-golden.json`. Counts and
+event fields only — no addresses in the report.
 
 ## Coverage bound (DC-7)
 
@@ -200,9 +262,8 @@ labeled-walk-by recall.
 
 ## What the predicate is not
 
-- **Not a Detector.** No `DetectionEvent`, no `[detection]` backend.
-- **Not wired into replay CLI or `run_cycle`.** A3.
-- **Not a distance.** Alert text (A3) uses F3 coarse bands of the
+- **Not a Detector.** A3's `ApproachDetector` is.
+- **Not a distance.** Alert text uses F3 exclusive bands of the
   terminal RSSI, never metres (DC-6).
 - **Not own-gear exclusion.** A phone walking toward the Pi matches.
 - **Not F3's eval W.** Equal today (8); change them independently

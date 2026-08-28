@@ -5,8 +5,8 @@
 """Online per-identity RSSI trajectory tracker (A2 / DC-2).
 
 Bounded deques of last-W heard samples, F3 slope/span/dwell, A1
-``is_rising_approach``. Not a Detector backend — A3 owns ``observe``
-on the seam and will hold one of these.
+``is_rising_approach``. Not a Detector backend — A3's
+``ApproachDetector`` holds one of these.
 """
 
 from __future__ import annotations
@@ -157,6 +157,11 @@ class TrajectoryTracker:
     def sample_count(self) -> int:
         """RSSI samples across all deques (≤ cap × W)."""
         return sum(len(track.samples) for track in self._tracks.values())
+
+    @property
+    def identities(self) -> frozenset[str]:
+        """Live track identities after the last ``observe``."""
+        return frozenset(self._tracks)
 
     def observe(
         self,

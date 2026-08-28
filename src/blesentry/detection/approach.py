@@ -5,9 +5,9 @@
 """Approach trigger predicate (A1 / ADR-0007).
 
 Stateless 'do these last-W heard samples look like an approach?'
-Not a Detector backend — A3 adds ``[detection] backend = "approach"``
-and calls :func:`is_rising_approach` from ``observe``. A2 feeds it a
-bounded deque. Reuses F3 ``rssi_slope`` / ``rssi_span``.
+A3's ``ApproachDetector`` is the ``[detection] backend = "approach"``
+union member and calls :func:`is_rising_approach` from ``observe``.
+A2 feeds it a bounded deque. Reuses F3 ``rssi_slope`` / ``rssi_span``.
 """
 
 from __future__ import annotations

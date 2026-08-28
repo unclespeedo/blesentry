@@ -6,7 +6,8 @@
 
 Offline batch over ``DetectionWindow`` sequences. Formulas are pinned
 in ``docs/features.md``. A2 reuses :func:`rssi_slope`, :func:`rssi_span`,
-and :func:`band_counts` — do not fork them. Not a Detector backend.
+and :func:`max_rssi_by_identity`. A3 uses :func:`proximity_band`.
+Do not fork them. Not a Detector backend.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from blesentry.detection.models import DetectionWindow
+from blesentry.detection.models import DetectionWindow, ProximityBand
 
 type Source = Literal["advertisements", "heard"]
 
@@ -203,6 +204,32 @@ def rssi_slope(points: Sequence[tuple[int, int]]) -> float | None:
         return None
     numer = sum((index - x_mean) * (rssi - y_mean) for index, rssi in points)
     return numer / denom
+
+
+def proximity_band(
+    rssi: int,
+    bands: BandEdges = DEFAULT_BANDS,
+) -> ProximityBand:
+    """Exclusive F3 label for one RSSI (A3 alert text).
+
+    Nested inclusive counts stay in :func:`band_counts`. This picks
+    the closest matching band so the operator line is not "near and
+    far".
+
+    Args:
+        rssi: Terminal RSSI (dBm).
+        bands: Inclusive lower bounds (dBm).
+
+    Returns:
+        ``adjacent``, ``near``, ``far``, or ``beyond-far``.
+    """
+    if rssi >= bands.adjacent:
+        return "adjacent"
+    if rssi >= bands.near:
+        return "near"
+    if rssi >= bands.far:
+        return "far"
+    return "beyond-far"
 
 
 def rssi_span(rssis: Sequence[int]) -> int | None:

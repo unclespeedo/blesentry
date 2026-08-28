@@ -110,20 +110,22 @@ backend = "none"
 # or place it in config.local.toml (gitignored). See SECURITY.md.
 
 [detection]
-# Detector backend selector (ADR-0006). Adaptive detectors (approach /
-# crowd / inside) are later issues; shipping the seam does not change
-# alert behaviour. "none" (default) emits nothing; "mock" records
-# windows and replays scripted events for tests / offline replay (F1).
-# Not yet invoked from the scan loop — the first alert-emitting
-# detector issue wires that.
+# Detector backend selector (ADR-0006). "none" (default) emits
+# nothing — existing daemons unchanged. "mock" records windows
+# for tests / F1. "approach" is the A3 rising-RSSI backend
+# (ADR-0007 / docs/approach.md): one "approaching" event per
+# address visit, enqueued inside the scan-cycle transaction.
+# Crowd / inside are later issues. W/Δ/peak are frozen in code,
+# not knobs here.
 backend = "none"
 
-# Example of the replay backend instead of none:
+# Example of the approach backend:
 # [detection]
-# backend = "mock"
+# backend = "approach"
 #
 # Offline eval (F1) is a CLI, not the daemon: `blesentry replay`
 # `--fixture` or `--db` (a copied snapshot, never the live WAL).
+# Approach needs advertisements, so use --fixture (walkby.json).
 # See docs/replay.md.
 
 [summary]

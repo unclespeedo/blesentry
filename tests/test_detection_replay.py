@@ -203,6 +203,16 @@ def test_replay_does_not_enqueue_or_write() -> None:
     assert replay(NullDetector(), windows) == []
 
 
+def test_format_report_omits_null_optional_event_fields() -> None:
+    """Mock events stay three tokens in replay JSON (ADR-0006)."""
+    event = DetectionEvent(detector="mock", kind="ping", window_index=0)
+    report = make_report([DetectionWindow(index=0)], [event], period=15.0)
+    raw = json.loads(format_report(report))
+    assert raw["events"] == [
+        {"detector": "mock", "kind": "ping", "window_index": 0}
+    ]
+
+
 # --- golden file -----------------------------------------------------
 
 
@@ -294,6 +304,29 @@ def test_replay_subcommand_parses_db() -> None:
     assert args.backend == "mock"
 
 
+def test_replay_cli_writes_walkby_approach_golden(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    walkby = REPLAY_DIR / "walkby.json"
+    golden = REPLAY_DIR / "walkby-approach-golden.json"
+    code = main(
+        [
+            "replay",
+            "--fixture",
+            str(walkby),
+            "--period",
+            "15",
+            "--backend",
+            "approach",
+        ]
+    )
+    assert code == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == json.loads(
+        golden.read_text(encoding="utf-8")
+    )
+
+
 def test_replay_cli_writes_golden_json(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -327,11 +360,14 @@ def test_fixture_must_be_a_json_array(tmp_path: Path) -> None:
         load_advertisement_fixture(path)
 
 
-def test_detector_for_backend_none_and_mock() -> None:
+def test_detector_for_backend_none_mock_approach() -> None:
+    from blesentry.detection.approach_detector import ApproachDetector
+
     assert isinstance(detector_for_backend("none"), NullDetector)
     assert isinstance(detector_for_backend("mock"), MockDetector)
+    assert isinstance(detector_for_backend("approach"), ApproachDetector)
     with pytest.raises(ValueError, match="unknown"):
-        detector_for_backend("approach")
+        detector_for_backend("crowd")
 
 
 def test_replay_cli_requires_source(
