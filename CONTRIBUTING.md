@@ -60,8 +60,10 @@
   (``[detection] backend = "approach"``, ``kind="approaching"``);
   default remains ``none``. The I1 inside spec (ADR-0009,
   ``docs/inside.md``) is ``blesentry.detection.inside.inside_count``
-  / ``inside_sustain_step`` (``[detection] backend = "inside"``,
-  ``kind="inside-adjacent"``; I3 backend). Alert text never uses metres
+  / ``inside_sustain_step``. I3 reserves ``detector="inside"`` /
+  ``kind="inside-adjacent"``; ``[detection] backend = "inside"`` is
+  not yet a legal union member (load-time ``ConfigError`` until I3).
+  Alert text never uses metres
   or a raw address. Do not dump feature vectors of a real capture into CI
   logs (same hygiene as replay).
 
