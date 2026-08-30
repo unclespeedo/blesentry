@@ -63,7 +63,9 @@
   / ``inside_sustain_step``. I3 reserves ``detector="inside"`` /
   ``kind="inside-adjacent"``; ``[detection] backend = "inside"`` is
   not yet a legal union member (load-time ``ConfigError`` until I3).
-  Alert text never uses metres
+  F6 ``is_familiar`` / ``FamiliarSet`` live in
+  ``blesentry.detection.familiar`` (``docs/familiar.md``); I2 wires
+  exclusion into detectors. Alert text never uses metres
   or a raw address. Do not dump feature vectors of a real capture into CI
   logs (same hygiene as replay).
 

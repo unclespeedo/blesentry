@@ -389,6 +389,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     """
     from blesentry.alerts import UnknownDeviceAlerter
     from blesentry.commands import run_command_loop
+    from blesentry.detection.familiar import FamiliarSetRefresher
     from blesentry.drain import run_drain
     from blesentry.loop import run_loop
     from blesentry.notifier.null import NullNotifier
@@ -440,6 +441,13 @@ async def _run_daemon(args: argparse.Namespace) -> int:
             settings.site_id,
             site_state=scan_site_state,
         )
+        obs_repo = ObservationRepository(scan_conn, settings.site_id)
+        familiar_refresher = FamiliarSetRefresher(
+            devices,
+            obs_repo,
+            site_state=scan_site_state,
+        )
+        await familiar_refresher.build()
         resolver = None
         if settings.min_score is not None and (
             settings.recent_window is not None
@@ -453,7 +461,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
             run_loop(
                 settings.scanner,
                 devices,
-                ObservationRepository(scan_conn, settings.site_id),
+                obs_repo,
                 duration=settings.window,
                 pause=settings.pause,
                 max_cycles=settings.max_cycles,
@@ -476,6 +484,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                 detector=settings.detector,
                 outbox=scan_outbox,
                 window_band_counts=window_band_counts,
+                familiar_refresher=familiar_refresher,
             ),
             run_drain(
                 OutboxRepository(drain_conn, settings.site_id),

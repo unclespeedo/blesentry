@@ -112,7 +112,7 @@ helpers. Changing F3's eval default does not change the trigger.
 | `first_seen_index` | first window index (in this batch) where the identity was heard |
 | `age_windows` | `index − first_seen_index + 1` (elapsed windows, including misses) |
 | `windows_seen` | count of heard windows in that span |
-| `duty` | `windows_seen / age_windows` in `(0, 1]` — F3's familiarity **proxy**. F6 owns `is_familiar` (K-day set). |
+| `duty` | `windows_seen / age_windows` in `(0, 1]` — F3's familiarity **proxy**. F6 owns `is_familiar` (K = 3 UTC-day set; `docs/familiar.md`). |
 
 ### OLS slope
 
@@ -169,7 +169,8 @@ Public formula helpers (do not reimplement):
 - **Not a detector.** No `DetectionEvent`, no `kind` tokens.
 - **Not wired into replay CLI.** `blesentry replay` still reports
   window counts + events. F5 consumes these vectors.
-- **Not `is_familiar`.** That allow-list is F6.
+- **Not `is_familiar`.** That allow-list is F6 (`docs/familiar.md`,
+  `blesentry.detection.familiar`).
 - **Not DC-2 eviction.** Offline batch is unbounded by design;
   A2 caps live memory.
 - **Not a presence gate.** `[presence] rssi_threshold` still

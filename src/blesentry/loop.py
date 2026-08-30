@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from typing import NamedTuple
 
 from blesentry.alerts import UnknownDeviceAlerter
+from blesentry.detection.familiar import FamiliarSetRefresher
 from blesentry.detection.features import band_counts
 from blesentry.detection.models import DetectionEvent, DetectionWindow
 from blesentry.detection.protocol import Detector
@@ -124,6 +125,7 @@ async def run_cycle(
     detector: Detector | None = None,
     outbox: OutboxRepository | None = None,
     window_band_counts: WindowBandCountRepository | None = None,
+    familiar_refresher: FamiliarSetRefresher | None = None,
     now: Callable[[], float] = time.time,
 ) -> CycleStats:
     """Run one scan window and persist everything heard atomically.
@@ -284,6 +286,8 @@ async def run_cycle(
     r.commit()
     if window_band_counts is not None:
         await window_band_counts.run_retention_if_due(iso_utc(now()))
+    if familiar_refresher is not None:
+        await familiar_refresher.refresh_if_due(iso_utc(now()))
     return CycleStats(
         heard=len(advertisements),
         devices=len(device_ids),
@@ -328,6 +332,7 @@ async def run_loop(
     detector: Detector | None = None,
     outbox: OutboxRepository | None = None,
     window_band_counts: WindowBandCountRepository | None = None,
+    familiar_refresher: FamiliarSetRefresher | None = None,
     now: Callable[[], float] = time.time,
     rollup_every: int = CYCLE_LOG_ROLLUP_EVERY,
 ) -> int:
@@ -361,6 +366,8 @@ async def run_loop(
         window_band_counts: Optional band-count cache writer (C2).
             When given, appends one F3 band-count row per cycle inside
             the transaction and runs daily retention after COMMIT.
+        familiar_refresher: F6 familiar-set rebuild (startup + daily
+            after COMMIT). ``None`` skips refresh.
         now: Clock for stamping presence transitions (injectable).
         rollup_every: Emit one INFO heartbeat every this many completed
             cycles (#100). Per-cycle stats stay at DEBUG. Cycle 1 also
@@ -401,6 +408,7 @@ async def run_loop(
                 detector=detector,
                 outbox=outbox,
                 window_band_counts=window_band_counts,
+                familiar_refresher=familiar_refresher,
                 window_index=cycles,
                 now=now,
             )

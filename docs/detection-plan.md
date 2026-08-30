@@ -215,6 +215,10 @@ ambiguous DoD.
   **DoD:** familiar-set built from history; stable fixtures classified
   familiar; K pinned. **Deps:** F3 **Size:** M
   **Labels:** `epic:detection type:feature priority:p1`
+  **Shipped:** `docs/familiar.md`,
+  `blesentry.detection.familiar` (#125). K = 3 UTC days;
+  auto-learn cap M = 48; labeled devices always familiar;
+  startup + daily refresh after COMMIT.
 
 ### M2 — Approach detector *(magnitude-based rising trajectory)*
 

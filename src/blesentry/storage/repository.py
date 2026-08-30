@@ -543,6 +543,18 @@ class DeviceRepository:
             for r in rows
         ]
 
+    async def list_labeled_device_ids(self) -> list[int]:
+        """Return ids of devices with any non-null label (site-scoped)."""
+        cur = await self._conn.execute(
+            "SELECT id FROM devices "
+            "WHERE site_id = ? AND label IS NOT NULL "
+            "ORDER BY id",
+            (self._site,),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [int(row[0]) for row in rows]
+
     async def list_observed_between(
         self, start: str, end: str
     ) -> list[DeviceRow]:
@@ -752,6 +764,50 @@ class ObservationRepository:
         rows = await cur.fetchall()
         await cur.close()
         return [(r[0], r[1]) for r in rows]
+
+    async def list_devices_by_distinct_days(
+        self,
+        min_days: int,
+        limit: int,
+        exclude_device_ids: Sequence[int] = (),
+    ) -> list[int]:
+        """Return device ids observed on at least ``min_days`` UTC days.
+
+        Ordered by distinct-day count descending, then ``device_id``
+        ascending (tie-break). ``limit`` caps the auto-learn pool (F6).
+        ``exclude_device_ids`` omits labeled (or other) ids from the
+        ranked pool so the cap fills with auto-learn candidates only.
+        """
+        if not isinstance(min_days, int) or isinstance(min_days, bool):
+            raise TypeError("min_days must be int")
+        if min_days < 1:
+            raise ValueError("min_days must be >= 1")
+        if not isinstance(limit, int) or isinstance(limit, bool):
+            raise TypeError("limit must be int")
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        exclude_clause = ""
+        params: list[object] = [self._site, min_days]
+        if exclude_device_ids:
+            placeholders = ",".join("?" * len(exclude_device_ids))
+            exclude_clause = f" AND device_id NOT IN ({placeholders})"
+            params.extend(exclude_device_ids)
+        params.append(limit)
+        cur = await self._conn.execute(
+            "SELECT device_id "
+            "FROM observations "
+            "WHERE site_id = ? "
+            "GROUP BY device_id "
+            "HAVING COUNT(DISTINCT substr(observed_at, 1, 10)) >= ?"
+            f"{exclude_clause} "
+            "ORDER BY COUNT(DISTINCT substr(observed_at, 1, 10)) DESC, "
+            "device_id ASC "
+            "LIMIT ?",
+            tuple(params),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [int(row[0]) for row in rows]
 
     async def get(self, observation_id: int) -> ObservationRow | None:
         """Return an observation row, or ``None``."""
