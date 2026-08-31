@@ -26,7 +26,9 @@ bounded per-identity deques. The A3 backend
 lives in ``blesentry.detection.crowd`` — band-count helpers and
 frozen CUSUM knobs; C4 is the ``crowd`` backend. The I1 inside spec
 (ADR-0009) lives in ``blesentry.detection.inside`` — adjacent-count
-helpers and frozen sustain knobs; I3 is the ``inside`` backend.
+helpers and frozen sustain knobs; I2 wires
+:func:`~blesentry.detection.inside.build_inside_excluded` and own-rotating-
+gear queries; I3 is the ``inside`` backend.
 The F6 familiar baseline (``blesentry.detection.familiar``) builds
 the K-day ``is_familiar`` allow-list at startup and daily refresh;
 I2 wires it into detectors.

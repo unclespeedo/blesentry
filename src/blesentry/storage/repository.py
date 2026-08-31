@@ -809,6 +809,46 @@ class ObservationRepository:
         await cur.close()
         return [int(row[0]) for row in rows]
 
+    async def list_unlabeled_rpa_ids_coobserved_with(
+        self,
+        anchor_device_ids: Sequence[int],
+    ) -> list[int]:
+        """Unlabeled non-stable device ids co-observed with anchors.
+
+        Used by I2 own-gear exclusion for resolver under-join: operator
+        phone rotations that sit adjacent but are not yet F6-familiar.
+        ``anchor_device_ids`` is typically labeled operator gear.
+
+        "Non-stable" mirrors resolver ``_STABLE_TYPES``: excludes
+        ``public`` / ``random_static``, and **includes** ``NULL``
+        provenance (CoreBluetooth and legacy rows) plus ``rpa`` /
+        ``random`` / ``non_resolvable``.
+        """
+        if not anchor_device_ids:
+            return []
+        anchor_placeholders = ",".join("?" * len(anchor_device_ids))
+        params: list[object] = [self._site, self._site, *anchor_device_ids]
+        cur = await self._conn.execute(
+            "SELECT DISTINCT o.device_id "
+            "FROM observations o "
+            "JOIN devices d ON d.id = o.device_id AND d.site_id = o.site_id "
+            "WHERE o.site_id = ? "
+            "AND d.label IS NULL "
+            "AND (o.address_type IS NULL "
+            "     OR o.address_type NOT IN ('public', 'random_static')) "
+            "AND substr(o.observed_at, 1, 10) IN ("
+            "  SELECT DISTINCT substr(o2.observed_at, 1, 10) "
+            "  FROM observations o2 "
+            "  WHERE o2.site_id = ? "
+            f"  AND o2.device_id IN ({anchor_placeholders})"
+            ") "
+            "ORDER BY o.device_id ASC",
+            tuple(params),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [int(row[0]) for row in rows]
+
     async def get(self, observation_id: int) -> ObservationRow | None:
         """Return an observation row, or ``None``."""
         cur = await self._conn.execute(

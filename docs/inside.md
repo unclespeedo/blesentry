@@ -12,10 +12,10 @@ does not fork them.
 
 Three future modules; only I3 is a Detector backend:
 
-| Piece | Module (planned) | Job |
+| Piece | Module | Job |
 |---|---|---|
 | **I1 helpers** | `blesentry.detection.inside` | Frozen knobs + `inside_count`, `inside_sustain_step` |
-| **I2 exclusion** | TBD (#137) | Subtract F6 familiar + own rotating-address gear |
+| **I2 exclusion** | `blesentry.detection.inside` | `build_inside_excluded`, `build_own_rotating_gear_device_ids` |
 | **I3 backend** | TBD (#138) | `[detection] backend = "inside"`; `kind="inside-adjacent"` |
 
 Default `[detection] backend` stays `"none"`. Enabling inside is a
@@ -59,6 +59,30 @@ Pre-fusion `advertisements` are out of scope (approach uses those).
 Own-gear / familiar subtraction happens **before** counting (I2 wires
 F6 `is_familiar` plus rotating own-address gear). I1 only defines the
 `excluded` set contract on `inside_count`.
+
+## Exclusion (I2)
+
+```text
+build_inside_excluded(heard, *, familiar, own_rotating_gear=frozenset())
+    -> frozenset[int]
+
+build_own_rotating_gear_device_ids(devices, observations) -> frozenset[int]
+```
+
+`build_inside_excluded` returns every `device_id` in `heard` that is
+F6-familiar **or** in the own-rotating-gear set. I3 passes the result
+as `excluded=` to `inside_count`.
+
+`build_own_rotating_gear_device_ids` runs at startup / daily refresh
+(DC-1, same posture as `FamiliarSetRefresher`). It returns unlabeled
+device ids whose observations are **not known-stable**
+(`public` / `random_static` — same cut as resolver `_STABLE_TYPES`)
+on at least one UTC calendar day when labeled operator gear was also
+observed — the under-join case where the resolver keeps a phone
+rotation as a separate `device_id`. Null provenance (CoreBluetooth /
+legacy) counts as non-stable so those sources are not silently
+skipped. Labeled and F6-familiar ids are already excluded via
+`familiar`; this query catches shards that are not yet familiar.
 
 ## Frozen knobs
 
@@ -118,6 +142,6 @@ input.
 
 ## Future work
 
-- **I2 (#137).** Own-gear exclusion wiring + fixture tests.
-- **I3 (#138).** Backend, alert-with-roster, replay sustained dwell.
+- **I3 (#138).** Backend, alert-with-roster, replay sustained dwell;
+  calls `build_inside_excluded` before `inside_count`.
 - **I4 (#139).** FAR validation on fixtures; tune only via new ADR.
