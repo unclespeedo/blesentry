@@ -48,7 +48,8 @@
   Canonical detection feature vectors (F3) live in
   ``blesentry.detection.features``; formulas are pinned in
   ``docs/features.md``. A2 reuses ``rssi_slope`` / ``rssi_span`` /
-  ``max_rssi_by_identity`` — do not invent a second slope. Crowd/
+  ``max_rssi_by_identity`` only — do not invent a second slope, and
+  do not import ``band_counts`` into the tracker. Crowd/
   Inside own ``band_counts``. A3 alert text uses ``proximity_band``
   (exclusive F3 label of the terminal RSSI). The A1 approach
   trigger (ADR-0007, ``docs/approach.md``)

@@ -5,8 +5,10 @@
 """Online per-identity RSSI trajectory tracker (A2 / DC-2).
 
 Bounded deques of last-W heard samples, F3 slope/span/dwell, A1
-``is_rising_approach``. Not a Detector backend — A3's
-``ApproachDetector`` holds one of these.
+``is_rising_approach``. Imports F3 ``max_rssi_by_identity``,
+``rssi_slope``, and ``rssi_span`` only — not ``band_counts``.
+Not a Detector backend — A3's ``ApproachDetector`` holds one of
+these.
 """
 
 from __future__ import annotations
@@ -46,7 +48,7 @@ class AddressTrajectory(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    identity: str = Field(min_length=1)
+    identity: str = Field(min_length=1, repr=False)
     max_rssi: int
     slope: float | None = None
     span: int = Field(ge=0)
