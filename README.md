@@ -87,6 +87,8 @@ the install. Idempotent — a no-op re-run takes ~3 seconds.
 At a busy site the defaults will alert on every lingering device. Turn it
 down with the `[presence]` section — start by raising `rssi_threshold` to
 alert only on nearby devices. See `docs/tuning.md` for the recipe.
+For naming fixed installed gear (sensors, hubs, lights) vs transient
+phones, see `docs/site-inventory.md`.
 
 ### Operator commands (Telegram)
 

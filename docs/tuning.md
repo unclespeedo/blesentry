@@ -202,3 +202,6 @@ time: if the CLI is waiting for a name, EOF-pause it before answering in
 chat (and vice versa) — a name typed against a prompt that another surface
 already consumed is discarded and the current device is re-prompted.
 Presence tuning trims the population; labeling accounts for the residents.
+For separating fixed installed gear from transient devices, manufacturer-
+data clusters, and what smart plugs can (and cannot) power-cycle remotely,
+see `docs/site-inventory.md`.
