@@ -114,10 +114,11 @@ async def build_own_rotating_gear_device_ids(
     devices: DeviceRepository,
     observations: ObservationRepository,
 ) -> frozenset[int]:
-    """Return unlabeled RPA shards co-observed with labeled operator gear.
+    """Return unlabeled non-stable shards co-observed with labeled gear.
 
     Built outside the per-cycle hot path (DC-1). Catches under-joined
-    phone rotations that are not yet F6-familiar.
+    phone rotations that are not yet F6-familiar. Includes null
+    provenance (CoreBluetooth / legacy), not only ``address_type='rpa'``.
     """
     labeled = await devices.list_labeled_device_ids()
     if not labeled:

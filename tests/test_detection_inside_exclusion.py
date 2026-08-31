@@ -219,3 +219,67 @@ async def test_unrelated_rpa_stranger_not_own_rotating_gear(
         observations,
     )
     assert stranger_id not in own_rotating
+
+
+@pytest.mark.asyncio
+async def test_null_provenance_shard_counts_as_rotating(
+    devices: DeviceRepository,
+    observations: ObservationRepository,
+) -> None:
+    """CoreBluetooth / legacy store address_type NULL — still exclude."""
+    anchor_id = await devices.upsert(
+        fingerprint=LABELED_ANCHOR_FP,
+        address=LABELED_ANCHOR_ADDR,
+    )
+    await devices.set_label(anchor_id, label="Operator phone", actor="op")
+    rotating_id = await devices.upsert(
+        fingerprint=OWN_ROTATING_FP,
+        address=OWN_ROTATING_ADDR,
+    )
+    await _observe(observations, anchor_id, _day(1), rssi=-60)
+    await _observe(
+        observations,
+        rotating_id,
+        _day(1, 13),
+        rssi=-55,
+        address_type=None,
+    )
+    own_rotating = await build_own_rotating_gear_device_ids(
+        devices,
+        observations,
+    )
+    assert rotating_id in own_rotating
+
+
+@pytest.mark.asyncio
+async def test_known_stable_coobserved_not_own_rotating(
+    devices: DeviceRepository,
+    observations: ObservationRepository,
+) -> None:
+    """Known-stable types stay out of the rotating-shard set."""
+    anchor_id = await devices.upsert(
+        fingerprint=LABELED_ANCHOR_FP,
+        address=LABELED_ANCHOR_ADDR,
+    )
+    await devices.set_label(anchor_id, label="Operator phone", actor="op")
+    stable_id = await devices.upsert(
+        fingerprint=OWN_STABLE_FP,
+        address=OWN_STABLE_ADDR,
+    )
+    await _observe(
+        observations,
+        anchor_id,
+        _day(1),
+        address_type="rpa",
+    )
+    await _observe(
+        observations,
+        stable_id,
+        _day(1, 13),
+        address_type="random_static",
+    )
+    own_rotating = await build_own_rotating_gear_device_ids(
+        devices,
+        observations,
+    )
+    assert stable_id not in own_rotating

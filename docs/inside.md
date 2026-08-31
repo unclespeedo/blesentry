@@ -75,12 +75,14 @@ as `excluded=` to `inside_count`.
 
 `build_own_rotating_gear_device_ids` runs at startup / daily refresh
 (DC-1, same posture as `FamiliarSetRefresher`). It returns unlabeled
-device ids whose observations use a rotating address type (`rpa`) on
-at least one UTC calendar day when labeled operator gear was also
+device ids whose observations are **not known-stable**
+(`public` / `random_static` — same cut as resolver `_STABLE_TYPES`)
+on at least one UTC calendar day when labeled operator gear was also
 observed — the under-join case where the resolver keeps a phone
-rotation as a separate `device_id`. Labeled and F6-familiar ids are
-already excluded via `familiar`; this query catches shards that are
-not yet familiar.
+rotation as a separate `device_id`. Null provenance (CoreBluetooth /
+legacy) counts as non-stable so those sources are not silently
+skipped. Labeled and F6-familiar ids are already excluded via
+`familiar`; this query catches shards that are not yet familiar.
 
 ## Frozen knobs
 

@@ -813,11 +813,16 @@ class ObservationRepository:
         self,
         anchor_device_ids: Sequence[int],
     ) -> list[int]:
-        """Unlabeled device ids with RPA obs on a labeled anchor's UTC days.
+        """Unlabeled non-stable device ids co-observed with anchors.
 
         Used by I2 own-gear exclusion for resolver under-join: operator
         phone rotations that sit adjacent but are not yet F6-familiar.
         ``anchor_device_ids`` is typically labeled operator gear.
+
+        "Non-stable" mirrors resolver ``_STABLE_TYPES``: excludes
+        ``public`` / ``random_static``, and **includes** ``NULL``
+        provenance (CoreBluetooth and legacy rows) plus ``rpa`` /
+        ``random`` / ``non_resolvable``.
         """
         if not anchor_device_ids:
             return []
@@ -829,7 +834,8 @@ class ObservationRepository:
             "JOIN devices d ON d.id = o.device_id AND d.site_id = o.site_id "
             "WHERE o.site_id = ? "
             "AND d.label IS NULL "
-            "AND o.address_type = 'rpa' "
+            "AND (o.address_type IS NULL "
+            "     OR o.address_type NOT IN ('public', 'random_static')) "
             "AND substr(o.observed_at, 1, 10) IN ("
             "  SELECT DISTINCT substr(o2.observed_at, 1, 10) "
             "  FROM observations o2 "
