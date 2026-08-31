@@ -31,6 +31,8 @@ CROWD_HOUR_OF_WEEK_BUCKETS = 168
 # Seven days at the default 15 s cadence (scan.window + scan.pause).
 CROWD_ROLLING_WINDOWS = 40320
 CROWD_COLD_START_HOURS = 168
+# Per-bucket / rolling residual deque cap for floored MAD (DC-2).
+CROWD_RESIDUAL_WINDOW = CROWD_EWMA_SPAN
 
 
 def ewma_alpha(span: int) -> float:

@@ -24,7 +24,8 @@ bounded per-identity deques. The A3 backend
 ``[detection] backend = "approach"`` union member; this package
 ``__init__`` does not re-export it. The C1 crowd spec (ADR-0008)
 lives in ``blesentry.detection.crowd`` — band-count helpers and
-frozen CUSUM knobs; C4 is the ``crowd`` backend. The I1 inside spec
+frozen CUSUM knobs; C3 is ``blesentry.detection.crowd_baseline``
+(``docs/crowd-baseline.md``); C4 is the ``crowd`` backend. The I1 inside spec
 (ADR-0009) lives in ``blesentry.detection.inside`` — adjacent-count
 helpers and frozen sustain knobs; I2 wires
 :func:`~blesentry.detection.inside.build_inside_excluded` and own-rotating-

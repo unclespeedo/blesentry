@@ -16,7 +16,7 @@ Three future modules; only C4 is a Detector backend:
 |---|---|---|
 | **C1 helpers** | `blesentry.detection.crowd` | Frozen knobs + `crowd_counts`, `floored_mad`, `cusum_positive` |
 | **C2 persistence** | `WindowBandCountRepository` (#132) | Band-count row per cycle inside the txn |
-| **C3 baseline** | TBD (#133) | Seasonal + rolling EWMA, episode freeze |
+| **C3 baseline** | `blesentry.detection.crowd_baseline` (#133) | Seasonal + rolling EWMA, episode freeze — see `docs/crowd-baseline.md` |
 | **C4 backend** | TBD (#134) | `[detection] backend = "crowd"`; `kind="crowd-busy"` |
 
 Default `[detection] backend` stays `"none"`. Enabling crowd is a
@@ -55,6 +55,7 @@ Cadence reminder: default window is `scan.window + scan.pause` =
 | CUSUM h | 5.0 | Fire when accumulator ≥ h |
 | EWMA span N | 56 | ~8 weeks per hour-of-week bucket |
 | EWMA α | `2 / (N + 1)` | `ewma_alpha(56)` |
+| Residual window cap | 56 | `CROWD_RESIDUAL_WINDOW` (= EWMA span, DC-2) |
 | Seasonal buckets | 168 | Hour-of-week (7 × 24) |
 | Rolling fallback | 40320 windows | ~7 days at 15 s |
 | Cold start | 168 h | Seasonal untrusted until then |
@@ -127,6 +128,7 @@ events; do not treat count collapse as quiet. C4 wires the input.
 
 - **C2 (#132).** `window_band_counts` + `WindowBandCountRepository`;
   per-cycle append inside the txn; daily time-window retention.
-- **C3 (#133).** Online baseline + outlier-day robustness tests.
+- **C3 (#133).** `CrowdBaseline` + `docs/crowd-baseline.md`; outlier and
+  tier-selection tests.
 - **C4 (#134).** Backend, alert-with-roster, replay busy episode.
 - **C5 (#135).** FAR validation on fixtures; tune only via new ADR.
