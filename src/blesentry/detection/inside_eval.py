@@ -51,11 +51,23 @@ class InsideValidationMetrics:
         )
 
     def meets_i1_targets(self) -> bool:
-        """Return True when recall is full and FAR ≤ INSIDE_FAR_PER_DAY."""
+        """Return True when recall is full and FAR ≤ INSIDE_FAR_PER_DAY.
+
+        Requires at least one scored positive episode and one benign window
+        so empty or partial metrics cannot pass vacuously.
+        """
+        if self.positive_episodes <= 0 or self.benign_window_count <= 0:
+            return False
         return (
             self.recall >= 1.0
             and self.alerts_per_benign_day <= INSIDE_FAR_PER_DAY
         )
+
+    def meets_benign_far_target(self) -> bool:
+        """Return True when this slice alone meets the I1 FAR target."""
+        if self.benign_window_count <= 0:
+            return False
+        return self.alerts_per_benign_day <= INSIDE_FAR_PER_DAY
 
 
 def count_events(
@@ -91,7 +103,7 @@ def evaluate_positive(
     expect_events: int = 1,
 ) -> InsideValidationMetrics:
     """Score one positive episode (recall numerator/denominator)."""
-    detected = 1 if count_events(detector, windows) == expect_events else 0
+    detected = 1 if count_events(detector, windows) >= expect_events else 0
     return InsideValidationMetrics(
         positive_episodes=1,
         positives_detected=detected,

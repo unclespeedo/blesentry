@@ -69,6 +69,12 @@ def test_inside_eval_vacuous_recall() -> None:
         false_events=0,
     )
     assert metrics.recall == 1.0
+    assert not metrics.meets_i1_targets()
+
+
+def test_meets_i1_targets_requires_benign_windows() -> None:
+    positive_only = InsideValidationMetrics(1, 1, 0, 0)
+    assert not positive_only.meets_i1_targets()
 
 
 def test_inside_eval_alerts_per_benign_day_scaling() -> None:
@@ -199,7 +205,8 @@ def test_i4_metrics_meet_i1_targets() -> None:
     ]
     combined = merge_metrics(dwell, *benign_parts)
     assert combined.recall == 1.0
-    assert combined.alerts_per_benign_day <= INSIDE_FAR_PER_DAY
+    for part in benign_parts:
+        assert part.meets_benign_far_target()
     assert combined.meets_i1_targets()
 
 
