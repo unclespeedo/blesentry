@@ -75,8 +75,9 @@ Pure membership test; no I/O inside `is_familiar`.
 
 ## What this is not
 
-- **Not wired into detectors yet.** I2 subtracts before inside; C4
-  may use roster context. F6 builds the set.
+- **Inside wiring (I2).** `build_inside_excluded` subtracts
+  `is_familiar` before `inside_count`; see `docs/inside.md`.
+  C4 may use roster context separately. F6 builds the set.
 - **Not per-cycle observation reads in detectors.** DC-1.
 - **Not the RPA cloud.** Trajectory tracker cap is separate (DC-2).
 - **Not RSSI distribution learning.** DC-6 calibration is a follow-on;

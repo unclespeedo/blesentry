@@ -13,7 +13,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from blesentry.detection.familiar import FamiliarSet
 from blesentry.detection.features import DEFAULT_BANDS, BandEdges, band_counts
+from blesentry.storage.repository import (
+    DeviceRepository,
+    ObservationRepository,
+)
 
 # Frozen knobs — ADR-0009 / docs/inside.md. I2/I3 import these;
 # do not copy the integers into the backend module.
@@ -84,3 +89,40 @@ def inside_sustain_step(
         new_streak = streak + 1
         return new_streak, new_streak >= sustain_windows
     return 0, False
+
+
+def build_inside_excluded(
+    heard: Mapping[int, int],
+    *,
+    familiar: FamiliarSet,
+    own_rotating_gear: frozenset[int] | set[int] = frozenset(),
+) -> frozenset[int]:
+    """Return ``device_id`` values to subtract before ``inside_count``.
+
+    Unions F6 familiarity with the own-rotating-gear set built by
+    :func:`build_own_rotating_gear_device_ids` (under-joined RPA
+    shards of labeled operator gear).
+    """
+    excluded: set[int] = set()
+    for device_id in heard:
+        if familiar.is_familiar(device_id) or device_id in own_rotating_gear:
+            excluded.add(device_id)
+    return frozenset(excluded)
+
+
+async def build_own_rotating_gear_device_ids(
+    devices: DeviceRepository,
+    observations: ObservationRepository,
+) -> frozenset[int]:
+    """Return unlabeled RPA shards co-observed with labeled operator gear.
+
+    Built outside the per-cycle hot path (DC-1). Catches under-joined
+    phone rotations that are not yet F6-familiar.
+    """
+    labeled = await devices.list_labeled_device_ids()
+    if not labeled:
+        return frozenset()
+    shard_ids = await observations.list_unlabeled_rpa_ids_coobserved_with(
+        labeled,
+    )
+    return frozenset(shard_ids)

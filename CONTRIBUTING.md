@@ -60,8 +60,8 @@
   ``blesentry.detection.approach_detector.ApproachDetector``
   (``[detection] backend = "approach"``, ``kind="approaching"``);
   default remains ``none``. The I1 inside spec (ADR-0009,
-  ``docs/inside.md``) is ``blesentry.detection.inside.inside_count``
-  / ``inside_sustain_step``. I3 reserves ``detector="inside"`` /
+  ``docs/inside.md``) is   ``blesentry.detection.inside.inside_count``
+  / ``inside_sustain_step`` / ``build_inside_excluded``. I3 reserves ``detector="inside"`` /
   ``kind="inside-adjacent"``; ``[detection] backend = "inside"`` is
   not yet a legal union member (load-time ``ConfigError`` until I3).
   F6 ``is_familiar`` / ``FamiliarSet`` live in
