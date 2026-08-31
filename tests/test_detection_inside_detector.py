@@ -38,12 +38,12 @@ from blesentry.detection.protocol import Detector
 from blesentry.detection.replay import (
     detector_for_backend,
     format_report,
+    load_advertisement_fixture,
     replay_heard_fixture,
 )
 from blesentry.loop import run_cycle
 from blesentry.notifier.models import OutboundMessage
 from blesentry.scanner.mock import MockScanner
-from blesentry.scanner.models import Advertisement
 from blesentry.storage.database import apply_migrations, connect
 from blesentry.storage.repository import (
     DeviceRepository,
@@ -55,6 +55,8 @@ REPLAY_DIR = Path(__file__).parent / "fixtures" / "replay"
 DWELL_FIXTURE = REPLAY_DIR / "inside-dwell.json"
 DWELL_GOLDEN = REPLAY_DIR / "inside-dwell-golden.json"
 TRANSIENT_FIXTURE = REPLAY_DIR / "inside-transient.json"
+CYCLE_AD_FIXTURE = REPLAY_DIR / "inside-cycle-ad.json"
+WALKBY_FIXTURE = REPLAY_DIR / "walkby.json"
 STRANGER_ID = 42
 DWELL_ALERT = "Sustained adjacent-to-Pi: 1 device(s) (device 42)."
 
@@ -106,15 +108,8 @@ def test_inside_config_parses() -> None:
 
 
 def test_observe_ignores_advertisements() -> None:
-    from blesentry.scanner.models import Advertisement
-
     detector = InsideDetector()
-    ad = Advertisement(
-        address="AA:BB:00:00:00:01",
-        rssi=-55,
-        timestamp=1.0,
-        adapter_id="test",
-    )
+    ad = load_advertisement_fixture(WALKBY_FIXTURE)[0]
     events = detector.observe(
         DetectionWindow(index=0, advertisements=(ad,), heard={})
     )
@@ -242,20 +237,13 @@ async def test_run_cycle_inside_heard_enqueue(tmp_path: Path) -> None:
         observations = ObservationRepository(conn, "test-site")
         outbox = OutboxRepository(conn, "test-site")
         detector = InsideDetector()
+        cycle_ad = load_advertisement_fixture(CYCLE_AD_FIXTURE)[0]
         for index in range(INSIDE_SUSTAIN_WINDOWS):
+            ad = cycle_ad.model_copy(
+                update={"timestamp": float(index)},
+            )
             await run_cycle(
-                MockScanner(
-                    scenarios=[
-                        [
-                            Advertisement(
-                                address="AA:BB:00:00:00:0B",
-                                rssi=-55,
-                                timestamp=float(index),
-                                adapter_id="test",
-                            )
-                        ]
-                    ]
-                ),
+                MockScanner(scenarios=[[ad]]),
                 devices,
                 observations,
                 0.0,
@@ -273,7 +261,7 @@ async def test_run_cycle_inside_heard_enqueue(tmp_path: Path) -> None:
             "Sustained adjacent-to-Pi: 1 device(s) (device "
         )
         assert texts[0].endswith(").")
-        assert "AA:BB" not in texts[0]
+        assert cycle_ad.address not in texts[0]
     finally:
         await conn.close()
 

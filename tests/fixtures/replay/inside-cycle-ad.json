@@ -1,0 +1,13 @@
+[
+  {
+    "address": "AA:BB:00:00:00:0B",
+    "rssi": -55,
+    "local_name": null,
+    "service_uuids": [],
+    "manufacturer_data": {},
+    "service_data": {},
+    "tx_power": null,
+    "timestamp": 0.0,
+    "adapter_id": "test"
+  }
+]
