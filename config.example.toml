@@ -115,18 +115,26 @@ backend = "none"
 # for tests / F1. "approach" is the A3 rising-RSSI backend
 # (ADR-0007 / docs/approach.md): one "approaching" event per
 # address visit, enqueued inside the scan-cycle transaction.
-# Crowd / inside are later issues. W/Δ/peak are frozen in code,
-# not knobs here.
+# "inside" is the I3 sustained adjacent-to-Pi backend
+# (ADR-0009 / docs/inside.md): one "inside-adjacent" event per
+# dwell episode, enqueued inside the scan-cycle transaction.
+# Crowd is a later issue. W/Δ/peak and inside N/M are frozen in
+# code, not knobs here.
 backend = "none"
 
 # Example of the approach backend:
 # [detection]
 # backend = "approach"
 #
+# Example of the inside backend:
+# [detection]
+# backend = "inside"
+#
 # Offline eval (F1) is a CLI, not the daemon: `blesentry replay`
 # `--fixture` or `--db` (a copied snapshot, never the live WAL).
 # Approach needs advertisements, so use --fixture (walkby.json).
-# See docs/replay.md.
+# Inside needs heard maps: use --fixture (inside-dwell.json) or
+# --db with a copied observations snapshot. See docs/replay.md.
 
 [summary]
 # Daily digest (P2-9): devices seen, new devices, presence transitions,

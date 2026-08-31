@@ -16,7 +16,13 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+)
 
 from blesentry.scanner.models import Advertisement
 
@@ -72,3 +78,14 @@ class DetectionEvent(BaseModel):
     rssi: int | None = None
     band: ProximityBand | None = None
     rising: bool | None = None
+    count: int | None = Field(default=None, ge=1)
+    contributors: tuple[int, ...] | None = None
+
+    @field_validator("contributors")
+    @classmethod
+    def _contributors_non_empty(
+        cls, value: tuple[int, ...] | None
+    ) -> tuple[int, ...] | None:
+        if value is not None and len(value) == 0:
+            raise ValueError("contributors must be non-empty when set")
+        return value

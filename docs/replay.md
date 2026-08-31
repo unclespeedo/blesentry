@@ -30,7 +30,8 @@ Exactly one source:
 
 | Source | CLI | Windows contain |
 |---|---|---|
-| Sanitized advertisement fixture (JSON array of `Advertisement`) | `--fixture PATH` | `advertisements` populated; `heard` empty (no resolver ran) |
+| Sanitized advertisement fixture (JSON array of `Advertisement`) | `--fixture PATH` with `--backend none`/`mock`/`approach` | `advertisements` populated; `heard` empty (no resolver ran) |
+| Sanitized heard-window fixture (JSON array of `{heard: [[id,rssi],…]}`) | `--fixture PATH` with `--backend inside` | `heard` populated; `advertisements` empty |
 | Immutable `observations` snapshot | `--db PATH --site-id ID` | `heard` = per-`device_id` best RSSI; `advertisements` empty (payloads are not in that table) |
 
 A detector that needs **both** streams in one window is out of
@@ -57,20 +58,27 @@ Windows are indexed, not wall-clocked (DC-4 / DC-9).
   calls; skipping them would lie about dwell.
 - An empty source yields zero windows, not an error.
 
-N-day span: a source whose last timestamp is `Δ` seconds after
-`t0` produces `floor(Δ / period) + 1` windows, including empties.
-Two days at the default 15 s period is 11,521 windows if the last
-sample lands on the last instant of day two; tests pin the formula
+Heard-window fixtures are one JSON object per window index (dense
+from 0); they do not use timestamp bucketing or `--period`. The report
+`period` field is still 15.0 (scan cadence label only).
+
+N-day span: a timestamp-bucketed source whose last timestamp is `Δ`
+seconds after `t0` produces `floor(Δ / period) + 1` windows, including
+empties. Two days at the default 15 s period is 11,521 windows if the
+last sample lands on the last instant of day two; tests pin the formula
 with a 86400 s period so the count stays small.
 
 ## Detector
 
-`--backend none` (default), `mock`, or `approach` — the same closed
-union as `[detection]` (ADR-0006). `none` emits nothing; unscripted
-`mock` records windows and also emits nothing. `approach` is A3
-(`ApproachDetector`); it reads `advertisements` only, so
-`--fixture` is the path that can fire. `--db` snapshot replay has
-empty `advertisements` and will not produce approach events.
+`--backend none` (default), `mock`, `approach`, or `inside` — the same
+closed union as `[detection]` (ADR-0006). `none` emits nothing;
+unscripted `mock` records windows and also emits nothing. `approach`
+is A3 (`ApproachDetector`); it reads `advertisements` only, so
+`--fixture` (advertisement JSON) is the path that can fire. `inside`
+is I3 (`InsideDetector`); it reads `heard` only, so `--fixture`
+(heard-window JSON, e.g. `inside-dwell.json`) or `--db` snapshot
+replay is the path that can fire. `--db` snapshot replay has empty
+`advertisements` and will not produce approach events.
 Scripted `MockDetector` events are a unit-test concern, not a CLI
 flag.
 
@@ -101,9 +109,10 @@ Stdout is JSON (stable key order) so a golden file can diff it:
 }
 ```
 
-Fixture replay always has empty `heard`. Snapshot replay always has
-`advertisement_count` 0 and `heard` as `[device_id, rssi]` pairs
-(sorted by `device_id`). A single run never fills both streams.
+Fixture replay: advertisement fixtures have empty `heard`; heard-window
+fixtures (inside) and snapshot replay populate `heard` as
+`[device_id, rssi]` pairs sorted by `device_id`. A single run never
+fills both streams.
 
 - `heard` is a list of `[device_id, rssi]` pairs, sorted by
   `device_id`. JSON objects cannot carry integer keys.

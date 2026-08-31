@@ -16,10 +16,10 @@ Three future modules; only I3 is a Detector backend:
 |---|---|---|
 | **I1 helpers** | `blesentry.detection.inside` | Frozen knobs + `inside_count`, `inside_sustain_step` |
 | **I2 exclusion** | `blesentry.detection.inside` | `build_inside_excluded`, `build_own_rotating_gear_device_ids` |
-| **I3 backend** | TBD (#138) | `[detection] backend = "inside"`; `kind="inside-adjacent"` |
+| **I3 backend** | `blesentry.detection.inside_detector.InsideDetector` | `[detection] backend = "inside"`; `kind="inside-adjacent"` |
 
 Default `[detection] backend` stays `"none"`. Enabling inside is a
-future config edit.
+config edit: `backend = "inside"`.
 
 ## Why
 
@@ -66,7 +66,8 @@ F6 `is_familiar` plus rotating own-address gear). I1 only defines the
 build_inside_excluded(heard, *, familiar, own_rotating_gear=frozenset())
     -> frozenset[int]
 
-build_own_rotating_gear_device_ids(devices, observations) -> frozenset[int]
+async build_own_rotating_gear_device_ids(devices, observations)
+    -> frozenset[int]
 ```
 
 `build_inside_excluded` returns every `device_id` in `heard` that is
@@ -140,8 +141,69 @@ input.
 - **Not crowd / approach.** Post-resolve aggregate vs pre-fusion
   trajectory.
 
+## Detector backend (I3)
+
+```text
+InsideDetector.observe(window) -> tuple[DetectionEvent, ...]
+format_inside_alert(event) -> str
+```
+
+Implementation: `blesentry.detection.inside_detector`. Holds
+consecutive-window sustain state and a fire-once flag per episode.
+
+`observe` is synchronous and I/O-free (ADR-0006). It reads
+**post-resolve `heard`** only (`advertisements` is ignored — fixture
+replay without a resolver cannot drive this backend the way approach
+uses advertisements). Each window:
+
+1. `build_inside_excluded(heard, familiar=…, own_rotating_gear=…)`
+2. `inside_count(heard, excluded=…)`
+3. `inside_sustain_step(streak, count)`
+
+When sustain fires and this episode has not already alerted, return
+one `DetectionEvent`:
+
+| Field | Value |
+|---|---|
+| `detector` | `inside` |
+| `kind` | `inside-adjacent` |
+| `window_index` | the window's index |
+| `count` | adjacent count after exclusion |
+| `contributors` | sorted post-resolve `device_id`s in the adjacent band |
+
+No raw address, no metres (DC-6, SECURITY.md). Additive fields on
+`DetectionEvent` default to `None` so `mock` events stay three
+tokens.
+
+**Fire-once per episode.** The sustain predicate stays true on later
+windows of the same dwell; I3 emits on the first `streak >= M`
+only. A quiet window (`count < N`) resets streak and clears the
+fire-once flag so a later dwell can alert again.
+
+**Alert text** (snapshot-tested), never a distance:
+
+```text
+Sustained adjacent-to-Pi: 1 device(s) (device 42).
+```
+
+`run_cycle` / `run_loop` enqueue inside the cycle transaction (DC-1),
+mirroring approach (A3). `build_detector` accepts the live
+`FamiliarSet` and startup-built own-rotating-gear set; replay uses
+defaults (empty exclusion).
+
+### Replay (DoD)
+
+Synthetic heard fixtures under `tests/fixtures/replay/`:
+
+| Fixture | Expect |
+|---|---|
+| `inside-dwell.json` | eight consecutive adjacent windows → one event at index 7 |
+| `inside-transient.json` | two adjacent windows then quiet → silent |
+
+Golden: `inside-dwell-golden.json`. Counts and event fields only —
+no addresses in the report. Use `--fixture` with heard-window JSON
+or `--db` snapshot replay (observation rows populate `heard`).
+
 ## Future work
 
-- **I3 (#138).** Backend, alert-with-roster, replay sustained dwell;
-  calls `build_inside_excluded` before `inside_count`.
 - **I4 (#139).** FAR validation on fixtures; tune only via new ADR.

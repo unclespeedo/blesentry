@@ -98,6 +98,10 @@ def _detection_alert_text(event: DetectionEvent) -> str:
         APPROACH_DETECTOR_ID,
         APPROACH_KIND,
     )
+    from blesentry.detection.inside import (
+        INSIDE_DETECTOR_ID,
+        INSIDE_KIND,
+    )
 
     if event.detector == APPROACH_DETECTOR_ID and event.kind == APPROACH_KIND:
         from blesentry.detection.approach_detector import (
@@ -105,6 +109,10 @@ def _detection_alert_text(event: DetectionEvent) -> str:
         )
 
         return format_approach_alert(event)
+    if event.detector == INSIDE_DETECTOR_ID and event.kind == INSIDE_KIND:
+        from blesentry.detection.inside_detector import format_inside_alert
+
+        return format_inside_alert(event)
     return (
         f"Detection {event.detector}/{event.kind} "
         f"at window {event.window_index}."
@@ -287,7 +295,21 @@ async def run_cycle(
     if window_band_counts is not None:
         await window_band_counts.run_retention_if_due(iso_utc(now()))
     if familiar_refresher is not None:
-        await familiar_refresher.refresh_if_due(iso_utc(now()))
+        refreshed = await familiar_refresher.refresh_if_due(iso_utc(now()))
+        if refreshed and detector is not None:
+            from blesentry.detection.inside_detector import InsideDetector
+
+            if isinstance(detector, InsideDetector):
+                from blesentry.detection.inside import (
+                    build_own_rotating_gear_device_ids,
+                )
+
+                detector.replace_own_rotating_gear(
+                    await build_own_rotating_gear_device_ids(
+                        devices,
+                        observations,
+                    )
+                )
     return CycleStats(
         heard=len(advertisements),
         devices=len(device_ids),

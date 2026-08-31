@@ -61,9 +61,10 @@
   (``[detection] backend = "approach"``, ``kind="approaching"``);
   default remains ``none``. The I1 inside spec (ADR-0009,
   ``docs/inside.md``) is   ``blesentry.detection.inside.inside_count``
-  / ``inside_sustain_step`` / ``build_inside_excluded``. I3 reserves ``detector="inside"`` /
-  ``kind="inside-adjacent"``; ``[detection] backend = "inside"`` is
-  not yet a legal union member (load-time ``ConfigError`` until I3).
+  / ``inside_sustain_step`` / ``build_inside_excluded``. The I3 inside
+  backend is ``blesentry.detection.inside_detector.InsideDetector``
+  (``[detection] backend = "inside"``, ``kind="inside-adjacent"``);
+  default remains ``none``.
   F6 ``is_familiar`` / ``FamiliarSet`` live in
   ``blesentry.detection.familiar`` (``docs/familiar.md``); I2 wires
   exclusion into detectors. Alert text never uses metres
