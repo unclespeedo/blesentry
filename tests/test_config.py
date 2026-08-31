@@ -502,4 +502,4 @@ def test_example_config_loads_clean() -> None:
     assert cfg.site_id
     assert cfg.storage.db
     assert cfg.scanner.backend in {"bleak", "mock"}
-    assert cfg.detection.backend in {"none", "mock", "approach"}
+    assert cfg.detection.backend in {"none", "mock", "approach", "inside"}

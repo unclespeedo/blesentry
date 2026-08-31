@@ -36,7 +36,8 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
                 │ Detector (protocol; A3 in scan loop)         │
                 │   ├─ NullDetector  (none, default)           │
                 │   ├─ MockDetector  (CI / F1 replay)          │
-                │   └─ ApproachDetector (approach; A3)         │
+                │   ├─ ApproachDetector (approach; A3)         │
+                │   └─ InsideDetector (inside; I3)           │
                 │        │                                     │
                 │        ▼                                     │
                 │ Outbox ──▶ Drain loop (exp. backoff) ──▶     │
@@ -55,7 +56,8 @@ implementations is a config edit, no code change. See
 `docs/adr/0002-extension-points.md` for those plugin contracts.
 Detector's frozen surface (`observe(window) → events`) is ADR-0006;
 v1 backends are `none` (default, no events), `mock` (CI / replay),
-and `approach` (A3 rising-RSSI). Crowd / inside are later issues.
+`approach` (A3 rising-RSSI), and `inside` (I3 sustained adjacent-to-Pi).
+Crowd is a later issue.
 `run_cycle` calls `observe` inside the cycle transaction and
 enqueues returned events (DC-1); default `none` does not change
 alert behaviour. The Device resolver is a *named
@@ -125,6 +127,16 @@ Default `backend` is still `none`. Replay a labeled walk-by with
 `blesentry replay --fixture tests/fixtures/replay/walkby.json
 --backend approach`. Alert text reports the F3 coarse band and
 RSSI, never a distance.
+
+The **inside** detector (`[detection] backend = "inside"`) is I3:
+ADR-0009 / `docs/inside.md`. It counts sustained adjacent-to-Pi
+devices from post-resolve `heard`, subtracts F6 familiar and
+own-rotating gear (I2), and emits `kind="inside-adjacent"` inside
+the scan-cycle transaction. Default `backend` is still `none`.
+Replay a synthetic dwell with `blesentry replay --fixture
+tests/fixtures/replay/inside-dwell.json --backend inside`, or replay
+a copied observations snapshot with `--db` / `--site-id`. Alert
+text lists post-resolve device ids and count, never a distance.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Agentic contributions operate under

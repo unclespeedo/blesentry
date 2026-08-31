@@ -200,6 +200,54 @@ def load_advertisement_fixture(path: Path) -> list[Advertisement]:
     return [Advertisement.model_validate(item) for item in raw]
 
 
+def load_heard_fixture(path: Path) -> list[DetectionWindow]:
+    """Load a JSON array of heard-window buckets for inside replay."""
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise TypeError(f"{path} is not a JSON array")
+    windows: list[DetectionWindow] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise TypeError(f"{path}[{index}] is not an object")
+        heard_raw = item.get("heard", [])
+        if not isinstance(heard_raw, list):
+            raise TypeError(f"{path}[{index}].heard is not an array")
+        heard: dict[int, int] = {}
+        for pair in heard_raw:
+            if (
+                not isinstance(pair, list)
+                or len(pair) != 2
+                or not isinstance(pair[0], int)
+                or isinstance(pair[0], bool)
+                or not isinstance(pair[1], int)
+                or isinstance(pair[1], bool)
+            ):
+                raise TypeError(
+                    f"{path}[{index}].heard entries must be [device_id, rssi]"
+                )
+            device_id, rssi = pair
+            current = heard.get(device_id)
+            if current is None or rssi > current:
+                heard[device_id] = rssi
+        windows.append(DetectionWindow(index=index, heard=heard))
+    return windows
+
+
+def replay_heard_fixture(
+    path: str | Path,
+    detector: Detector,
+) -> ReplayReport:
+    """Replay a sanitized heard-window fixture through ``detector``."""
+    windows = load_heard_fixture(Path(path))
+    if windows and not any(window.heard for window in windows):
+        raise ValueError(
+            f"{path} has no heard entries; "
+            "inside replay needs heard-window JSON"
+        )
+    period = DEFAULT_REPLAY_PERIOD
+    return make_report(windows, replay(detector, windows), period=period)
+
+
 def replay_fixture(
     path: str | Path,
     detector: Detector,
@@ -253,9 +301,10 @@ async def replay_snapshot(
 
 
 def detector_for_backend(backend: str) -> Detector:
-    """Build ``none`` / ``mock`` / ``approach`` like the daemon config."""
+    """Build ``none`` / ``mock`` / ``approach`` / ``inside`` like config."""
     from blesentry.config import (
         ApproachDetectionConfig,
+        InsideDetectionConfig,
         MockDetectionConfig,
         NoneDetectionConfig,
         build_detector,
@@ -265,6 +314,8 @@ def detector_for_backend(backend: str) -> Detector:
         return build_detector(MockDetectionConfig(backend="mock"))
     if backend == "approach":
         return build_detector(ApproachDetectionConfig(backend="approach"))
+    if backend == "inside":
+        return build_detector(InsideDetectionConfig(backend="inside"))
     if backend == "none":
         return build_detector(NoneDetectionConfig())
     raise ValueError(f"unknown detection backend: {backend}")

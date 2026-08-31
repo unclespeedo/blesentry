@@ -1,0 +1,97 @@
+{
+  "events": [
+    {
+      "contributors": [
+        42
+      ],
+      "count": 1,
+      "detector": "inside",
+      "kind": "inside-adjacent",
+      "window_index": 7
+    }
+  ],
+  "period": 15.0,
+  "window_count": 8,
+  "windows": [
+    {
+      "advertisement_count": 0,
+      "heard": [
+        [
+          42,
+          -55
+        ]
+      ],
+      "index": 0
+    },
+    {
+      "advertisement_count": 0,
+      "heard": [
+        [
+          42,
+          -55
+        ]
+      ],
+      "index": 1
+    },
+    {
+      "advertisement_count": 0,
+      "heard": [
+        [
+          42,
+          -55
+        ]
+      ],
+      "index": 2
+    },
+    {
+      "advertisement_count": 0,
+      "heard": [
+        [
+          42,
+          -55
+        ]
+      ],
+      "index": 3
+    },
+    {
+      "advertisement_count": 0,
+      "heard": [
+        [
+          42,
+          -55
+        ]
+      ],
+      "index": 4
+    },
+    {
+      "advertisement_count": 0,
+      "heard": [
+        [
+          42,
+          -55
+        ]
+      ],
+      "index": 5
+    },
+    {
+      "advertisement_count": 0,
+      "heard": [
+        [
+          42,
+          -55
+        ]
+      ],
+      "index": 6
+    },
+    {
+      "advertisement_count": 0,
+      "heard": [
+        [
+          42,
+          -55
+        ]
+      ],
+      "index": 7
+    }
+  ]
+}

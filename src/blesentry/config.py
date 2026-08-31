@@ -40,6 +40,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
+    from blesentry.detection.familiar import FamiliarSet
     from blesentry.detection.protocol import Detector
     from blesentry.notifier.protocol import Notifier
     from blesentry.presence import PresenceTracker
@@ -50,7 +51,7 @@ __all__ = [
     "BleakScannerConfig",
     "Config",
     "ConfigError",
-    "MockDetectionConfig",
+    "InsideDetectionConfig",
     "MockScannerConfig",
     "NoneDetectionConfig",
     "NoneNotifierConfig",
@@ -267,9 +268,18 @@ class ApproachDetectionConfig(_Section):
     backend: Literal["approach"]
 
 
+class InsideDetectionConfig(_Section):
+    """Sustained adjacent-to-Pi inside backend (I3 / ADR-0009)."""
+
+    backend: Literal["inside"]
+
+
 # Closed union, same posture as Scanner/Notifier. Open registry is #101.
 DetectionConfig = Annotated[
-    NoneDetectionConfig | MockDetectionConfig | ApproachDetectionConfig,
+    NoneDetectionConfig
+    | MockDetectionConfig
+    | ApproachDetectionConfig
+    | InsideDetectionConfig,
     Field(discriminator="backend"),
 ]
 
@@ -466,15 +476,23 @@ def build_notifier(notifier: NotifierConfig) -> Notifier:
     return NullNotifier()
 
 
-def build_detector(detection: DetectionConfig) -> Detector:
+def build_detector(
+    detection: DetectionConfig,
+    *,
+    familiar: FamiliarSet | None = None,
+    own_rotating_gear: frozenset[int] | set[int] = frozenset(),
+) -> Detector:
     """Construct the configured Detector backend (ADR-0006 selection).
 
     Backends are imported lazily so the ``none`` path never drags a
-    future learned model into the import graph (DC-8, 512 MB). A3
-    wires the result into ``run_cycle``.
+    future learned model into the import graph (DC-8, 512 MB). A3/I3
+    wire the result into ``run_cycle``. The ``inside`` backend accepts
+    the live F6 ``FamiliarSet`` and startup-built own-rotating gear.
 
     Args:
         detection: The validated detection section from :class:`Config`.
+        familiar: Live familiar set for the inside backend (I3/I2).
+        own_rotating_gear: Startup-built rotating own-gear ids (I2).
 
     Returns:
         A ready-to-use Detector implementation.
@@ -487,6 +505,13 @@ def build_detector(detection: DetectionConfig) -> Detector:
         from blesentry.detection.approach_detector import ApproachDetector
 
         return ApproachDetector()
+    if isinstance(detection, InsideDetectionConfig):
+        from blesentry.detection.inside_detector import InsideDetector
+
+        return InsideDetector(
+            familiar=familiar,
+            own_rotating_gear=own_rotating_gear,
+        )
 
     from blesentry.detection.null import NullDetector
 

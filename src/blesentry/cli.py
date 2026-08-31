@@ -207,7 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay.add_argument(
         "--backend",
-        choices=("none", "mock", "approach"),
+        choices=("none", "mock", "approach", "inside"),
         default="none",
         help="detector backend (default: none)",
     )
@@ -448,6 +448,28 @@ async def _run_daemon(args: argparse.Namespace) -> int:
             site_state=scan_site_state,
         )
         await familiar_refresher.build()
+        detector = settings.detector
+        if args.config is not None:
+            from blesentry.config import (
+                InsideDetectionConfig,
+                build_detector,
+                load_config,
+            )
+            from blesentry.detection.inside import (
+                build_own_rotating_gear_device_ids,
+            )
+
+            cfg = load_config(args.config)
+            if isinstance(cfg.detection, InsideDetectionConfig):
+                own_rotating = await build_own_rotating_gear_device_ids(
+                    devices,
+                    obs_repo,
+                )
+                detector = build_detector(
+                    cfg.detection,
+                    familiar=familiar_refresher.familiar,
+                    own_rotating_gear=own_rotating,
+                )
         resolver = None
         if settings.min_score is not None and (
             settings.recent_window is not None
@@ -481,7 +503,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
                     devices,
                     scan_outbox,
                 ),
-                detector=settings.detector,
+                detector=detector,
                 outbox=scan_outbox,
                 window_band_counts=window_band_counts,
                 familiar_refresher=familiar_refresher,
@@ -606,6 +628,7 @@ async def _run_replay(args: argparse.Namespace) -> int:
         detector_for_backend,
         format_report,
         replay_fixture,
+        replay_heard_fixture,
         replay_snapshot,
     )
 
@@ -616,7 +639,10 @@ async def _run_replay(args: argparse.Namespace) -> int:
             raise ValueError(
                 "--fixture cannot be combined with --db/--site-id"
             )
-        report = replay_fixture(args.fixture, detector, period)
+        if args.backend == "inside":
+            report = replay_heard_fixture(args.fixture, detector)
+        else:
+            report = replay_fixture(args.fixture, detector, period)
     elif args.db is not None and args.site_id is not None:
         report = await replay_snapshot(args.db, args.site_id, detector, period)
     else:
