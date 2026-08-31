@@ -156,12 +156,14 @@ empties. Same windows + same kwargs → equal vectors. Windows must
 be in strictly increasing unique `index` order (F1 replay and the
 live cycle both are); out-of-order input is undefined.
 
-Public formula helpers (do not reimplement):
+Public formula helpers (do not reimplement). A2's
+`TrajectoryTracker` imports **only** the three slope/span/max
+helpers — it does **not** import `band_counts`:
 
 - `max_rssi_by_identity(window, source)` — A2
-- `band_counts(max_rssi, bands)` — Crowd/Inside (C/I), not A2
 - `rssi_slope(points)` — `points` is `(index, rssi)*` — A2
 - `rssi_span(rssis)` — A2
+- `band_counts(max_rssi, bands)` — Crowd/Inside (C/I) only
 - `proximity_band(rssi, bands)` — exclusive label; A3 alert text
 
 ## What this is not

@@ -10,11 +10,14 @@ rising predicate, hard cap + evict-on-fade. Not a Detector backend.
 
 from __future__ import annotations
 
+import ast
 from inspect import signature
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from blesentry.detection import trajectory as trajectory_mod
 from blesentry.detection.approach import (
     APPROACH_WINDOWS,
     is_rising_approach,
@@ -72,6 +75,18 @@ def _feed(
     return row
 
 
+def test_tracker_does_not_import_band_counts() -> None:
+    assert "band_counts" not in trajectory_mod.__dict__
+    path = trajectory_mod.__file__
+    assert path is not None
+    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ImportFrom, ast.Import)):
+            imported.update(alias.name for alias in node.names)
+    assert "band_counts" not in imported
+
+
 def test_stated_memory_knobs_match_docs() -> None:
     assert TRACKER_MAX_ADDRESSES == 256
     assert TRACKER_FADE_AFTER_WINDOWS == 12
@@ -124,6 +139,34 @@ def test_visit_min_survives_deque_truncation() -> None:
     # Truncated tail is the walk-by; predicate still matches.
     assert last.rising is True
     assert last.span == rssi_span(WALKBY)
+
+
+def test_truncated_span_ignores_aged_loud_prefix() -> None:
+    """A loud prefix would inflate span if the deque kept it."""
+    tracker = TrajectoryTracker()
+    prefix = [-50]
+    last = _feed(tracker, ADDR_A, prefix + WALKBY)
+    kept = rssi_span(WALKBY)
+    with_prefix = rssi_span(prefix + WALKBY)
+    assert kept is not None
+    assert with_prefix is not None
+    assert with_prefix != kept
+    assert last.span == kept
+    assert last.visit_min == min(prefix + WALKBY)
+
+
+def test_rising_stays_true_on_later_windows_of_same_visit() -> None:
+    """Fire-once is A3; the tracker keeps reporting the climb."""
+    tracker = TrajectoryTracker()
+    last = _feed(tracker, ADDR_A, WALKBY)
+    assert last.rising is True
+    # Two more terminal samples: last-W still satisfies A1.
+    for offset in (1, 2):
+        follow = tracker.observe(
+            _window(len(WALKBY) + offset - 1, (ADDR_A, WALKBY[-1]))
+        )
+        assert follow[0].rising is True
+        assert follow[0].windows_seen == len(WALKBY) + offset
 
 
 def test_dwell_resets_after_a_missed_index() -> None:
@@ -200,6 +243,18 @@ def test_single_window_keeps_strongest_newcomers_when_over_cap() -> None:
     assert {row.identity for row in rows} == {ADDR_B, ADDR_C}
     assert tracker.tracked_count == 2
     assert tracker.sample_count == 2
+
+
+def test_all_heard_full_cap_rejects_weakest_newcomer() -> None:
+    """No LRU victims when everyone is heard; room == 0 drops C."""
+    tracker = TrajectoryTracker(max_addresses=2, fade_after_windows=100)
+    tracker.observe(_window(0, (ADDR_A, -90), (ADDR_B, -80)))
+    rows = tracker.observe(
+        _window(1, (ADDR_A, -90), (ADDR_B, -80), (ADDR_C, -99))
+    )
+    assert {row.identity for row in rows} == {ADDR_A, ADDR_B}
+    assert tracker.tracked_count == 2
+    assert ADDR_C not in tracker.identities
 
 
 def test_established_track_survives_stronger_newcomer_flood() -> None:
@@ -288,6 +343,15 @@ def test_snapshot_is_frozen() -> None:
     frozen_field = "rising"
     with pytest.raises(ValidationError):
         setattr(row, frozen_field, True)
+
+
+def test_identity_is_omitted_from_default_repr() -> None:
+    """Field access is fine; repr/str must not leak the address."""
+    tracker = TrajectoryTracker()
+    row = tracker.observe(_window(0, (ADDR_A, -90)))[0]
+    assert row.identity == ADDR_A
+    dumped = f"{row!r} {row!s}"
+    assert ADDR_A not in dumped
 
 
 def test_tracker_does_not_emit_detection_events() -> None:

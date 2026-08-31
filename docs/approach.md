@@ -102,6 +102,9 @@ One call per scan window. Default `source` is pre-fusion
 `advertisements` (ADR-0007). `heard` is supported so tests can drive
 the same object F3 uses; A3 feeds advertisements. Identity
 strings are opaque — do not dump them in CI logs (SECURITY.md).
+`AddressTrajectory.identity` is omitted from the default Pydantic
+`repr` so a stray `repr(row)` / pytest dump cannot leak a
+production address. Tests that need the field read `.identity`.
 
 Implementation: `blesentry.detection.trajectory`. Pure and
 synchronous. No SQL, no outbox, no `DetectionEvent`.
@@ -152,8 +155,8 @@ Eviction order, each `observe`:
    unheard tracks, oldest `last_heard_index` first, until there is
    room. Remaining slots go to the **strongest** newcomers
    (`max_rssi`). If every remaining track was heard this window,
-   newcomers that do not fit are not admitted (hard cap, not a
-   fade).
+   `room == 0` and there are no LRU victims: newcomers (including
+   the weakest) are not admitted (hard cap, not a fade).
 
 Constructor kwargs (`max_addresses`, `fade_after_windows`) exist so
 unit tests can shrink the cap. Production callers use the module
@@ -165,8 +168,13 @@ constructor knob (changing it would fork W). Integers only
 
 A monotonic W-sample climb that satisfies A1 (the motivating
 −99 → −72 walk-by) reports `rising=True` on the last window. The
-same samples reversed (a fade) report `rising=False`. Mid-visit,
-`rising` can stay true until fade-eviction — fire-once is A3.
+same samples reversed (a fade) report `rising=False`. Later
+windows of the same visit still report `rising=True` while the
+last-W deque satisfies A1 — fire-once is A3, not the tracker.
+
+Deque truncation drops aged samples. `span` / `slope` / A1 use
+the remaining last-W only; a loud prefix that has aged out must
+not inflate `span`. `visit_min` still keeps the visit floor.
 
 ### What the tracker is not
 
