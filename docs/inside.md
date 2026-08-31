@@ -204,6 +204,36 @@ Golden: `inside-dwell-golden.json`. Counts and event fields only —
 no addresses in the report. Use `--fixture` with heard-window JSON
 or `--db` snapshot replay (observation rows populate `heard`).
 
-## Future work
+## Replay validation (I4)
 
-- **I4 (#139).** FAR validation on fixtures; tune only via new ADR.
+Synthetic heard fixtures and programmatic benign corpora exercise the
+frozen **N=1** / **M=8** knobs against the I1 FAR target before F4/F5
+land. Tuning still requires a new ADR.
+
+| Corpus | Expect |
+|---|---|
+| `inside-dwell.json` | recall = 1 (one event at window 7) |
+| `inside-transient.json` | 0 events (brief dwell, below M) |
+| 24 h empty `heard` (5760 windows) | 0 events → alerts/day = 0 |
+| familiar own gear at −55 (≥ M windows) | 0 events (I2 exclusion) |
+| own rotating gear at −55 (≥ M windows) | 0 events (I2 exclusion) |
+| stranger at −55 sustained (M−1 windows) | 0 events (below M) |
+| stranger at −56 sustained (M+2 windows) | 0 events (below adjacent) |
+| `inside-near-not-adjacent.json` (−65, ≥ M windows) | 0 events |
+
+**Metrics** (`blesentry.detection.inside_eval`):
+
+- **Recall** — positive episodes detected / positive episodes run
+  (target **1.0** on shipped positives).
+- **Alerts/day (benign)** — false events × (5760 / benign window count);
+  target **≤ `INSIDE_FAR_PER_DAY` (1)** per 24 h equivalent.
+
+**Harness**
+
+```bash
+uv run pytest tests/test_detection_inside_validation.py -v
+uv run blesentry replay --fixture tests/fixtures/replay/inside-dwell.json --backend inside
+```
+
+Frozen knobs pass on fixtures; no ADR retune required. F4 labeled
+corpus + F5 cross-detector eval reuse the same helpers when shipped.
