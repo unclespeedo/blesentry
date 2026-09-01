@@ -24,10 +24,20 @@ the online state machine. C4's backend calls it each window.
 4. **Scale** = `floored_mad(residuals)` on the tier's capped residual
    window (`CROWD_RESIDUAL_WINDOW`, same span as EWMA).
 5. **z** = `residual / scale`.
-6. Unless `in_episode` (CUSUM `S > 0`), update EWMA / rolling and
-   append the residual to the capped window.
+6. Unless `in_episode` (CUSUM `S > 0`), update EWMA / rolling **and**
+   append the residual to the capped window. Episode freeze applies to
+   both baseline training and residual history.
 
 Episode freeze and hold-and-backfill match ADR-0008 / DC-4.
+
+**Install age** anchors on the first **trusted** wall-clock sample.
+Untrusted timestamps never seed `_install_at`. A backward NTP step
+resets the anchor to the corrected time so age cannot go negative.
+
+**Seasonal training during cold start:** while the active tier is still
+rolling, trusted observations continue to train hour-of-week EWMA buckets
+in the background. Unvisited buckets at seasonal switchover fall back to
+the rolling mean instead of the live count (avoids `z = 0` blind spots).
 
 ## Tiers (DC-4)
 
@@ -84,5 +94,6 @@ as `iso_utc` / C2 `window_band_counts.observed_at`).
 - Injected outlier windows: `z` spikes; baseline stays near the quiet
   mean after the episode ends.
 - Seasonal vs rolling tier selection (clock trust + cold start).
-- Episode freeze: EWMA unchanged while `in_episode=True`.
+- Episode freeze: EWMA **and residual history** unchanged while
+  `in_episode=True`.
 - Hold-and-backfill drains queued seasonal updates when trust flips.

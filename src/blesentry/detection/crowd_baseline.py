@@ -50,7 +50,7 @@ class CrowdBaseline:
     """Online crowd baseline with seasonal and rolling tiers (DC-4)."""
 
     def __init__(self) -> None:
-        """Start empty; first ``observe`` seeds install time."""
+        """Start empty; first trusted ``observe`` seeds install time."""
         self._alpha = ewma_alpha(CROWD_EWMA_SPAN)
         self._install_at: str | None = None
         self._seasonal = [math.nan] * CROWD_HOUR_OF_WEEK_BUCKETS
@@ -78,15 +78,15 @@ class CrowdBaseline:
             count_near: This window's near-band count (primary feature).
             observed_at: UTC ISO-8601 timestamp with ``Z`` suffix.
             wall_clock_trusted: Whether seasonal buckets may update now.
-            in_episode: When ``True`` (CUSUM ``S > 0``), skip EWMA updates.
+            in_episode: When ``True`` (CUSUM ``S > 0``), freeze EWMA and
+                residual history updates.
 
         Returns:
             :class:`BaselineStep` for C4's CUSUM input.
         """
         count = _require_count(count_near)
-        if self._install_at is None:
-            self._install_at = observed_at
         if wall_clock_trusted:
+            self._note_trusted_time(observed_at)
             self._drain_backfill(observed_at)
         elif not in_episode:
             self._backfill.append((observed_at, count))
@@ -95,15 +95,23 @@ class CrowdBaseline:
         residual = float(count) - baseline
         scale = self._scale_for(residual, observed_at, tier)
         z = residual / scale
-        self._record_residual(residual, observed_at, tier)
         if not in_episode:
-            self._update(count, observed_at, tier, wall_clock_trusted)
+            self._record_residual(residual, observed_at, tier)
+            self._update(count, observed_at, wall_clock_trusted)
         return BaselineStep(
             baseline=baseline,
             scale=scale,
             z=z,
             tier=tier,
         )
+
+    def _note_trusted_time(self, observed_at: str) -> None:
+        """Anchor install age on trusted wall clock; heal backward jumps."""
+        if self._install_at is None:
+            self._install_at = observed_at
+            return
+        if _parse_utc(observed_at) < _parse_utc(self._install_at):
+            self._install_at = observed_at
 
     def _select_tier(
         self,
@@ -114,10 +122,18 @@ class CrowdBaseline:
             return "rolling"
         if self._install_at is None:
             return "rolling"
-        age_hours = _hours_between(self._install_at, observed_at)
+        age_hours = max(
+            0.0,
+            _hours_between(self._install_at, observed_at),
+        )
         if age_hours < CROWD_COLD_START_HOURS:
             return "rolling"
         return "seasonal"
+
+    def _rolling_mean_or(self, count_near: int) -> float:
+        if not self._rolling:
+            return float(count_near)
+        return sum(self._rolling) / len(self._rolling)
 
     def _baseline_for(
         self,
@@ -129,11 +145,9 @@ class CrowdBaseline:
             bucket = hour_of_week(observed_at)
             value = self._seasonal[bucket]
             if math.isnan(value):
-                return float(count_near)
+                return self._rolling_mean_or(count_near)
             return value
-        if not self._rolling:
-            return float(count_near)
-        return sum(self._rolling) / len(self._rolling)
+        return self._rolling_mean_or(count_near)
 
     def _scale_for(
         self,
@@ -162,41 +176,35 @@ class CrowdBaseline:
         else:
             self._rolling_residuals.append(residual)
 
+    def _update_seasonal_bucket(self, bucket: int, count: float) -> None:
+        current = self._seasonal[bucket]
+        if math.isnan(current):
+            self._seasonal[bucket] = count
+        else:
+            self._seasonal[bucket] = current + self._alpha * (count - current)
+
     def _update(
         self,
         count_near: int,
         observed_at: str,
-        tier: BaselineTier,
         wall_clock_trusted: bool,
     ) -> None:
         count = float(count_near)
         self._rolling.append(count)
-        if tier == "seasonal" and wall_clock_trusted:
+        if wall_clock_trusted:
             bucket = hour_of_week(observed_at)
-            current = self._seasonal[bucket]
-            if math.isnan(current):
-                self._seasonal[bucket] = count
-            else:
-                self._seasonal[bucket] = current + self._alpha * (
-                    count - current
-                )
+            self._update_seasonal_bucket(bucket, count)
 
     def _drain_backfill(self, now: str) -> None:
         if self._install_at is None:
             return
-        if _hours_between(self._install_at, now) < CROWD_COLD_START_HOURS:
+        age_hours = max(0.0, _hours_between(self._install_at, now))
+        if age_hours < CROWD_COLD_START_HOURS:
             return
         while self._backfill:
             observed_at, count_near = self._backfill.popleft()
             bucket = hour_of_week(observed_at)
-            current = self._seasonal[bucket]
-            count = float(count_near)
-            if math.isnan(current):
-                self._seasonal[bucket] = count
-            else:
-                self._seasonal[bucket] = current + self._alpha * (
-                    count - current
-                )
+            self._update_seasonal_bucket(bucket, float(count_near))
 
 
 def _parse_utc(observed_at: str) -> datetime:
