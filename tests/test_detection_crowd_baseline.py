@@ -254,6 +254,23 @@ def test_install_at_resets_on_backward_clock_correction() -> None:
     assert step.tier == "rolling"
 
 
+def test_forward_clock_jump_does_not_prematurely_enable_seasonal() -> None:
+    model = CrowdBaseline()
+    model.observe(
+        4,
+        "1970-01-01T00:00:00.000Z",
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    step = model.observe(
+        4,
+        _at(1),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    assert step.tier == "rolling"
+
+
 def test_hold_and_backfill_uses_rolling_until_trusted() -> None:
     model = CrowdBaseline()
     untrusted = model.observe(

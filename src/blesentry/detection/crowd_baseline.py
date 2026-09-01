@@ -30,6 +30,10 @@ from blesentry.detection.crowd import (
 
 BaselineTier = Literal["seasonal", "rolling"]
 
+# Re-anchor install age when consecutive trusted samples jump farther than
+# any real scan cadence (15 s) can advance — catches epoch/NTP sync.
+_FORWARD_JUMP_HOURS = 24 * 365
+
 
 @dataclass(frozen=True, slots=True)
 class BaselineStep:
@@ -64,6 +68,7 @@ class CrowdBaseline:
             maxlen=CROWD_RESIDUAL_WINDOW,
         )
         self._backfill: deque[tuple[str, int]] = deque()
+        self._last_trusted_at: str | None = None
 
     def observe(
         self,
@@ -112,7 +117,14 @@ class CrowdBaseline:
         )
 
     def _note_trusted_time(self, observed_at: str) -> None:
-        """Anchor install age on trusted wall clock; heal backward jumps."""
+        """Anchor install age on trusted wall clock; heal clock steps."""
+        if self._last_trusted_at is not None:
+            step_hours = _hours_between(self._last_trusted_at, observed_at)
+            if step_hours > _FORWARD_JUMP_HOURS:
+                self._install_at = observed_at
+                self._last_trusted_at = observed_at
+                return
+        self._last_trusted_at = observed_at
         if self._install_at is None:
             self._install_at = observed_at
             return
