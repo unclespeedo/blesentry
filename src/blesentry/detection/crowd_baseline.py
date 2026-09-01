@@ -33,6 +33,8 @@ BaselineTier = Literal["seasonal", "rolling"]
 # Re-anchor install age when consecutive trusted samples jump farther than
 # cold start in one step — no real 15 s cadence spans 168 h between windows.
 _FORWARD_JUMP_HOURS = float(CROWD_COLD_START_HOURS)
+# Max plausible gap between consecutive trusted scan windows (~1 day).
+_MAX_TRUSTED_STEP_HOURS = 24.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +71,7 @@ class CrowdBaseline:
         )
         self._backfill: deque[tuple[str, int]] = deque()
         self._last_trusted_at: str | None = None
+        self._trusted_operating_hours = 0.0
 
     def observe(
         self,
@@ -126,16 +129,25 @@ class CrowdBaseline:
         """Anchor install age on trusted wall clock; heal clock steps."""
         if self._last_trusted_at is not None:
             step_hours = _hours_between(self._last_trusted_at, observed_at)
-            if step_hours >= _FORWARD_JUMP_HOURS:
-                self._install_at = observed_at
-                self._last_trusted_at = observed_at
+            if (
+                step_hours >= _FORWARD_JUMP_HOURS
+                or step_hours > _MAX_TRUSTED_STEP_HOURS
+            ):
+                self._reanchor_trusted_time(observed_at)
                 return
+            self._trusted_operating_hours += step_hours
         self._last_trusted_at = observed_at
         if self._install_at is None:
             self._install_at = observed_at
             return
         if _parse_utc(observed_at) < _parse_utc(self._install_at):
-            self._install_at = observed_at
+            self._reanchor_trusted_time(observed_at)
+
+    def _reanchor_trusted_time(self, observed_at: str) -> None:
+        """Reset install age after a backward or forward clock correction."""
+        self._install_at = observed_at
+        self._last_trusted_at = observed_at
+        self._trusted_operating_hours = 0.0
 
     def _select_tier(
         self,
@@ -146,11 +158,7 @@ class CrowdBaseline:
             return "rolling"
         if self._install_at is None:
             return "rolling"
-        age_hours = max(
-            0.0,
-            _hours_between(self._install_at, observed_at),
-        )
-        if age_hours < CROWD_COLD_START_HOURS:
+        if self._trusted_operating_hours < CROWD_COLD_START_HOURS:
             return "rolling"
         return "seasonal"
 
@@ -248,13 +256,15 @@ class CrowdBaseline:
     def _drain_backfill(self, now: str) -> None:
         if self._install_at is None:
             return
-        age_hours = max(0.0, _hours_between(self._install_at, now))
-        if age_hours < CROWD_COLD_START_HOURS:
+        if self._trusted_operating_hours < CROWD_COLD_START_HOURS:
             return
         while self._backfill:
             observed_at, count_near = self._backfill.popleft()
             bucket = hour_of_week(observed_at)
-            self._update_seasonal_bucket(bucket, float(count_near))
+            count = float(count_near)
+            baseline = self._seasonal_baseline_or_rolling(bucket, count_near)
+            self._update_seasonal_bucket(bucket, count)
+            self._seasonal_residuals[bucket].append(count - baseline)
 
 
 def _parse_utc(observed_at: str) -> datetime:

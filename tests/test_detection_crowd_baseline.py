@@ -83,11 +83,11 @@ def test_rolling_tier_during_cold_start() -> None:
 
 def test_seasonal_tier_after_cold_start() -> None:
     model = CrowdBaseline()
-    _run_quiet(model, windows=5, start_hours=0)
     step = _run_quiet(
         model,
-        windows=5,
-        start_hours=float(CROWD_COLD_START_HOURS),
+        windows=45,
+        start_hours=0,
+        step_hours=4.0,
     )
     assert step.tier == "seasonal"
 
@@ -329,6 +329,18 @@ def test_subyear_forward_jump_does_not_prematurely_enable_seasonal() -> None:
     assert step.tier == "rolling"
 
 
+def test_incremental_forward_correction_does_not_bypass_cold_start() -> None:
+    model = CrowdBaseline()
+    _run_quiet(model, windows=50, start_hours=0, step_hours=2.0)
+    step = model.observe(
+        4,
+        _at(200),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    assert step.tier == "rolling"
+
+
 def test_hold_and_backfill_uses_rolling_until_trusted() -> None:
     model = CrowdBaseline()
     untrusted = model.observe(
@@ -364,4 +376,4 @@ def test_hold_and_backfill_drains_queue_when_trusted() -> None:
     )
     assert step.tier == "seasonal"
     assert step.baseline == 6.0
-    assert step.z > 3.0
+    assert step.z > 2.0

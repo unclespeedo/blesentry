@@ -48,7 +48,7 @@ switchover fall back to the rolling mean / rolling residual scale.
 
 | Tier | When | Baseline |
 |---|---|---|
-| **Seasonal** | Wall clock trusted **and** install age ≥ `CROWD_COLD_START_HOURS` (168 h) | Hour-of-week EWMA (`CROWD_HOUR_OF_WEEK_BUCKETS` = 168), α = `ewma_alpha(CROWD_EWMA_SPAN)` |
+| **Seasonal** | Wall clock trusted **and** trusted operating hours ≥ `CROWD_COLD_START_HOURS` (168 h) | Hour-of-week EWMA (`CROWD_HOUR_OF_WEEK_BUCKETS` = 168), α = `ewma_alpha(CROWD_EWMA_SPAN)` |
 | **Rolling** | Otherwise | Mean of last `CROWD_ROLLING_WINDOWS` `count_near` samples (~7 d at 15 s) |
 
 **Hold-and-backfill:** while wall clock is untrusted, seasonal buckets are
@@ -56,8 +56,10 @@ not updated; `(observed_at, count_near)` pairs queue. When trust flips
 true, the queue drains in order (seasonal updates only — rolling already
 ran live). Rolling is always updated on the live path.
 
-**Cold start:** seasonal is not selected until install age ≥
-`CROWD_COLD_START_HOURS` even when the clock is trusted.
+**Cold start:** seasonal is not selected until **trusted operating hours**
+(accumulated wall-clock time between consecutive trusted samples with
+gaps ≤ 24 h) reach ``CROWD_COLD_START_HOURS``. Forward jumps above
+24 h or ≥ 168 h between trusted samples reset the accumulator.
 
 ## Residual window cap (DC-2)
 
