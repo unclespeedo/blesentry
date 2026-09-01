@@ -15,8 +15,11 @@ from datetime import UTC, datetime, timedelta
 
 from blesentry.detection.crowd import (
     CROWD_COLD_START_HOURS,
+    CROWD_CUSUM_H,
+    CROWD_CUSUM_K,
     CROWD_MAD_FLOOR,
     CROWD_RESIDUAL_WINDOW,
+    cusum_positive,
 )
 from blesentry.detection.crowd_baseline import (
     BaselineStep,
@@ -461,3 +464,64 @@ def test_episode_pins_tier_across_cold_start_boundary() -> None:
         in_episode=False,
     )
     assert after.tier == "seasonal"
+
+
+def test_episode_trigger_window_frozen_via_preview_commit() -> None:
+    model = CrowdBaseline()
+    _run_quiet(model, windows=45, step_hours=4.0)
+    model.begin_window(
+        _at(200),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    quiet = model.preview(
+        4,
+        _at(200),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    model.commit(
+        4,
+        _at(200),
+        wall_clock_trusted=True,
+        in_episode=False,
+        tier=quiet.tier,
+    )
+    model.begin_window(
+        _at(201),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    spike = model.preview(
+        40,
+        _at(201),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    s_new, fired = cusum_positive(
+        0.0,
+        spike.z,
+        k=CROWD_CUSUM_K,
+        h=CROWD_CUSUM_H,
+    )
+    assert s_new > 0
+    assert fired
+    model.commit(
+        40,
+        _at(201),
+        wall_clock_trusted=True,
+        in_episode=s_new > 0,
+        tier=spike.tier,
+    )
+    model.begin_window(
+        _at(202),
+        wall_clock_trusted=True,
+        in_episode=True,
+    )
+    after = model.preview(
+        4,
+        _at(202),
+        wall_clock_trusted=True,
+        in_episode=True,
+    )
+    assert after.baseline == quiet.baseline

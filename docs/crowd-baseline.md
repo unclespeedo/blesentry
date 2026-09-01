@@ -84,13 +84,25 @@ CrowdBaseline.observe(
     wall_clock_trusted: bool,
     in_episode: bool,
 ) -> BaselineStep
+
+CrowdBaseline.begin_window(observed_at, *, wall_clock_trusted, in_episode) -> None
+CrowdBaseline.preview(...) -> BaselineStep
+CrowdBaseline.commit(..., tier) -> None            # EWMA / residual updates
 ```
 
 `BaselineStep` fields: `baseline`, `scale`, `z`, `tier` (`"seasonal"` |
 `"rolling"`). `observed_at` must be UTC ISO-8601 with a `Z` suffix (same
 as `iso_utc` / C2 `window_band_counts.observed_at`).
 
-`in_episode` is supplied by C4 from `cusum_positive` state (`S > 0`).
+**C4 wiring (episode trigger):** each window:
+
+1. `begin_window(observed_at, wall_clock_trusted=…, in_episode=(S > 0))`
+2. `step = preview(count_near, observed_at, …, in_episode=(S > 0))`
+3. `S_new, fired = cusum_positive(S, step.z, …)`
+4. `commit(count_near, observed_at, …, in_episode=(S > 0 or S_new > 0), tier=step.tier)`
+
+Step 4 freezes the trigger window once `S` rises above zero. `observe` runs
+steps 1–4 with the same `in_episode` for preview and commit (tests only).
 
 ## What C3 is not
 

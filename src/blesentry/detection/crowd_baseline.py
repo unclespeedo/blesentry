@@ -84,6 +84,11 @@ class CrowdBaseline:
     ) -> BaselineStep:
         """Advance one window; return baseline, scale, and ``z``.
 
+        Convenience wrapper around :meth:`preview` + :meth:`commit` with
+        the same ``in_episode`` flag for both. C4 should call
+        ``preview`` → ``cusum_positive`` → ``commit`` so the trigger
+        window freezes once ``S > 0`` after CUSUM.
+
         Args:
             count_near: This window's near-band count (primary feature).
             observed_at: UTC ISO-8601 timestamp with ``Z`` suffix.
@@ -94,25 +99,49 @@ class CrowdBaseline:
         Returns:
             :class:`BaselineStep` for C4's CUSUM input.
         """
-        count = _require_count(count_near)
-        if in_episode:
-            if self._episode_tier is None:
-                self._episode_tier = self._tier_for(wall_clock_trusted)
-        else:
-            self._episode_tier = None
-        if wall_clock_trusted:
-            self._note_trusted_time(observed_at)
-            if not in_episode:
-                self._drain_backfill()
-        elif not in_episode:
-            self._backfill.append((observed_at, count))
-        if in_episode:
-            if self._episode_tier is None:
-                msg = "episode tier must be pinned before selection"
-                raise RuntimeError(msg)
-            tier = self._episode_tier
-        else:
+        self.begin_window(
+            observed_at,
+            wall_clock_trusted=wall_clock_trusted,
+            in_episode=in_episode,
+        )
+        step = self.preview(
+            count_near,
+            observed_at,
+            wall_clock_trusted=wall_clock_trusted,
+            in_episode=in_episode,
+        )
+        self.finish_window(
+            count_near,
+            observed_at,
+            wall_clock_trusted=wall_clock_trusted,
+            in_episode=in_episode,
+            tier=step.tier,
+        )
+        if not in_episode:
             tier = self._tier_for(wall_clock_trusted)
+            return BaselineStep(
+                baseline=step.baseline,
+                scale=step.scale,
+                z=step.z,
+                tier=tier,
+            )
+        return step
+
+    def preview(
+        self,
+        count_near: int,
+        observed_at: str,
+        *,
+        wall_clock_trusted: bool,
+        in_episode: bool,
+    ) -> BaselineStep:
+        """Compute baseline, scale, and ``z`` without mutating state.
+
+        Call :meth:`begin_window` first so trusted-time accrual and
+        hold-and-backfill run before the read.
+        """
+        count = _require_count(count_near)
+        tier = self._tier_for_preview(wall_clock_trusted, in_episode)
         baseline = self._baseline_for(count, observed_at, tier)
         residual = float(count) - baseline
         scale = self._scale_for(
@@ -122,21 +151,85 @@ class CrowdBaseline:
             in_episode=in_episode,
         )
         z = residual / scale
-        if not in_episode:
-            self._record_residual(
-                count,
-                residual,
-                observed_at,
-                tier,
-                wall_clock_trusted=wall_clock_trusted,
-            )
-            self._update(count, observed_at, wall_clock_trusted)
         return BaselineStep(
             baseline=baseline,
             scale=scale,
             z=z,
             tier=tier,
         )
+
+    def begin_window(
+        self,
+        observed_at: str,
+        *,
+        wall_clock_trusted: bool,
+        in_episode: bool,
+    ) -> None:
+        """Trusted-time accrual, backfill drain/queue, and episode tier pin."""
+        if in_episode:
+            if self._episode_tier is None:
+                self._episode_tier = self._tier_for(wall_clock_trusted)
+        else:
+            self._episode_tier = None
+        if wall_clock_trusted:
+            self._note_trusted_time(observed_at)
+            if not in_episode:
+                self._drain_backfill()
+
+    def finish_window(
+        self,
+        count_near: int,
+        observed_at: str,
+        *,
+        wall_clock_trusted: bool,
+        in_episode: bool,
+        tier: BaselineTier,
+    ) -> None:
+        """Apply EWMA and residual-history updates when not frozen."""
+        if in_episode:
+            return
+        count = _require_count(count_near)
+        if not wall_clock_trusted:
+            self._backfill.append((observed_at, count))
+        baseline = self._baseline_for(count, observed_at, tier)
+        residual = float(count) - baseline
+        self._record_residual(
+            count,
+            residual,
+            observed_at,
+            tier,
+            wall_clock_trusted=wall_clock_trusted,
+        )
+        self._update(count, observed_at, wall_clock_trusted)
+
+    def commit(
+        self,
+        count_near: int,
+        observed_at: str,
+        *,
+        wall_clock_trusted: bool,
+        in_episode: bool,
+        tier: BaselineTier,
+    ) -> None:
+        """Queue untrusted samples and apply EWMA updates for one window."""
+        self.finish_window(
+            count_near,
+            observed_at,
+            wall_clock_trusted=wall_clock_trusted,
+            in_episode=in_episode,
+            tier=tier,
+        )
+
+    def _tier_for_preview(
+        self,
+        wall_clock_trusted: bool,
+        in_episode: bool,
+    ) -> BaselineTier:
+        if in_episode:
+            if self._episode_tier is not None:
+                return self._episode_tier
+            return self._tier_for(wall_clock_trusted)
+        return self._tier_for(wall_clock_trusted)
 
     def _note_trusted_time(self, observed_at: str) -> None:
         """Anchor install age on trusted wall clock; heal clock steps."""
