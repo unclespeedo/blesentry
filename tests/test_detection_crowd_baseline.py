@@ -20,6 +20,7 @@ from blesentry.detection.crowd import (
     CROWD_MAD_FLOOR,
     CROWD_RESIDUAL_WINDOW,
     cusum_positive,
+    floored_mad,
 )
 from blesentry.detection.crowd_baseline import (
     BaselineStep,
@@ -359,22 +360,22 @@ def test_hold_and_backfill_uses_rolling_until_trusted() -> None:
 
 def test_hold_and_backfill_drains_queue_when_trusted() -> None:
     model = CrowdBaseline()
-    start = float(CROWD_COLD_START_HOURS)
     _run_quiet(
         model,
-        windows=50,
+        windows=45,
         start_hours=0,
-        step_hours=start / 50,
+        step_hours=4.0,
     )
+    hold_at = 45 * 4.0 + 1
     model.observe(
         6,
-        _at(start + 1),
+        _at(hold_at),
         wall_clock_trusted=False,
         in_episode=False,
     )
     step = model.observe(
         20,
-        _at(start + 1),
+        _at(hold_at),
         wall_clock_trusted=True,
         in_episode=False,
     )
@@ -525,3 +526,67 @@ def test_episode_trigger_window_frozen_via_preview_commit() -> None:
         in_episode=True,
     )
     assert after.baseline == quiet.baseline
+
+
+def test_trigger_tier_pins_rolling_at_cold_start_boundary() -> None:
+    model = CrowdBaseline()
+    step_hours = 4.0
+    _run_quiet(model, windows=42, step_hours=step_hours)
+    at = _at(42 * step_hours)
+    model.begin_window(at, wall_clock_trusted=True, in_episode=False)
+    step = model.preview(40, at, wall_clock_trusted=True, in_episode=False)
+    assert step.tier == "rolling"
+    s_new, _ = cusum_positive(
+        0.0,
+        step.z,
+        k=CROWD_CUSUM_K,
+        h=CROWD_CUSUM_H,
+    )
+    model.commit(
+        40,
+        at,
+        wall_clock_trusted=True,
+        in_episode=s_new > 0,
+        tier=step.tier,
+    )
+    model.begin_window(
+        _at(42 * step_hours + step_hours),
+        wall_clock_trusted=True,
+        in_episode=True,
+    )
+    during = model.preview(
+        40,
+        _at(42 * step_hours + step_hours),
+        wall_clock_trusted=True,
+        in_episode=True,
+    )
+    assert during.tier == "rolling"
+
+
+def test_seasonal_scale_falls_back_to_rolling_for_unvisited_bucket() -> None:
+    model = CrowdBaseline()
+    for i in range(45):
+        model.observe(
+            4 + (i % 3),
+            _at(i * 4.0),
+            wall_clock_trusted=True,
+            in_episode=False,
+        )
+    at = "2026-01-10T03:00:00.000Z"
+    bucket = hour_of_week(at)
+    assert math.isnan(model._seasonal[bucket])
+    model.begin_window(at, wall_clock_trusted=True, in_episode=False)
+    step = model.preview(20, at, wall_clock_trusted=True, in_episode=False)
+    assert step.tier == "seasonal"
+    residual = 20.0 - step.baseline
+    expected = floored_mad([*model._rolling_residuals, residual])
+    assert step.scale == expected
+
+
+def test_reanchor_discards_queued_backfill() -> None:
+    model = CrowdBaseline()
+    _run_quiet(model, windows=10, step_hours=1.0)
+    model.observe(10, _at(20), wall_clock_trusted=False, in_episode=False)
+    assert len(model._backfill) == 1
+    model.observe(4, _at(0), wall_clock_trusted=True, in_episode=False)
+    assert len(model._backfill) == 0

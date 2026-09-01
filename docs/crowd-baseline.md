@@ -57,8 +57,8 @@ switchover fall back to the rolling mean / rolling residual scale.
 not updated; `(observed_at, count_near)` pairs queue. When trust flips
 true **and** the detector is not in an episode, the queue drains in
 chronological order immediately (even during cold start — seasonal
-updates only; rolling already ran live). Rolling is always updated on
-the live path.
+updates only; rolling already ran live). A clock re-anchor discards any
+queued samples. Rolling is always updated on the live path.
 
 **Cold start:** seasonal is not selected until **trusted operating hours**
 (accumulated wall-clock time between consecutive trusted samples with
@@ -96,13 +96,14 @@ as `iso_utc` / C2 `window_band_counts.observed_at`).
 
 **C4 wiring (episode trigger):** each window:
 
-1. `begin_window(observed_at, wall_clock_trusted=…, in_episode=(S > 0))`
-2. `step = preview(count_near, observed_at, …, in_episode=(S > 0))`
-3. `S_new, fired = cusum_positive(S, step.z, …)`
-4. `commit(count_near, observed_at, …, in_episode=(S > 0 or S_new > 0), tier=step.tier)`
+1. `begin_window` — drain hold-and-backfill (no trusted-time accrual).
+2. `preview` — read baseline / scale / `z` at pre-window trusted age.
+3. `cusum_positive(S, step.z, …)`
+4. `commit` — accrue trusted time, pin tier when entering an episode
+   (`tier=step.tier`), apply EWMA updates unless frozen.
 
-Step 4 freezes the trigger window once `S` rises above zero. `observe` runs
-steps 1–4 with the same `in_episode` for preview and commit (tests only).
+Step 4 freezes the trigger window once `S` rises above zero. `observe` is
+a test convenience that runs 1→2→4 with the same `in_episode` throughout.
 
 ## What C3 is not
 

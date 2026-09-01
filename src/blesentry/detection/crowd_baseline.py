@@ -84,10 +84,9 @@ class CrowdBaseline:
     ) -> BaselineStep:
         """Advance one window; return baseline, scale, and ``z``.
 
-        Convenience wrapper around :meth:`preview` + :meth:`commit` with
-        the same ``in_episode`` flag for both. C4 should call
-        ``preview`` → ``cusum_positive`` → ``commit`` so the trigger
-        window freezes once ``S > 0`` after CUSUM.
+        Convenience wrapper for tests. Production (C4) must use
+        ``begin_window`` → ``preview`` → ``cusum_positive`` → ``commit``
+        so the trigger window freezes once ``S > 0`` after CUSUM.
 
         Args:
             count_near: This window's near-band count (primary feature).
@@ -165,16 +164,11 @@ class CrowdBaseline:
         wall_clock_trusted: bool,
         in_episode: bool,
     ) -> None:
-        """Trusted-time accrual, backfill drain/queue, and episode tier pin."""
-        if in_episode:
-            if self._episode_tier is None:
-                self._episode_tier = self._tier_for(wall_clock_trusted)
-        else:
+        """Drain hold-and-backfill before :meth:`preview` for this window."""
+        if not in_episode:
             self._episode_tier = None
-        if wall_clock_trusted:
-            self._note_trusted_time(observed_at)
-            if not in_episode:
-                self._drain_backfill()
+        if wall_clock_trusted and not in_episode:
+            self._drain_backfill()
 
     def finish_window(
         self,
@@ -185,12 +179,19 @@ class CrowdBaseline:
         in_episode: bool,
         tier: BaselineTier,
     ) -> None:
-        """Apply EWMA and residual-history updates when not frozen."""
+        """Accrue trusted time and apply EWMA updates when not frozen."""
         if in_episode:
+            if self._episode_tier is None:
+                self._episode_tier = tier
+            if wall_clock_trusted:
+                self._note_trusted_time(observed_at)
             return
         count = _require_count(count_near)
-        if not wall_clock_trusted:
+        if wall_clock_trusted:
+            self._note_trusted_time(observed_at)
+        elif not wall_clock_trusted:
             self._backfill.append((observed_at, count))
+            return
         baseline = self._baseline_for(count, observed_at, tier)
         residual = float(count) - baseline
         self._record_residual(
@@ -255,6 +256,7 @@ class CrowdBaseline:
         self._install_at = observed_at
         self._last_trusted_at = observed_at
         self._trusted_operating_hours = 0.0
+        self._backfill.clear()
 
     def _tier_for(
         self,
@@ -297,7 +299,10 @@ class CrowdBaseline:
     ) -> float:
         if tier == "seasonal":
             bucket = hour_of_week(observed_at)
-            values = self._seasonal_residuals[bucket]
+            if math.isnan(self._seasonal[bucket]):
+                values = self._rolling_residuals
+            else:
+                values = self._seasonal_residuals[bucket]
         else:
             values = self._rolling_residuals
         if in_episode:
