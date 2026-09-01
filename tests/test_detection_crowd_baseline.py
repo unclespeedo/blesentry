@@ -377,3 +377,35 @@ def test_hold_and_backfill_drains_queue_when_trusted() -> None:
     assert step.tier == "seasonal"
     assert step.baseline == 6.0
     assert step.z > 2.0
+
+
+def test_backfill_waits_until_episode_ends() -> None:
+    model = CrowdBaseline()
+    start = float(CROWD_COLD_START_HOURS)
+    _run_quiet(
+        model,
+        windows=45,
+        start_hours=0,
+        step_hours=4.0,
+    )
+    hold_at = start + 1
+    model.observe(
+        6,
+        _at(hold_at),
+        wall_clock_trusted=False,
+        in_episode=False,
+    )
+    during = model.observe(
+        20,
+        _at(hold_at),
+        wall_clock_trusted=True,
+        in_episode=True,
+    )
+    assert during.baseline < 5.0
+    after = model.observe(
+        20,
+        _at(hold_at + 0.01),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    assert after.baseline == 6.0

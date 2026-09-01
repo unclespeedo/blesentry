@@ -53,8 +53,9 @@ switchover fall back to the rolling mean / rolling residual scale.
 
 **Hold-and-backfill:** while wall clock is untrusted, seasonal buckets are
 not updated; `(observed_at, count_near)` pairs queue. When trust flips
-true, the queue drains in order (seasonal updates only — rolling already
-ran live). Rolling is always updated on the live path.
+true **and** the detector is not in an episode, the queue drains in order
+(seasonal updates only — rolling already ran live). Rolling is always
+updated on the live path.
 
 **Cold start:** seasonal is not selected until **trusted operating hours**
 (accumulated wall-clock time between consecutive trusted samples with
@@ -103,4 +104,5 @@ as `iso_utc` / C2 `window_band_counts.observed_at`).
 - Seasonal vs rolling tier selection (clock trust + cold start).
 - Episode freeze: EWMA **and residual history** unchanged while
   `in_episode=True`.
-- Hold-and-backfill drains queued seasonal updates when trust flips.
+- Hold-and-backfill drains queued seasonal updates when trust flips
+  and the detector is not in an episode.

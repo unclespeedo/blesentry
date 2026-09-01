@@ -96,7 +96,8 @@ class CrowdBaseline:
         count = _require_count(count_near)
         if wall_clock_trusted:
             self._note_trusted_time(observed_at)
-            self._drain_backfill(observed_at)
+            if not in_episode:
+                self._drain_backfill(observed_at)
         elif not in_episode:
             self._backfill.append((observed_at, count))
         tier = self._select_tier(observed_at, wall_clock_trusted)
