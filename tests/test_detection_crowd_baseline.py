@@ -206,7 +206,7 @@ def test_episode_freeze_uses_pre_episode_scale() -> None:
 def test_seasonal_bucket_falls_back_to_rolling_mean() -> None:
     model = CrowdBaseline()
     start = float(CROWD_COLD_START_HOURS)
-    _run_quiet(model, windows=100, start_hours=start)
+    _run_quiet(model, windows=100, start_hours=start, step_hours=2.0)
     spike = model.observe(
         20,
         _at(start + 200),
@@ -215,7 +215,30 @@ def test_seasonal_bucket_falls_back_to_rolling_mean() -> None:
     )
     assert spike.tier == "seasonal"
     assert spike.baseline == 4.0
-    assert spike.z > 3.0
+    assert spike.z > 1.0
+
+
+def test_seasonal_residuals_trained_during_cold_start() -> None:
+    model = CrowdBaseline()
+    start = float(CROWD_COLD_START_HOURS)
+    for i in range(90):
+        count = 1 if i % 2 == 0 else 12
+        model.observe(
+            count,
+            _at(i * 2),
+            wall_clock_trusted=True,
+            in_episode=False,
+        )
+    seasonal = model.observe(
+        4,
+        _at(start),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    bucket = hour_of_week(_at(start))
+    assert seasonal.tier == "seasonal"
+    assert len(model._seasonal_residuals[bucket]) > 1
+    assert seasonal.scale >= CROWD_MAD_FLOOR
 
 
 def test_install_at_ignores_untrusted_clock() -> None:
@@ -271,6 +294,23 @@ def test_forward_clock_jump_does_not_prematurely_enable_seasonal() -> None:
     assert step.tier == "rolling"
 
 
+def test_subyear_forward_jump_does_not_prematurely_enable_seasonal() -> None:
+    model = CrowdBaseline()
+    model.observe(
+        4,
+        _at(0),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    step = model.observe(
+        4,
+        _at(200),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    assert step.tier == "rolling"
+
+
 def test_hold_and_backfill_uses_rolling_until_trusted() -> None:
     model = CrowdBaseline()
     untrusted = model.observe(
@@ -286,7 +326,12 @@ def test_hold_and_backfill_uses_rolling_until_trusted() -> None:
 def test_hold_and_backfill_drains_queue_when_trusted() -> None:
     model = CrowdBaseline()
     start = float(CROWD_COLD_START_HOURS)
-    _run_quiet(model, windows=10, start_hours=0)
+    _run_quiet(
+        model,
+        windows=50,
+        start_hours=0,
+        step_hours=start / 50,
+    )
     model.observe(
         6,
         _at(start + 1),

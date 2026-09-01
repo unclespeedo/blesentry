@@ -34,14 +34,14 @@ Episode freeze and hold-and-backfill match ADR-0008 / DC-4.
 **Install age** anchors on the first **trusted** wall-clock sample.
 Untrusted timestamps never seed `_install_at`. A backward NTP step
 resets the anchor to the corrected time so age cannot go negative. A
-forward jump larger than one year between consecutive trusted samples
-re-anchors install age (prevents epoch/NTP sync from bypassing cold
-start).
+forward jump of at least ``CROWD_COLD_START_HOURS`` between consecutive
+trusted samples re-anchors install age (prevents NTP/epoch sync from
+bypassing cold start).
 
-**Seasonal training during cold start:** while the active tier is still
+**Seasonal training during cold start:** while the active read tier is still
 rolling, trusted observations continue to train hour-of-week EWMA buckets
-in the background. Unvisited buckets at seasonal switchover fall back to
-the rolling mean instead of the live count (avoids `z = 0` blind spots).
+and per-bucket residual history in the background. Unvisited buckets at
+switchover fall back to the rolling mean / rolling residual scale.
 
 ## Tiers (DC-4)
 

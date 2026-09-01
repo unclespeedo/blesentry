@@ -31,8 +31,8 @@ from blesentry.detection.crowd import (
 BaselineTier = Literal["seasonal", "rolling"]
 
 # Re-anchor install age when consecutive trusted samples jump farther than
-# any real scan cadence (15 s) can advance — catches epoch/NTP sync.
-_FORWARD_JUMP_HOURS = 24 * 365
+# cold start in one step — no real 15 s cadence spans 168 h between windows.
+_FORWARD_JUMP_HOURS = float(CROWD_COLD_START_HOURS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +107,12 @@ class CrowdBaseline:
         )
         z = residual / scale
         if not in_episode:
-            self._record_residual(residual, observed_at, tier)
+            self._record_residual(
+                residual,
+                observed_at,
+                tier,
+                wall_clock_trusted=wall_clock_trusted,
+            )
             self._update(count, observed_at, wall_clock_trusted)
         return BaselineStep(
             baseline=baseline,
@@ -193,12 +198,16 @@ class CrowdBaseline:
         residual: float,
         observed_at: str,
         tier: BaselineTier,
+        *,
+        wall_clock_trusted: bool,
     ) -> None:
+        bucket = hour_of_week(observed_at)
         if tier == "seasonal":
-            bucket = hour_of_week(observed_at)
             self._seasonal_residuals[bucket].append(residual)
         else:
             self._rolling_residuals.append(residual)
+        if wall_clock_trusted and tier == "rolling":
+            self._seasonal_residuals[bucket].append(residual)
 
     def _update_seasonal_bucket(self, bucket: int, count: float) -> None:
         current = self._seasonal[bucket]
