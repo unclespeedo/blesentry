@@ -572,7 +572,12 @@ def test_seasonal_scale_falls_back_to_rolling_for_unvisited_bucket() -> None:
             wall_clock_trusted=True,
             in_episode=False,
         )
-    at = "2026-01-10T03:00:00.000Z"
+    at = _at(45 * 4.0)
+    for offset in range(1, 24):
+        candidate = _at(45 * 4.0 + offset)
+        if math.isnan(model._seasonal[hour_of_week(candidate)]):
+            at = candidate
+            break
     bucket = hour_of_week(at)
     assert math.isnan(model._seasonal[bucket])
     model.begin_window(at, wall_clock_trusted=True, in_episode=False)
@@ -590,3 +595,14 @@ def test_reanchor_discards_queued_backfill() -> None:
     assert len(model._backfill) == 1
     model.observe(4, _at(0), wall_clock_trusted=True, in_episode=False)
     assert len(model._backfill) == 0
+
+
+def test_reanchor_skips_backfill_drain_before_seasonal_update() -> None:
+    model = CrowdBaseline()
+    _run_quiet(model, windows=45, step_hours=4.0)
+    bucket = hour_of_week(_at(50))
+    assert math.isnan(model._seasonal[bucket])
+    model.observe(99, _at(50), wall_clock_trusted=False, in_episode=False)
+    model.observe(4, _at(0), wall_clock_trusted=True, in_episode=False)
+    assert math.isnan(model._seasonal[bucket])
+    assert len(model._seasonal_residuals[bucket]) == 0

@@ -96,7 +96,8 @@ as `iso_utc` / C2 `window_band_counts.observed_at`).
 
 **C4 wiring (episode trigger):** each window:
 
-1. `begin_window` — drain hold-and-backfill (no trusted-time accrual).
+1. `begin_window` — re-anchor (discarding queued samples) or drain
+   hold-and-backfill before preview (no trusted-time accrual).
 2. `preview` — read baseline / scale / `z` at pre-window trusted age.
 3. `cusum_positive(S, step.z, …)`
 4. `commit` — accrue trusted time, pin tier when entering an episode

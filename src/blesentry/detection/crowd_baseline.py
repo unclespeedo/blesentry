@@ -168,7 +168,10 @@ class CrowdBaseline:
         if not in_episode:
             self._episode_tier = None
         if wall_clock_trusted and not in_episode:
-            self._drain_backfill()
+            if self._trusted_step_would_reanchor(observed_at):
+                self._reanchor_trusted_time(observed_at)
+            else:
+                self._drain_backfill()
 
     def finish_window(
         self,
@@ -234,6 +237,17 @@ class CrowdBaseline:
 
     def _note_trusted_time(self, observed_at: str) -> None:
         """Anchor install age on trusted wall clock; heal clock steps."""
+        if self._trusted_step_would_reanchor(observed_at):
+            self._reanchor_trusted_time(observed_at)
+            return
+        if self._last_trusted_at is not None:
+            step_hours = _hours_between(self._last_trusted_at, observed_at)
+            self._trusted_operating_hours += step_hours
+        self._last_trusted_at = observed_at
+        if self._install_at is None:
+            self._install_at = observed_at
+
+    def _trusted_step_would_reanchor(self, observed_at: str) -> bool:
         if self._last_trusted_at is not None:
             step_hours = _hours_between(self._last_trusted_at, observed_at)
             if (
@@ -241,15 +255,10 @@ class CrowdBaseline:
                 or step_hours >= _FORWARD_JUMP_HOURS
                 or step_hours > _MAX_TRUSTED_STEP_HOURS
             ):
-                self._reanchor_trusted_time(observed_at)
-                return
-            self._trusted_operating_hours += step_hours
-        self._last_trusted_at = observed_at
-        if self._install_at is None:
-            self._install_at = observed_at
-            return
-        if _parse_utc(observed_at) < _parse_utc(self._install_at):
-            self._reanchor_trusted_time(observed_at)
+                return True
+        return self._install_at is not None and _parse_utc(
+            observed_at
+        ) < _parse_utc(self._install_at)
 
     def _reanchor_trusted_time(self, observed_at: str) -> None:
         """Reset install age after a backward or forward clock correction."""
