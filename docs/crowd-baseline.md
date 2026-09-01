@@ -25,8 +25,9 @@ the online state machine. C4's backend calls it each window.
    window (`CROWD_RESIDUAL_WINDOW`, same span as EWMA).
 5. **z** = `residual / scale`.
 6. Unless `in_episode` (CUSUM `S > 0`), update EWMA / rolling **and**
-   append the residual to the capped window. Episode freeze applies to
-   both baseline training and residual history.
+   append the residual to the capped window. During an episode the
+   pre-episode residual history alone defines scale; the live residual
+   is excluded from `floored_mad`.
 
 Episode freeze and hold-and-backfill match ADR-0008 / DC-4.
 

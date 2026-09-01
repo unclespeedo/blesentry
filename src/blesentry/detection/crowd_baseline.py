@@ -21,6 +21,7 @@ from blesentry.detection.crowd import (
     CROWD_COLD_START_HOURS,
     CROWD_EWMA_SPAN,
     CROWD_HOUR_OF_WEEK_BUCKETS,
+    CROWD_MAD_FLOOR,
     CROWD_RESIDUAL_WINDOW,
     CROWD_ROLLING_WINDOWS,
     ewma_alpha,
@@ -93,7 +94,12 @@ class CrowdBaseline:
         tier = self._select_tier(observed_at, wall_clock_trusted)
         baseline = self._baseline_for(count, observed_at, tier)
         residual = float(count) - baseline
-        scale = self._scale_for(residual, observed_at, tier)
+        scale = self._scale_for(
+            residual,
+            observed_at,
+            tier,
+            in_episode=in_episode,
+        )
         z = residual / scale
         if not in_episode:
             self._record_residual(residual, observed_at, tier)
@@ -154,12 +160,18 @@ class CrowdBaseline:
         residual: float,
         observed_at: str,
         tier: BaselineTier,
+        *,
+        in_episode: bool,
     ) -> float:
         if tier == "seasonal":
             bucket = hour_of_week(observed_at)
             values = self._seasonal_residuals[bucket]
         else:
             values = self._rolling_residuals
+        if in_episode:
+            if not values:
+                return CROWD_MAD_FLOOR
+            return floored_mad(values)
         if not values:
             return floored_mad([residual])
         return floored_mad([*values, residual])

@@ -183,6 +183,26 @@ def test_episode_freeze_skips_residual_history() -> None:
     assert spike.z > 3.0
 
 
+def test_episode_freeze_uses_pre_episode_scale() -> None:
+    model = CrowdBaseline()
+    start = float(CROWD_COLD_START_HOURS)
+    _run_quiet(model, windows=80, start_hours=start)
+    pre = model.observe(
+        4,
+        _at(start + 2),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    during = model.observe(
+        20,
+        _at(start + 2.1),
+        wall_clock_trusted=True,
+        in_episode=True,
+    )
+    assert during.scale == pre.scale
+    assert during.z > 3.0
+
+
 def test_seasonal_bucket_falls_back_to_rolling_mean() -> None:
     model = CrowdBaseline()
     start = float(CROWD_COLD_START_HOURS)
