@@ -59,7 +59,12 @@
   fade-after 12, deque maxlen = A1 W). The A3 backend is
   ``blesentry.detection.approach_detector.ApproachDetector``
   (``[detection] backend = "approach"``, ``kind="approaching"``);
-  default remains ``none``. The I1 inside spec (ADR-0009,
+  default remains ``none``. The C1 crowd spec (ADR-0008,
+  ``docs/crowd.md``) is ``blesentry.detection.crowd.crowd_counts`` /
+  ``floored_mad`` / ``cusum_positive``. The C3 online baseline is
+  ``blesentry.detection.crowd_baseline.CrowdBaseline``
+  (``docs/crowd-baseline.md``); C4 is the ``crowd`` backend.
+  The I1 inside spec (ADR-0009,
   ``docs/inside.md``) is   ``blesentry.detection.inside.inside_count``
   / ``inside_sustain_step`` / ``build_inside_excluded``. The I3 inside
   backend is ``blesentry.detection.inside_detector.InsideDetector``
