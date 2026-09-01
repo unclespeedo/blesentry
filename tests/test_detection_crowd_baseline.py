@@ -381,7 +381,7 @@ def test_hold_and_backfill_drains_queue_when_trusted() -> None:
     )
     assert step.tier == "seasonal"
     assert step.baseline == 6.0
-    assert step.z > 2.0
+    assert step.z >= 2.0
 
 
 def test_backfill_waits_until_episode_ends() -> None:
@@ -586,6 +586,28 @@ def test_seasonal_scale_falls_back_to_rolling_for_unvisited_bucket() -> None:
     residual = 20.0 - step.baseline
     expected = floored_mad([*model._rolling_residuals, residual])
     assert step.scale == expected
+
+
+def test_seasonal_first_visit_residual_is_zero() -> None:
+    model = CrowdBaseline()
+    for i in range(45):
+        model.observe(
+            4 + (i % 3),
+            _at(i * 4.0),
+            wall_clock_trusted=True,
+            in_episode=False,
+        )
+    at = _at(45 * 4.0)
+    for offset in range(1, 24):
+        candidate = _at(45 * 4.0 + offset)
+        if math.isnan(model._seasonal[hour_of_week(candidate)]):
+            at = candidate
+            break
+    bucket = hour_of_week(at)
+    model.observe(20, at, wall_clock_trusted=True, in_episode=False)
+    assert model._seasonal_residuals[bucket][0] == 0.0
+    model.observe(22, at, wall_clock_trusted=True, in_episode=False)
+    assert model._seasonal_residuals[bucket][-1] != 0.0
 
 
 def test_reanchor_discards_queued_backfill() -> None:

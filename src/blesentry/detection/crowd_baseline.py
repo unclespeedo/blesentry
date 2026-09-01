@@ -332,6 +332,12 @@ class CrowdBaseline:
             return self._rolling_mean_or(count_near)
         return value
 
+    def _seasonal_residual(self, bucket: int, count: float) -> float:
+        value = self._seasonal[bucket]
+        if math.isnan(value):
+            return 0.0
+        return count - value
+
     def _record_residual(
         self,
         count_near: int,
@@ -343,16 +349,15 @@ class CrowdBaseline:
     ) -> None:
         bucket = hour_of_week(observed_at)
         if tier == "seasonal":
-            self._seasonal_residuals[bucket].append(residual)
+            self._seasonal_residuals[bucket].append(
+                self._seasonal_residual(bucket, float(count_near)),
+            )
         else:
             self._rolling_residuals.append(residual)
         if wall_clock_trusted and tier == "rolling":
-            seasonal_baseline = self._seasonal_baseline_or_rolling(
-                bucket,
-                count_near,
+            self._seasonal_residuals[bucket].append(
+                self._seasonal_residual(bucket, float(count_near)),
             )
-            seasonal_residual = float(count_near) - seasonal_baseline
-            self._seasonal_residuals[bucket].append(seasonal_residual)
 
     def _update_seasonal_bucket(self, bucket: int, count: float) -> None:
         current = self._seasonal[bucket]
@@ -380,9 +385,9 @@ class CrowdBaseline:
             observed_at, count_near = self._backfill.popleft()
             bucket = hour_of_week(observed_at)
             count = float(count_near)
-            baseline = self._seasonal_baseline_or_rolling(bucket, count_near)
+            residual = self._seasonal_residual(bucket, count)
             self._update_seasonal_bucket(bucket, count)
-            self._seasonal_residuals[bucket].append(count - baseline)
+            self._seasonal_residuals[bucket].append(residual)
 
 
 def _parse_utc(observed_at: str) -> datetime:
