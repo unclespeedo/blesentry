@@ -40,7 +40,8 @@ bypassing cold start).
 
 **Seasonal training during cold start:** while the active read tier is still
 rolling, trusted observations continue to train hour-of-week EWMA buckets
-and per-bucket residual history in the background. Unvisited buckets at
+and per-bucket residual history (against the bucket EWMA, not the
+rolling mean) in the background. Unvisited buckets at
 switchover fall back to the rolling mean / rolling residual scale.
 
 ## Tiers (DC-4)

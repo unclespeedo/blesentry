@@ -108,6 +108,7 @@ class CrowdBaseline:
         z = residual / scale
         if not in_episode:
             self._record_residual(
+                count,
                 residual,
                 observed_at,
                 tier,
@@ -125,7 +126,7 @@ class CrowdBaseline:
         """Anchor install age on trusted wall clock; heal clock steps."""
         if self._last_trusted_at is not None:
             step_hours = _hours_between(self._last_trusted_at, observed_at)
-            if step_hours > _FORWARD_JUMP_HOURS:
+            if step_hours >= _FORWARD_JUMP_HOURS:
                 self._install_at = observed_at
                 self._last_trusted_at = observed_at
                 return
@@ -193,8 +194,19 @@ class CrowdBaseline:
             return floored_mad([residual])
         return floored_mad([*values, residual])
 
+    def _seasonal_baseline_or_rolling(
+        self,
+        bucket: int,
+        count_near: int,
+    ) -> float:
+        value = self._seasonal[bucket]
+        if math.isnan(value):
+            return self._rolling_mean_or(count_near)
+        return value
+
     def _record_residual(
         self,
+        count_near: int,
         residual: float,
         observed_at: str,
         tier: BaselineTier,
@@ -207,7 +219,12 @@ class CrowdBaseline:
         else:
             self._rolling_residuals.append(residual)
         if wall_clock_trusted and tier == "rolling":
-            self._seasonal_residuals[bucket].append(residual)
+            seasonal_baseline = self._seasonal_baseline_or_rolling(
+                bucket,
+                count_near,
+            )
+            seasonal_residual = float(count_near) - seasonal_baseline
+            self._seasonal_residuals[bucket].append(seasonal_residual)
 
     def _update_seasonal_bucket(self, bucket: int, count: float) -> None:
         current = self._seasonal[bucket]

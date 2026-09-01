@@ -256,6 +256,12 @@ def test_install_at_ignores_untrusted_clock() -> None:
         in_episode=False,
     )
     assert step.tier == "rolling"
+    _run_quiet(
+        model,
+        windows=50,
+        start_hours=0,
+        step_hours=float(CROWD_COLD_START_HOURS) / 50,
+    )
     later = model.observe(
         4,
         _at(float(CROWD_COLD_START_HOURS)),
@@ -288,6 +294,18 @@ def test_forward_clock_jump_does_not_prematurely_enable_seasonal() -> None:
     step = model.observe(
         4,
         _at(1),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    assert step.tier == "rolling"
+
+
+def test_exact_168h_forward_jump_reanchors() -> None:
+    model = CrowdBaseline()
+    model.observe(4, _at(0), wall_clock_trusted=True, in_episode=False)
+    step = model.observe(
+        4,
+        _at(float(CROWD_COLD_START_HOURS)),
         wall_clock_trusted=True,
         in_episode=False,
     )
