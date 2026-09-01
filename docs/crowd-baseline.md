@@ -27,7 +27,9 @@ the online state machine. C4's backend calls it each window.
 6. Unless `in_episode` (CUSUM `S > 0`), update EWMA / rolling **and**
    append the residual to the capped window. During an episode the
    pre-episode residual history alone defines scale; the live residual
-   is excluded from `floored_mad`.
+   is excluded from `floored_mad`. The active tier is pinned for the
+   episode so cold-start completion cannot switch rolling → seasonal
+   mid-episode.
 
 Episode freeze and hold-and-backfill match ADR-0008 / DC-4.
 
@@ -53,14 +55,16 @@ switchover fall back to the rolling mean / rolling residual scale.
 
 **Hold-and-backfill:** while wall clock is untrusted, seasonal buckets are
 not updated; `(observed_at, count_near)` pairs queue. When trust flips
-true **and** the detector is not in an episode, the queue drains in order
-(seasonal updates only — rolling already ran live). Rolling is always
-updated on the live path.
+true **and** the detector is not in an episode, the queue drains in
+chronological order immediately (even during cold start — seasonal
+updates only; rolling already ran live). Rolling is always updated on
+the live path.
 
 **Cold start:** seasonal is not selected until **trusted operating hours**
 (accumulated wall-clock time between consecutive trusted samples with
-gaps ≤ 24 h) reach ``CROWD_COLD_START_HOURS``. Forward jumps above
-24 h or ≥ 168 h between trusted samples reset the accumulator.
+gaps ≤ 24 h) reach ``CROWD_COLD_START_HOURS``. Backward steps, forward
+jumps above 24 h, or ≥ 168 h between trusted samples reset the
+accumulator.
 
 ## Residual window cap (DC-2)
 
@@ -103,6 +107,6 @@ as `iso_utc` / C2 `window_band_counts.observed_at`).
   mean after the episode ends.
 - Seasonal vs rolling tier selection (clock trust + cold start).
 - Episode freeze: EWMA **and residual history** unchanged while
-  `in_episode=True`.
+  `in_episode=True`; tier pinned for the episode.
 - Hold-and-backfill drains queued seasonal updates when trust flips
   and the detector is not in an episode.

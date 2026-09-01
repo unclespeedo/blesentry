@@ -10,6 +10,7 @@ scale, episode freeze, and hold-and-backfill — not a Detector backend.
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 
 from blesentry.detection.crowd import (
@@ -231,7 +232,7 @@ def test_seasonal_residuals_trained_during_cold_start() -> None:
         )
     seasonal = model.observe(
         4,
-        _at(start),
+        _at(90 * 2),
         wall_clock_trusted=True,
         in_episode=False,
     )
@@ -381,14 +382,14 @@ def test_hold_and_backfill_drains_queue_when_trusted() -> None:
 
 def test_backfill_waits_until_episode_ends() -> None:
     model = CrowdBaseline()
-    start = float(CROWD_COLD_START_HOURS)
     _run_quiet(
         model,
         windows=45,
         start_hours=0,
         step_hours=4.0,
     )
-    hold_at = start + 1
+    hold_at = 45 * 4.0 + 1
+    step = 15 / 3600
     model.observe(
         6,
         _at(hold_at),
@@ -397,15 +398,66 @@ def test_backfill_waits_until_episode_ends() -> None:
     )
     during = model.observe(
         20,
-        _at(hold_at),
+        _at(hold_at + step),
         wall_clock_trusted=True,
         in_episode=True,
     )
     assert during.baseline < 5.0
     after = model.observe(
         20,
-        _at(hold_at + 0.01),
+        _at(hold_at + 2 * step),
         wall_clock_trusted=True,
         in_episode=False,
     )
+    assert hour_of_week(_at(hold_at)) == hour_of_week(_at(hold_at + 2 * step))
     assert after.baseline == 6.0
+
+
+def test_backward_trusted_step_reanchors_operating_hours() -> None:
+    model = CrowdBaseline()
+    _run_quiet(model, windows=26, step_hours=4.0)
+    model.observe(4, _at(98), wall_clock_trusted=True, in_episode=False)
+    step = model.observe(
+        4,
+        _at(100),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    assert step.tier == "rolling"
+
+
+def test_backfill_drains_during_cold_start() -> None:
+    model = CrowdBaseline()
+    _run_quiet(model, windows=10, step_hours=1.0)
+    bucket = hour_of_week(_at(11))
+    model.observe(10, _at(11), wall_clock_trusted=False, in_episode=False)
+    model.observe(4, _at(12), wall_clock_trusted=True, in_episode=False)
+    assert not math.isnan(model._seasonal[bucket])
+    assert len(model._backfill) == 0
+
+
+def test_episode_pins_tier_across_cold_start_boundary() -> None:
+    model = CrowdBaseline()
+    step_hours = 4.0
+    _run_quiet(model, windows=42, step_hours=step_hours)
+    during = model.observe(
+        4,
+        _at(42 * step_hours),
+        wall_clock_trusted=True,
+        in_episode=True,
+    )
+    assert during.tier == "rolling"
+    still = model.observe(
+        4,
+        _at(42 * step_hours + 4),
+        wall_clock_trusted=True,
+        in_episode=True,
+    )
+    assert still.tier == "rolling"
+    after = model.observe(
+        4,
+        _at(42 * step_hours + 8),
+        wall_clock_trusted=True,
+        in_episode=False,
+    )
+    assert after.tier == "seasonal"

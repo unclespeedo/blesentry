@@ -72,6 +72,7 @@ class CrowdBaseline:
         self._backfill: deque[tuple[str, int]] = deque()
         self._last_trusted_at: str | None = None
         self._trusted_operating_hours = 0.0
+        self._episode_tier: BaselineTier | None = None
 
     def observe(
         self,
@@ -94,13 +95,24 @@ class CrowdBaseline:
             :class:`BaselineStep` for C4's CUSUM input.
         """
         count = _require_count(count_near)
+        if in_episode:
+            if self._episode_tier is None:
+                self._episode_tier = self._tier_for(wall_clock_trusted)
+        else:
+            self._episode_tier = None
         if wall_clock_trusted:
             self._note_trusted_time(observed_at)
             if not in_episode:
-                self._drain_backfill(observed_at)
+                self._drain_backfill()
         elif not in_episode:
             self._backfill.append((observed_at, count))
-        tier = self._select_tier(observed_at, wall_clock_trusted)
+        if in_episode:
+            if self._episode_tier is None:
+                msg = "episode tier must be pinned before selection"
+                raise RuntimeError(msg)
+            tier = self._episode_tier
+        else:
+            tier = self._tier_for(wall_clock_trusted)
         baseline = self._baseline_for(count, observed_at, tier)
         residual = float(count) - baseline
         scale = self._scale_for(
@@ -131,7 +143,8 @@ class CrowdBaseline:
         if self._last_trusted_at is not None:
             step_hours = _hours_between(self._last_trusted_at, observed_at)
             if (
-                step_hours >= _FORWARD_JUMP_HOURS
+                step_hours < 0
+                or step_hours >= _FORWARD_JUMP_HOURS
                 or step_hours > _MAX_TRUSTED_STEP_HOURS
             ):
                 self._reanchor_trusted_time(observed_at)
@@ -150,9 +163,8 @@ class CrowdBaseline:
         self._last_trusted_at = observed_at
         self._trusted_operating_hours = 0.0
 
-    def _select_tier(
+    def _tier_for(
         self,
-        observed_at: str,
         wall_clock_trusted: bool,
     ) -> BaselineTier:
         if not wall_clock_trusted:
@@ -254,10 +266,8 @@ class CrowdBaseline:
             bucket = hour_of_week(observed_at)
             self._update_seasonal_bucket(bucket, count)
 
-    def _drain_backfill(self, now: str) -> None:
+    def _drain_backfill(self) -> None:
         if self._install_at is None:
-            return
-        if self._trusted_operating_hours < CROWD_COLD_START_HOURS:
             return
         while self._backfill:
             observed_at, count_near = self._backfill.popleft()
