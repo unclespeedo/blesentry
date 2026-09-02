@@ -201,7 +201,7 @@ def load_advertisement_fixture(path: Path) -> list[Advertisement]:
 
 
 def load_heard_fixture(path: Path) -> list[DetectionWindow]:
-    """Load a JSON array of heard-window buckets for inside replay."""
+    """Load a JSON array of heard-window buckets for inside/crowd replay."""
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
         raise TypeError(f"{path} is not a JSON array")
@@ -209,6 +209,13 @@ def load_heard_fixture(path: Path) -> list[DetectionWindow]:
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
             raise TypeError(f"{path}[{index}] is not an object")
+        if "heard" not in item and (
+            "address" in item or "rssi" in item or "timestamp" in item
+        ):
+            raise TypeError(
+                f"{path}[{index}] looks like an Advertisement; "
+                "use --backend approach (or heard-window JSON)"
+            )
         heard_raw = item.get("heard", [])
         if not isinstance(heard_raw, list):
             raise TypeError(f"{path}[{index}].heard is not an array")
@@ -236,10 +243,21 @@ def load_heard_fixture(path: Path) -> list[DetectionWindow]:
 def replay_heard_fixture(
     path: str | Path,
     detector: Detector,
+    *,
+    require_nonempty_heard: bool = True,
 ) -> ReplayReport:
-    """Replay a sanitized heard-window fixture through ``detector``."""
+    """Replay a sanitized heard-window fixture through ``detector``.
+
+    ``require_nonempty_heard`` defaults to ``True`` for inside (catches
+    empty/misrouted fixtures). Crowd quiet corpora may be all-empty;
+    the CLI passes ``False`` for ``--backend crowd``.
+    """
     windows = load_heard_fixture(Path(path))
-    if windows and not any(window.heard for window in windows):
+    if (
+        require_nonempty_heard
+        and windows
+        and not any(window.heard for window in windows)
+    ):
         raise ValueError(
             f"{path} has no heard entries; "
             "inside replay needs heard-window JSON"

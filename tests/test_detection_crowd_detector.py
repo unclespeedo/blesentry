@@ -243,6 +243,22 @@ def test_replay_cli_accepts_crowd_backend(
     )
 
 
+def test_replay_cli_crowd_quiet_empty_heard(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = tmp_path / "crowd-quiet.json"
+    path.write_text(
+        '[{"heard": []}, {"heard": []}, {"heard": []}]\n',
+        encoding="utf-8",
+    )
+    code = main(["replay", "--fixture", str(path), "--backend", "crowd"])
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["window_count"] == 3
+    assert report["events"] == []
+
+
 # --- run_cycle / outbox (DC-1) ----------------------------------------
 
 

@@ -640,7 +640,11 @@ async def _run_replay(args: argparse.Namespace) -> int:
                 "--fixture cannot be combined with --db/--site-id"
             )
         if args.backend in ("inside", "crowd"):
-            report = replay_heard_fixture(args.fixture, detector)
+            report = replay_heard_fixture(
+                args.fixture,
+                detector,
+                require_nonempty_heard=args.backend == "inside",
+            )
         else:
             report = replay_fixture(args.fixture, detector, period)
     elif args.db is not None and args.site_id is not None:
