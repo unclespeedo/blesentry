@@ -118,8 +118,10 @@ backend = "none"
 # "inside" is the I3 sustained adjacent-to-Pi backend
 # (ADR-0009 / docs/inside.md): one "inside-adjacent" event per
 # dwell episode, enqueued inside the scan-cycle transaction.
-# Crowd is a later issue. W/Δ/peak and inside N/M are frozen in
-# code, not knobs here.
+# "crowd" is the C4 robust-baseline + CUSUM backend
+# (ADR-0008 / docs/crowd.md): density anomaly with alert roster.
+# W/Δ/peak, inside N/M, and crowd knobs that are frozen stay in
+# code, not here.
 backend = "none"
 
 # Example of the approach backend:
@@ -130,11 +132,16 @@ backend = "none"
 # [detection]
 # backend = "inside"
 #
+# Example of the crowd backend:
+# [detection]
+# backend = "crowd"
+#
 # Offline eval (F1) is a CLI, not the daemon: `blesentry replay`
 # `--fixture` or `--db` (a copied snapshot, never the live WAL).
 # Approach needs advertisements, so use --fixture (walkby.json).
 # Inside needs heard maps: use --fixture (inside-dwell.json) or
-# --db with a copied observations snapshot. See docs/replay.md.
+# --db with a copied observations snapshot. Crowd fixtures:
+# crowd-busy.json / crowd-spike.json. See docs/replay.md.
 
 [summary]
 # Daily digest (P2-9): devices seen, new devices, presence transitions,
