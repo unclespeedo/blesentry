@@ -207,7 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay.add_argument(
         "--backend",
-        choices=("none", "mock", "approach", "inside"),
+        choices=("none", "mock", "approach", "inside", "crowd"),
         default="none",
         help="detector backend (default: none)",
     )
@@ -639,7 +639,7 @@ async def _run_replay(args: argparse.Namespace) -> int:
             raise ValueError(
                 "--fixture cannot be combined with --db/--site-id"
             )
-        if args.backend == "inside":
+        if args.backend in ("inside", "crowd"):
             report = replay_heard_fixture(args.fixture, detector)
         else:
             report = replay_fixture(args.fixture, detector, period)

@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from blesentry.cli import main
 from blesentry.config import (
     Config,
     CrowdDetectionConfig,
@@ -222,6 +223,24 @@ def test_replay_spike_is_silent() -> None:
 
 def test_detector_for_backend_crowd() -> None:
     assert isinstance(detector_for_backend("crowd"), CrowdDetector)
+
+
+def test_replay_cli_accepts_crowd_backend(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = main(
+        [
+            "replay",
+            "--fixture",
+            str(BUSY_FIXTURE),
+            "--backend",
+            "crowd",
+        ]
+    )
+    assert code == 0
+    assert json.loads(capsys.readouterr().out) == json.loads(
+        BUSY_GOLDEN.read_text(encoding="utf-8")
+    )
 
 
 # --- run_cycle / outbox (DC-1) ----------------------------------------
