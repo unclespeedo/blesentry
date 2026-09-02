@@ -217,5 +217,5 @@ def test_unknown_detection_backend_rejected() -> None:
         Config(
             site_id="s",
             storage={"db": "x.db"},
-            detection={"backend": "crowd"},
+            detection={"backend": "neural"},
         )

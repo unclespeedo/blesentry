@@ -31,7 +31,7 @@ Exactly one source:
 | Source | CLI | Windows contain |
 |---|---|---|
 | Sanitized advertisement fixture (JSON array of `Advertisement`) | `--fixture PATH` with `--backend none`/`mock`/`approach` | `advertisements` populated; `heard` empty (no resolver ran) |
-| Sanitized heard-window fixture (JSON array of `{heard: [[id,rssi],…]}`) | `--fixture PATH` with `--backend inside` | `heard` populated; `advertisements` empty |
+| Sanitized heard-window fixture (JSON array of `{heard: [[id,rssi],…]}`) | `--fixture PATH` with `--backend inside` or `crowd` | `heard` populated; `advertisements` empty |
 | Immutable `observations` snapshot | `--db PATH --site-id ID` | `heard` = per-`device_id` best RSSI; `advertisements` empty (payloads are not in that table) |
 
 A detector that needs **both** streams in one window is out of
@@ -70,14 +70,16 @@ with a 86400 s period so the count stays small.
 
 ## Detector
 
-`--backend none` (default), `mock`, `approach`, or `inside` — the same
+`--backend none` (default), `mock`, `approach`, `inside`, or `crowd` — the same
 closed union as `[detection]` (ADR-0006). `none` emits nothing;
 unscripted `mock` records windows and also emits nothing. `approach`
 is A3 (`ApproachDetector`); it reads `advertisements` only, so
 `--fixture` (advertisement JSON) is the path that can fire. `inside`
 is I3 (`InsideDetector`); it reads `heard` only, so `--fixture`
 (heard-window JSON, e.g. `inside-dwell.json`) or `--db` snapshot
-replay is the path that can fire. `--db` snapshot replay has empty
+replay is the path that can fire. `crowd` is C4 (`CrowdDetector`);
+it also reads `heard` only (synthetic timestamps from window index
+when `prepare_window` is not used). `--db` snapshot replay has empty
 `advertisements` and will not produce approach events.
 Scripted `MockDetector` events are a unit-test concern, not a CLI
 flag.

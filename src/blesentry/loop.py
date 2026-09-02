@@ -98,6 +98,10 @@ def _detection_alert_text(event: DetectionEvent) -> str:
         APPROACH_DETECTOR_ID,
         APPROACH_KIND,
     )
+    from blesentry.detection.crowd import (
+        CROWD_DETECTOR_ID,
+        CROWD_KIND,
+    )
     from blesentry.detection.inside import (
         INSIDE_DETECTOR_ID,
         INSIDE_KIND,
@@ -113,6 +117,10 @@ def _detection_alert_text(event: DetectionEvent) -> str:
         from blesentry.detection.inside_detector import format_inside_alert
 
         return format_inside_alert(event)
+    if event.detector == CROWD_DETECTOR_ID and event.kind == CROWD_KIND:
+        from blesentry.detection.crowd_detector import format_crowd_alert
+
+        return format_crowd_alert(event)
     return (
         f"Detection {event.detector}/{event.kind} "
         f"at window {event.window_index}."
@@ -256,6 +264,10 @@ async def run_cycle(
                 if alerter is not None:
                     await alerter.handle(transitions)
             if detector is not None and outbox is not None:
+                from blesentry.detection.crowd_detector import CrowdDetector
+
+                if isinstance(detector, CrowdDetector):
+                    detector.prepare_window(observed_at=cycle_at)
                 events = detector.observe(
                     DetectionWindow(
                         index=window_index,

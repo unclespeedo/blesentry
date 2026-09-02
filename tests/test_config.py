@@ -207,7 +207,7 @@ def test_unknown_scanner_backend_rejected(tmp_path: Path) -> None:
 def test_unknown_detection_backend_rejected(tmp_path: Path) -> None:
     body = (
         'site_id = "s"\n[storage]\ndb = "/tmp/x.db"\n'
-        '[detection]\nbackend = "crowd"\n'
+        '[detection]\nbackend = "neural"\n'
     )
     with pytest.raises(ConfigError):
         load_config(_write(tmp_path, body))

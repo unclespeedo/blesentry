@@ -301,9 +301,10 @@ async def replay_snapshot(
 
 
 def detector_for_backend(backend: str) -> Detector:
-    """Build ``none`` / ``mock`` / ``approach`` / ``inside`` like config."""
+    """Build a configured Detector backend for replay/CLI."""
     from blesentry.config import (
         ApproachDetectionConfig,
+        CrowdDetectionConfig,
         InsideDetectionConfig,
         MockDetectionConfig,
         NoneDetectionConfig,
@@ -316,6 +317,8 @@ def detector_for_backend(backend: str) -> Detector:
         return build_detector(ApproachDetectionConfig(backend="approach"))
     if backend == "inside":
         return build_detector(InsideDetectionConfig(backend="inside"))
+    if backend == "crowd":
+        return build_detector(CrowdDetectionConfig(backend="crowd"))
     if backend == "none":
         return build_detector(NoneDetectionConfig())
     raise ValueError(f"unknown detection backend: {backend}")
