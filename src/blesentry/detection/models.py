@@ -79,6 +79,7 @@ class DetectionEvent(BaseModel):
     band: ProximityBand | None = None
     rising: bool | None = None
     count: int | None = Field(default=None, ge=1)
+    count_all: int | None = Field(default=None, ge=0)
     contributors: tuple[int, ...] | None = None
 
     @field_validator("contributors")

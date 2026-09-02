@@ -37,7 +37,8 @@ data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
                 │   ├─ NullDetector  (none, default)           │
                 │   ├─ MockDetector  (CI / F1 replay)          │
                 │   ├─ ApproachDetector (approach; A3)         │
-                │   └─ InsideDetector (inside; I3)           │
+                │   ├─ InsideDetector (inside; I3)             │
+                │   └─ CrowdDetector (crowd; C4)             │
                 │        │                                     │
                 │        ▼                                     │
                 │ Outbox ──▶ Drain loop (exp. backoff) ──▶     │

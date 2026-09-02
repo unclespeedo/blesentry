@@ -63,7 +63,9 @@
   ``docs/crowd.md``) is ``blesentry.detection.crowd.crowd_counts`` /
   ``floored_mad`` / ``cusum_positive``. The C3 online baseline is
   ``blesentry.detection.crowd_baseline.CrowdBaseline``
-  (``docs/crowd-baseline.md``); C4 is the ``crowd`` backend.
+  (``docs/crowd-baseline.md``); C4 is the ``crowd`` backend
+  ``blesentry.detection.crowd_detector.CrowdDetector``
+  (``[detection] backend = "crowd"``, ``kind="crowd-busy"``).
   The I1 inside spec (ADR-0009,
   ``docs/inside.md``) is   ``blesentry.detection.inside.inside_count``
   / ``inside_sustain_step`` / ``build_inside_excluded``. The I3 inside

@@ -51,6 +51,7 @@ __all__ = [
     "BleakScannerConfig",
     "Config",
     "ConfigError",
+    "CrowdDetectionConfig",
     "InsideDetectionConfig",
     "MockScannerConfig",
     "NoneDetectionConfig",
@@ -274,12 +275,19 @@ class InsideDetectionConfig(_Section):
     backend: Literal["inside"]
 
 
+class CrowdDetectionConfig(_Section):
+    """CUSUM crowd-busy backend (C4 / ADR-0008)."""
+
+    backend: Literal["crowd"]
+
+
 # Closed union, same posture as Scanner/Notifier. Open registry is #101.
 DetectionConfig = Annotated[
     NoneDetectionConfig
     | MockDetectionConfig
     | ApproachDetectionConfig
-    | InsideDetectionConfig,
+    | InsideDetectionConfig
+    | CrowdDetectionConfig,
     Field(discriminator="backend"),
 ]
 
@@ -512,6 +520,10 @@ def build_detector(
             familiar=familiar,
             own_rotating_gear=own_rotating_gear,
         )
+    if isinstance(detection, CrowdDetectionConfig):
+        from blesentry.detection.crowd_detector import CrowdDetector
+
+        return CrowdDetector()
 
     from blesentry.detection.null import NullDetector
 

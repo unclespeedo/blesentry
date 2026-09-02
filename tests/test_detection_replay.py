@@ -360,16 +360,18 @@ def test_fixture_must_be_a_json_array(tmp_path: Path) -> None:
         load_advertisement_fixture(path)
 
 
-def test_detector_for_backend_none_mock_approach_inside() -> None:
+def test_detector_for_backend_none_mock_approach_inside_crowd() -> None:
     from blesentry.detection.approach_detector import ApproachDetector
+    from blesentry.detection.crowd_detector import CrowdDetector
     from blesentry.detection.inside_detector import InsideDetector
 
     assert isinstance(detector_for_backend("none"), NullDetector)
     assert isinstance(detector_for_backend("mock"), MockDetector)
     assert isinstance(detector_for_backend("approach"), ApproachDetector)
     assert isinstance(detector_for_backend("inside"), InsideDetector)
+    assert isinstance(detector_for_backend("crowd"), CrowdDetector)
     with pytest.raises(ValueError, match="unknown"):
-        detector_for_backend("crowd")
+        detector_for_backend("neural")
 
 
 def test_replay_cli_requires_source(

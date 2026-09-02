@@ -17,10 +17,10 @@ Three future modules; only C4 is a Detector backend:
 | **C1 helpers** | `blesentry.detection.crowd` | Frozen knobs + `crowd_counts`, `floored_mad`, `cusum_positive` |
 | **C2 persistence** | `WindowBandCountRepository` (#132) | Band-count row per cycle inside the txn |
 | **C3 baseline** | `blesentry.detection.crowd_baseline` (#133) | Seasonal + rolling EWMA, episode freeze — see `docs/crowd-baseline.md` |
-| **C4 backend** | TBD (#134) | `[detection] backend = "crowd"`; `kind="crowd-busy"` |
+| **C4 backend** | `blesentry.detection.crowd_detector.CrowdDetector` | `[detection] backend = "crowd"`; `kind="crowd-busy"` |
 
 Default `[detection] backend` stays `"none"`. Enabling crowd is a
-future config edit.
+config edit (`backend = "crowd"`).
 
 ## Why
 
@@ -124,11 +124,71 @@ events; do not treat count collapse as quiet. C4 wires the input.
 - **Not `is_familiar`.** F6 / I2; roster context only at C4.
 - **Not a distance.** Counts and bands only (DC-6).
 
+## Detector backend (C4)
+
+```text
+CrowdDetector.prepare_window(*, observed_at, wall_clock_trusted=True) -> None
+CrowdDetector.observe(window) -> tuple[DetectionEvent, ...]
+format_crowd_alert(event) -> str
+```
+
+Implementation: `blesentry.detection.crowd_detector`. Holds
+:class:`~blesentry.detection.crowd_baseline.CrowdBaseline` state, the
+positive CUSUM accumulator, and a fire-once flag per episode.
+
+`observe` is synchronous and I/O-free (ADR-0006). It reads
+**post-resolve `heard`** only (`advertisements` is ignored). Each
+window:
+
+1. `crowd_counts(heard)` → `(count_near, count_all)`
+2. `CrowdBaseline.begin_window` → `preview` → `cusum_positive` →
+   `commit` (episode freeze when `S > 0`; see `docs/crowd-baseline.md`)
+3. When CUSUM fires and this episode has not already alerted, return
+   one `DetectionEvent`:
+
+| Field | Value |
+|---|---|
+| `detector` | `crowd` |
+| `kind` | `crowd-busy` |
+| `window_index` | the window's index |
+| `count` | `count_near` |
+| `count_all` | every heard identity this window |
+| `contributors` | sorted post-resolve `device_id`s in the near band |
+
+No raw address, no metres (DC-6, SECURITY.md).
+
+**Wall clock.** Seasonal baselines need UTC `observed_at`. Live
+`run_cycle` calls `prepare_window(observed_at=cycle_at)` before
+`observe`. Replay without injection synthesizes timestamps from
+`index × 15 s` anchored at a fixed epoch.
+
+**Fire-once per episode.** CUSUM may stay above `h` on later windows;
+C4 emits on the first crossing only. When `z ≤ −k` resets `S` to
+zero, the fire-once flag clears so a later busy spell can alert again.
+
+**Alert text** (snapshot-tested), never a distance:
+
+```text
+Unusual site busyness: 7 near / 7 total (device 1, device 2, …).
+```
+
+`run_cycle` / `run_loop` enqueue inside the cycle transaction (DC-1),
+mirroring inside (I3). Scan-health suppression (P4-6) is not wired
+yet — the backend always treats the window as healthy.
+
+### Replay (DoD)
+
+Programmatic heard windows and synthetic fixtures under
+`tests/fixtures/replay/`:
+
+| Scenario | Expect |
+|---|---|
+| Sustained near-count elevation (≈ `z = 2` for four windows after warmup) | one `crowd-busy` event |
+| Single-window spike (≈ `z = 4`) | silent |
+
+Golden: `crowd-busy-golden.json`. Counts and event fields only — no
+addresses in the report.
+
 ## Future work
 
-- **C2 (#132).** `window_band_counts` + `WindowBandCountRepository`;
-  per-cycle append inside the txn; daily time-window retention.
-- **C3 (#133).** `CrowdBaseline` + `docs/crowd-baseline.md`; outlier and
-  tier-selection tests.
-- **C4 (#134).** Backend, alert-with-roster, replay busy episode.
 - **C5 (#135).** FAR validation on fixtures; tune only via new ADR.
