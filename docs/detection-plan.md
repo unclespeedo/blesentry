@@ -1,7 +1,9 @@
 # Detection plan — adaptive alerting (approach / crowd / inside)
 
-**Status: proposal (pre-issue).** Draft plan for the next detection epic, to
-be split into the milestones and issues below. Motivated by a review of real
+**Status: accepted / in progress.** Phase 5 adaptive-detection plan;
+milestones M1–M5 are tracked on GitHub. M4 (Inside) is closed; M1–M3 core
+implementations have landed (remaining open: F4/F5, A4/A5, C5); M5
+(learning loop & bake-off) is not started. Motivated by a review of real
 continuous-collection logs; all figures here are anonymized aggregates (see
 *Data & anonymization*). Technical constraints surfaced in review are
 captured once in *Cross-cutting design constraints* (DC-1…DC-9) and

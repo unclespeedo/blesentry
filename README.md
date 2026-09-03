@@ -5,7 +5,9 @@ learns the Bluetooth devices around it; alerts an operator via private chat
 when unknown devices appear; survives multi-day network outages with zero
 data loss. First deployment target: Raspberry Pi 3 A+ at an off-grid cabin.
 
-**Status: pre-alpha — Phase 0 (see [ROADMAP.md](ROADMAP.md)).**
+**Status: pre-alpha — Phase 0–2 milestones closed; Phase 5 detection
+remainder in progress alongside remote Phase 3 ops (see
+[ROADMAP.md](ROADMAP.md)).**
 
 ## Architecture
 
@@ -57,8 +59,9 @@ implementations is a config edit, no code change. See
 `docs/adr/0002-extension-points.md` for those plugin contracts.
 Detector's frozen surface (`observe(window) → events`) is ADR-0006;
 v1 backends are `none` (default, no events), `mock` (CI / replay),
-`approach` (A3 rising-RSSI), and `inside` (I3 sustained adjacent-to-Pi).
-Crowd is a later issue.
+`approach` (A3 rising-RSSI), `inside` (I3 sustained adjacent-to-Pi),
+and `crowd` (C4 robust-baseline + CUSUM; density anomaly with alert
+roster; ADR-0008).
 `run_cycle` calls `observe` inside the cycle transaction and
 enqueues returned events (DC-1); default `none` does not change
 alert behaviour. The Device resolver is a *named
