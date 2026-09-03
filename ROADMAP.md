@@ -99,9 +99,16 @@ Sizes: **S** ≈ one short session (<2h), **M** ≈ one focused session (half da
 **L** ≈ needs splitting or a full day. Labels use `phase:N`, `epic:<name>`,
 `type:<feature|infra|spike|docs|test|ops>`, `priority:<p0|p1|p2>`.
 
-The **3-week physical-access window (ends 2026-08-30)** is the dominant
-scheduling constraint: everything that requires hands on the Pi or on-site
-ground truth must finish inside it. See §5 for the week-by-week plan.
+The **3-week physical-access window (ended 2026-08-30)** was the dominant
+scheduling constraint for hands-on / on-site ground-truth work. See §5 for
+the historical week-by-week plan.
+
+**Post-window status (2026-09-02):** Leave-Site Gate closed (P0-7…P0-11,
+P3-0). Phases 0–2 are complete on GitHub. Human operator has remote
+deploy access for the near term (agents still must not SSH to the Pi).
+Current focus: Phase 5 detection remainder (eval / vehicle class / C5)
++ remote Phase 3 ops; Phase 4 stays gated on P3-6 soak. See **Phase 5**
+below and `docs/detection-plan.md`.
 
 ---
 
@@ -521,6 +528,30 @@ else blocks on it.
 
 ---
 
+### Phase 5 — Adaptive Detection *(pointer; not a redesign of §3 Phases 0–4)*
+
+Pulled forward from the original Phase-4 detection quality track once
+continuous collection showed identity-alert fatigue. Full plan:
+[`docs/detection-plan.md`](docs/detection-plan.md). GitHub milestones:
+
+| Milestone | Focus | Status (2026-09-02) |
+|---|---|---|
+| M1 — Detection foundation & eval harness | F1–F6 replay, seam, features, corpus, eval, familiar | Core closed; F4/F5 open |
+| M2 — Approach detector | A1–A5 rising trajectory + vehicle class | A1–A3 (+A2 follow-up #174) closed; A4/A5 open |
+| M3 — Crowd anomaly detector | C1–C5 baseline + CUSUM | C1–C4 closed; C5 open |
+| M4 — Inside presence detector | I1–I4 sustained adjacent | **Closed** |
+| M5 — Learning loop & bake-off | L1–L5 labels, gating, bake-off | All open |
+
+**Boundary vs Phase 4 Hardening:** P4-1 / P4-2 remain under Phase 4
+(still Deps: P3-6). Phase 5 owns the adaptive M1–M5 stack; A4 vehicle
+class feeds later P4-2 real-data tuning, not an early unblock of P4-2.
+
+Issue IDs are in the Appendix. Snapshot (2026-09-02): next
+`agent:eligible` pick was **C5 (#135)** with main CI green —
+**AGENTS.md SELECT remains authoritative** if labels change.
+
+---
+
 ## 4. Decision Record
 
 All decision gates are closed. The table records the locked decisions; any
@@ -538,17 +569,21 @@ future revisit is an ADR-level change.
 | 8 | **Single operator** | Bot auth = exactly one `chat_id` + `user_id` pair in config, hard-rejected otherwise. Simplifies P2-5/P2-8; multi-user auth explicitly out of scope. |
 | 9 | **License = MPL-2.0**, default Secondary-Licenses provision intact (GPL-compatible), **DCO sign-off** for contributions, **no CLA** | File-level copyleft matches stated policy: core files stay open, adopters' glue and out-of-tree plugins are unencumbered — preserving the platform ambition. Explicit patent grant + retaliation. ADR: `docs/adr/0004-license.md`. |
 
-**Status:** All decision gates closed (repo name, OS default 64-bit Bookworm
-pending P0-1 verification, chat platform Telegram, network/access, power-cycle
-smart plug, backup restic → S3-compatible, single operator, license MPL-2.0).
-Nothing blocks Phase 0; the only remaining "decisions" are verifications
-embedded in issues (P0-1 uv/arch check, P2-5 library choice). Per original
-constraints, no GitHub resources have been created yet — P0-4 is the moment
-the repo comes into existence.
+**Status:** All decision gates closed and recorded (OS image ADR-0001,
+Telegram, network/access, smart plug, restic→S3, single operator,
+MPL-2.0). Phases 0–2 and Leave-Site Gate are closed on GitHub; Phase 5
+detection is in progress. §5 (Weeks 1–3) is the **historical** window
+plan (ended 2026-08-30); **live** sequencing is the §3 Post-window
+status blurb + Phase 5 pointer above.
 
 ---
 
 ## 5. Three-Week Window Plan (ends 2026-08-30)
+
+> **Historical.** Physical-access window ended 2026-08-30. Weeks 1–3
+> below are archive. For current priority, use the §3 Post-window status
+> blurb and the Phase 5 pointer — not this section’s Post-window bullets
+> alone.
 
 **Principle:** the window gates *physical* work, not software completion.
 Phase 2 (bot, presence, alerts) deploys fine over SSH later. What cannot be
@@ -574,10 +609,18 @@ prioritize those ruthlessly.
 - Stretch (only if weeks 1–2 ran clean): P2-3/P2-4 outbox + P2-5 Telegram so basic alerts exist before departure. **Do not trade capture/verification time for this** — it's fully remote-deliverable.
 - **Leave-site gate (hard checklist):** ☐ 3 VPN paths ☐ cellular failover ☐ smart plug cycle ☐ systemd auto-start after power cut ☐ P0-11 corpus committed ☐ 72h collection soak clean ☐ runbook covers power-cycle escalation.
 
-### Post-window (remote, unhurried)
-- Phase 2 in full (presence, outbox, Telegram bot, init mode, commands, daily summary) — calibrated against the P0-11 corpus, deployed via P0-9.
-- Phase 3 remainder (P3-4, finalize P3-5, remote full-product P3-6 re-soak).
-- Phase 4 as originally sequenced, with P4-2 now unblocked early thanks to P0-11 ground truth.
+### Post-window (remote, unhurried) — superseded 2026-09-02
+
+*Original bullets retained for archive; superseded by §3 Post-window
+status. Current reality:*
+
+- Phase 2 **done** (milestones closed on GitHub).
+- Phase 3 remote remainder (P3-1…P3-6, plus follow-ons such as #165);
+  remote P3-6 re-soak when ready.
+- Phase 5 detection pulled forward in parallel (see Phase 5 pointer /
+  `docs/detection-plan.md`); **not** gated on P3-6.
+- Phase 4 Hardening still after P3-6 (P4-1 / P4-2 remain gated; A4
+  owns vehicle-passed class before P4-2 consumes real-data tuning).
 
 ---
 
@@ -603,6 +646,9 @@ Phase 3:  P1-8 + P0-9 ─▶ P3-0 ─┬─▶ P3-1 ─▶ P3-2, P3-3, P3-4 ─�
           (P3-0 is the in-window minimal collection unit)
 
 Phase 4:  P3-6 gates P4-1, P4-2, P4-8; rest parallel as capacity allows.
+
+Phase 5 (detection): parallel with Phase 3 remote ops; not gated on
+          P3-6 — see Phase 5 pointer / docs/detection-plan.md.
 ```
 
 **Critical path through the window (ends 2026-08-30):**
@@ -671,55 +717,84 @@ day one, exactly when it costs nothing and preserves the most optionality.
 
 ## Appendix: Issue Map
 
-Seeded 2026-08-15 by the issue-seeding agent. Status = issue state plus
-"blesentry v1" project column (Backlog / Ready); all 46 issues are linked
-to the project.
+Refreshed 2026-09-02 against GitHub issue/milestone state (alignment pass).
+Original 46 issues seeded 2026-08-15; Phase 5 (F/A/C/I/L) added later,
+plus selected follow-ons (#165, #174). Project-board columns may lag —
+trust issue `state` + milestone here. Phase milestones may also carry
+other closed follow-ons not listed (e.g. Phase 2 #58/#148/#151).
 
 | ID | Issue | Milestone | Status |
 |---|---|---|---|
-| P0-1 | #1 | Phase 0 — Provisioning & Gates | Open (Backlog) |
-| P0-2 | #2 | Phase 0 — Provisioning & Gates | Open (Backlog) |
-| P0-3 | #3 | Phase 0 — Provisioning & Gates | Open (Ready) |
-| P0-4 | #4 | Phase 0 — Provisioning & Gates | Open (Ready) |
-| P0-4a | #7 | Phase 0 — Provisioning & Gates | Open (Backlog) |
-| P0-5 | #5 | Phase 0 — Provisioning & Gates | Open (Backlog) |
-| P0-6 | #6 | Phase 0 — Provisioning & Gates | Open (Backlog) |
-| P0-7 | #8 | Leave-Site Gate | Open (Backlog) |
-| P0-8 | #9 | Leave-Site Gate | Open (Backlog) |
-| P0-9 | #10 | Leave-Site Gate | Open (Backlog) |
-| P0-10 | #11 | Leave-Site Gate | Open (Backlog) |
-| P0-11 | #16 | Leave-Site Gate | Open (Backlog) |
-| P1-1 | #12 | Phase 1 — Core Skeleton | Open (Backlog) |
-| P1-2 | #13 | Phase 1 — Core Skeleton | Open (Backlog) |
-| P1-3 | #14 | Phase 1 — Core Skeleton | Open (Backlog) |
-| P1-4 | #15 | Phase 1 — Core Skeleton | Open (Backlog) |
-| P1-5 | #17 | Phase 1 — Core Skeleton | Open (Backlog) |
-| P1-6 | #18 | Phase 1 — Core Skeleton | Open (Backlog) |
-| P1-7 | #19 | Phase 1 — Core Skeleton | Open (Backlog) |
-| P1-8 | #20 | Phase 1 — Core Skeleton | Open (Backlog) |
-| P1-9 | #21 | Phase 1 — Core Skeleton | Open (Backlog) |
-| P2-1 | #22 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
-| P2-2 | #23 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
-| P2-3 | #24 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
-| P2-4 | #26 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
-| P2-5 | #25 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
-| P2-6 | #27 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
-| P2-7 | #28 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
-| P2-8 | #29 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
-| P2-9 | #30 | Phase 2 — Presence/Alerts/Bot | Open (Backlog) |
-| P3-0 | #31 | Leave-Site Gate | Open (Backlog) |
-| P3-1 | #32 | Phase 3 — Pi Deployment | Open (Backlog) |
-| P3-2 | #33 | Phase 3 — Pi Deployment | Open (Backlog) |
-| P3-3 | #34 | Phase 3 — Pi Deployment | Open (Backlog) |
-| P3-4 | #35 | Phase 3 — Pi Deployment | Open (Backlog) |
-| P3-5 | #36 | Phase 3 — Pi Deployment | Open (Backlog) |
-| P3-6 | #37 | Phase 3 — Pi Deployment | Open (Backlog) |
-| P4-1 | #38 | Phase 4 — Hardening | Open (Backlog) |
-| P4-2 | #39 | Phase 4 — Hardening | Open (Backlog) |
-| P4-3 | #40 | Phase 4 — Hardening | Open (Backlog) |
-| P4-4 | #41 | Phase 4 — Hardening | Open (Backlog) |
-| P4-5 | #42 | Phase 4 — Hardening | Open (Backlog) |
-| P4-6 | #43 | Phase 4 — Hardening | Open (Backlog) |
-| P4-7 | #44 | Phase 4 — Hardening | Open (Backlog) |
-| P4-8 | #45 | Phase 4 — Hardening | Open (Backlog) |
-| P4-9 | #46 | Phase 4 — Hardening | Open (Backlog) |
+| P0-1 | #1 | Phase 0 — Provisioning & Gates | Closed |
+| P0-2 | #2 | Phase 0 — Provisioning & Gates | Closed |
+| P0-3 | #3 | Phase 0 — Provisioning & Gates | Closed |
+| P0-4 | #4 | Phase 0 — Provisioning & Gates | Closed |
+| P0-4a | #7 | Phase 0 — Provisioning & Gates | Closed |
+| P0-5 | #5 | Phase 0 — Provisioning & Gates | Closed |
+| P0-6 | #6 | Phase 0 — Provisioning & Gates | Closed |
+| P0-7 | #8 | Leave-Site Gate | Closed |
+| P0-8 | #9 | Leave-Site Gate | Closed |
+| P0-9 | #10 | Leave-Site Gate | Closed |
+| P0-10 | #11 | Leave-Site Gate | Closed |
+| P0-11 | #16 | Leave-Site Gate | Closed |
+| P1-1 | #12 | Phase 1 — Core Skeleton | Closed |
+| P1-2 | #13 | Phase 1 — Core Skeleton | Closed |
+| P1-3 | #14 | Phase 1 — Core Skeleton | Closed |
+| P1-4 | #15 | Phase 1 — Core Skeleton | Closed |
+| P1-5 | #17 | Phase 1 — Core Skeleton | Closed |
+| P1-6 | #18 | Phase 1 — Core Skeleton | Closed |
+| P1-7 | #19 | Phase 1 — Core Skeleton | Closed |
+| P1-8 | #20 | Phase 1 — Core Skeleton | Closed |
+| P1-9 | #21 | Phase 1 — Core Skeleton | Closed |
+| P2-1 | #22 | Phase 2 — Presence/Alerts/Bot | Closed |
+| P2-2 | #23 | Phase 2 — Presence/Alerts/Bot | Closed |
+| P2-3 | #24 | Phase 2 — Presence/Alerts/Bot | Closed |
+| P2-4 | #26 | Phase 2 — Presence/Alerts/Bot | Closed |
+| P2-5 | #25 | Phase 2 — Presence/Alerts/Bot | Closed |
+| P2-6 | #27 | Phase 2 — Presence/Alerts/Bot | Closed |
+| P2-7 | #28 | Phase 2 — Presence/Alerts/Bot | Closed |
+| P2-8 | #29 | Phase 2 — Presence/Alerts/Bot | Closed |
+| P2-9 | #30 | Phase 2 — Presence/Alerts/Bot | Closed |
+| P3-0 | #31 | Leave-Site Gate | Closed |
+| P3-1 | #32 | Phase 3 — Pi Deployment | Open |
+| P3-2 | #33 | Phase 3 — Pi Deployment | Open |
+| P3-3 | #34 | Phase 3 — Pi Deployment | Open |
+| P3-4 | #35 | Phase 3 — Pi Deployment | Open |
+| P3-5 | #36 | Phase 3 — Pi Deployment | Open |
+| P3-6 | #37 | Phase 3 — Pi Deployment | Open |
+| P3-journal | #165 | Phase 3 — Pi Deployment | Open |
+| P4-1 | #38 | Phase 4 — Hardening | Open |
+| P4-2 | #39 | Phase 4 — Hardening | Open |
+| P4-3 | #40 | Phase 4 — Hardening | Open |
+| P4-4 | #41 | Phase 4 — Hardening | Open |
+| P4-5 | #42 | Phase 4 — Hardening | Open |
+| P4-6 | #43 | Phase 4 — Hardening | Open |
+| P4-7 | #44 | Phase 4 — Hardening | Open |
+| P4-8 | #45 | Phase 4 — Hardening | Open |
+| P4-9 | #46 | Phase 4 — Hardening | Open |
+| F1 | #120 | M1 — Detection foundation & eval harness | Closed |
+| F2 | #121 | M1 — Detection foundation & eval harness | Closed |
+| F3 | #122 | M1 — Detection foundation & eval harness | Closed |
+| F4 | #123 | M1 — Detection foundation & eval harness | Open |
+| F5 | #124 | M1 — Detection foundation & eval harness | Open |
+| F6 | #125 | M1 — Detection foundation & eval harness | Closed |
+| A1 | #126 | M2 — Approach detector | Closed |
+| A2 | #127 | M2 — Approach detector | Closed |
+| A2-followup | #174 | M2 — Approach detector | Closed |
+| A3 | #128 | M2 — Approach detector | Closed |
+| A4 | #129 | M2 — Approach detector | Open |
+| A5 | #130 | M2 — Approach detector | Open |
+| C1 | #131 | M3 — Crowd anomaly detector | Closed |
+| C2 | #132 | M3 — Crowd anomaly detector | Closed |
+| C3 | #133 | M3 — Crowd anomaly detector | Closed |
+| C4 | #134 | M3 — Crowd anomaly detector | Closed |
+| C5 | #135 | M3 — Crowd anomaly detector | Open |
+| I1 | #136 | M4 — Inside presence detector | Closed |
+| I2 | #137 | M4 — Inside presence detector | Closed |
+| I3 | #138 | M4 — Inside presence detector | Closed |
+| I4 | #139 | M4 — Inside presence detector | Closed |
+| L1 | #140 | M5 — Learning loop & bake-off | Open |
+| L2 | #141 | M5 — Learning loop & bake-off | Open |
+| L3 | #142 | M5 — Learning loop & bake-off | Open |
+| L4 | #143 | M5 — Learning loop & bake-off | Open |
+| L5 | #144 | M5 — Learning loop & bake-off | Open |
