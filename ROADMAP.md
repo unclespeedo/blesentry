@@ -104,10 +104,11 @@ scheduling constraint for hands-on / on-site ground-truth work. See §5 for
 the historical week-by-week plan.
 
 **Post-window status (2026-09-02):** Leave-Site Gate closed (P0-7…P0-11,
-P3-0). Phases 0–2 are complete on GitHub. Operator has remote SSH/deploy;
-no on-site return for ~1 month. Current focus: Phase 5 detection remainder
-(eval / vehicle class / C5) + remote Phase 3 ops; Phase 4 stays gated on
-P3-6 soak. See **Phase 5** below and `docs/detection-plan.md`.
+P3-0). Phases 0–2 are complete on GitHub. Human operator has remote
+deploy access for the near term (agents still must not SSH to the Pi).
+Current focus: Phase 5 detection remainder (eval / vehicle class / C5)
++ remote Phase 3 ops; Phase 4 stays gated on P3-6 soak. See **Phase 5**
+below and `docs/detection-plan.md`.
 
 ---
 
@@ -536,13 +537,18 @@ continuous collection showed identity-alert fatigue. Full plan:
 | Milestone | Focus | Status (2026-09-02) |
 |---|---|---|
 | M1 — Detection foundation & eval harness | F1–F6 replay, seam, features, corpus, eval, familiar | Core closed; F4/F5 open |
-| M2 — Approach detector | A1–A5 rising trajectory + vehicle class | A1–A3 (+A2 follow-up) closed; A4/A5 open |
+| M2 — Approach detector | A1–A5 rising trajectory + vehicle class | A1–A3 (+A2 follow-up #174) closed; A4/A5 open |
 | M3 — Crowd anomaly detector | C1–C5 baseline + CUSUM | C1–C4 closed; C5 open |
 | M4 — Inside presence detector | I1–I4 sustained adjacent | **Closed** |
 | M5 — Learning loop & bake-off | L1–L5 labels, gating, bake-off | All open |
 
-Issue IDs are in the Appendix. Next agent-eligible pick after this alignment
-pass: **C5 (#135)** unless CI on main is red.
+**Boundary vs Phase 4 Hardening:** P4-1 / P4-2 remain under Phase 4
+(still Deps: P3-6). Phase 5 owns the adaptive M1–M5 stack; A4 vehicle
+class feeds later P4-2 real-data tuning, not an early unblock of P4-2.
+
+Issue IDs are in the Appendix. Snapshot (2026-09-02): next
+`agent:eligible` pick was **C5 (#135)** with main CI green —
+**AGENTS.md SELECT remains authoritative** if labels change.
 
 ---
 
@@ -566,12 +572,18 @@ future revisit is an ADR-level change.
 **Status:** All decision gates closed and recorded (OS image ADR-0001,
 Telegram, network/access, smart plug, restic→S3, single operator,
 MPL-2.0). Phases 0–2 and Leave-Site Gate are closed on GitHub; Phase 5
-detection is in progress. Historical "nothing blocks Phase 0 / repo not
-created yet" language below §5 is retained as the original window plan.
+detection is in progress. §5 (Weeks 1–3) is the **historical** window
+plan (ended 2026-08-30); **live** sequencing is the §3 Post-window
+status blurb + Phase 5 pointer above.
 
 ---
 
 ## 5. Three-Week Window Plan (ends 2026-08-30)
+
+> **Historical.** Physical-access window ended 2026-08-30. Weeks 1–3
+> below are archive. For current priority, use the §3 Post-window status
+> blurb and the Phase 5 pointer — not this section’s Post-window bullets
+> alone.
 
 **Principle:** the window gates *physical* work, not software completion.
 Phase 2 (bot, presence, alerts) deploys fine over SSH later. What cannot be
@@ -597,10 +609,18 @@ prioritize those ruthlessly.
 - Stretch (only if weeks 1–2 ran clean): P2-3/P2-4 outbox + P2-5 Telegram so basic alerts exist before departure. **Do not trade capture/verification time for this** — it's fully remote-deliverable.
 - **Leave-site gate (hard checklist):** ☐ 3 VPN paths ☐ cellular failover ☐ smart plug cycle ☐ systemd auto-start after power cut ☐ P0-11 corpus committed ☐ 72h collection soak clean ☐ runbook covers power-cycle escalation.
 
-### Post-window (remote, unhurried)
-- Phase 2 in full (presence, outbox, Telegram bot, init mode, commands, daily summary) — calibrated against the P0-11 corpus, deployed via P0-9.
-- Phase 3 remainder (P3-4, finalize P3-5, remote full-product P3-6 re-soak).
-- Phase 4 as originally sequenced, with P4-2 now unblocked early thanks to P0-11 ground truth.
+### Post-window (remote, unhurried) — superseded 2026-09-02
+
+*Original bullets retained for archive; superseded by §3 Post-window
+status. Current reality:*
+
+- Phase 2 **done** (milestones closed on GitHub).
+- Phase 3 remote remainder (P3-1…P3-6, plus follow-ons such as #165);
+  remote P3-6 re-soak when ready.
+- Phase 5 detection pulled forward in parallel (see Phase 5 pointer /
+  `docs/detection-plan.md`); **not** gated on P3-6.
+- Phase 4 Hardening still after P3-6 (P4-1 / P4-2 remain gated; A4
+  owns vehicle-passed class before P4-2 consumes real-data tuning).
 
 ---
 
@@ -626,6 +646,9 @@ Phase 3:  P1-8 + P0-9 ─▶ P3-0 ─┬─▶ P3-1 ─▶ P3-2, P3-3, P3-4 ─�
           (P3-0 is the in-window minimal collection unit)
 
 Phase 4:  P3-6 gates P4-1, P4-2, P4-8; rest parallel as capacity allows.
+
+Phase 5 (detection): parallel with Phase 3 remote ops; not gated on
+          P3-6 — see Phase 5 pointer / docs/detection-plan.md.
 ```
 
 **Critical path through the window (ends 2026-08-30):**
@@ -695,8 +718,10 @@ day one, exactly when it costs nothing and preserves the most optionality.
 ## Appendix: Issue Map
 
 Refreshed 2026-09-02 against GitHub issue/milestone state (alignment pass).
-Original 46 issues seeded 2026-08-15; Phase 5 (F/A/C/I/L) added later.
-Project-board columns may lag — trust issue `state` + milestone here.
+Original 46 issues seeded 2026-08-15; Phase 5 (F/A/C/I/L) added later,
+plus selected follow-ons (#165, #174). Project-board columns may lag —
+trust issue `state` + milestone here. Phase milestones may also carry
+other closed follow-ons not listed (e.g. Phase 2 #58/#148/#151).
 
 | ID | Issue | Milestone | Status |
 |---|---|---|---|
@@ -737,6 +762,7 @@ Project-board columns may lag — trust issue `state` + milestone here.
 | P3-4 | #35 | Phase 3 — Pi Deployment | Open |
 | P3-5 | #36 | Phase 3 — Pi Deployment | Open |
 | P3-6 | #37 | Phase 3 — Pi Deployment | Open |
+| P3-journal | #165 | Phase 3 — Pi Deployment | Open |
 | P4-1 | #38 | Phase 4 — Hardening | Open |
 | P4-2 | #39 | Phase 4 — Hardening | Open |
 | P4-3 | #40 | Phase 4 — Hardening | Open |
@@ -754,6 +780,7 @@ Project-board columns may lag — trust issue `state` + milestone here.
 | F6 | #125 | M1 — Detection foundation & eval harness | Closed |
 | A1 | #126 | M2 — Approach detector | Closed |
 | A2 | #127 | M2 — Approach detector | Closed |
+| A2-followup | #174 | M2 — Approach detector | Closed |
 | A3 | #128 | M2 — Approach detector | Closed |
 | A4 | #129 | M2 — Approach detector | Open |
 | A5 | #130 | M2 — Approach detector | Open |
