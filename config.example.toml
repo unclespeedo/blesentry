@@ -120,7 +120,8 @@ backend = "none"
 # dwell episode, enqueued inside the scan-cycle transaction.
 # "crowd" is the C4 robust-baseline + CUSUM backend
 # (ADR-0008 / docs/crowd.md): density anomaly with alert roster.
-# W/Δ/peak, inside N/M, and crowd knobs that are frozen stay in
+# Approach W/Δ/peak, inside N/M, and all crowd knobs (MAD floor,
+# CUSUM k/h, EWMA span, seasonal/rolling sizes, …) stay frozen in
 # code, not here.
 backend = "none"
 
@@ -140,8 +141,9 @@ backend = "none"
 # `--fixture` or `--db` (a copied snapshot, never the live WAL).
 # Approach needs advertisements, so use --fixture (walkby.json).
 # Inside needs heard maps: use --fixture (inside-dwell.json) or
-# --db with a copied observations snapshot. Crowd fixtures:
-# crowd-busy.json / crowd-spike.json. See docs/replay.md.
+# --db with a copied observations snapshot. Crowd needs heard
+# maps: use --fixture (crowd-busy.json / crowd-spike.json) or
+# --db with a copied observations snapshot. See docs/replay.md.
 
 [summary]
 # Daily digest (P2-9): devices seen, new devices, presence transitions,
