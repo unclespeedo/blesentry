@@ -79,7 +79,9 @@ is I3 (`InsideDetector`); it reads `heard` only, so `--fixture`
 (heard-window JSON, e.g. `inside-dwell.json`) or `--db` snapshot
 replay is the path that can fire. `crowd` is C4 (`CrowdDetector`);
 it also reads `heard` only (synthetic timestamps from window index
-when `prepare_window` is not used). `--db` snapshot replay has empty
+when `prepare_window` is not used). C5 FAR/recall on quiet/busy
+heard corpora is `blesentry.detection.crowd_eval` (see
+`docs/crowd.md`). `--db` snapshot replay has empty
 `advertisements` and will not produce approach events.
 Scripted `MockDetector` events are a unit-test concern, not a CLI
 flag.

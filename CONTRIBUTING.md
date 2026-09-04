@@ -66,6 +66,8 @@
   (``docs/crowd-baseline.md``); C4 is the ``crowd`` backend
   ``blesentry.detection.crowd_detector.CrowdDetector``
   (``[detection] backend = "crowd"``, ``kind="crowd-busy"``).
+  C5 FAR/recall helpers live in ``blesentry.detection.crowd_eval``
+  (``docs/crowd.md`` Replay validation).
   The I1 inside spec (ADR-0009,
   ``docs/inside.md``) is   ``blesentry.detection.inside.inside_count``
   / ``inside_sustain_step`` / ``build_inside_excluded``. The I3 inside
