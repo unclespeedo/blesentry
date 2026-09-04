@@ -1,8 +1,9 @@
 # Detection plan — adaptive alerting (approach / crowd / inside)
 
 **Status: accepted / in progress.** Phase 5 adaptive-detection plan;
-milestones M1–M5 are tracked on GitHub. M4 (Inside) is closed; M1–M3 core
-implementations have landed (remaining open: F4/F5, A4/A5, C5); M5
+milestones M1–M5 are tracked on GitHub. M4 (Inside) is closed; M3
+(Crowd) C1–C4 landed, C5 open in PR #192; remaining open otherwise:
+F4/F5, A4/A5. M5
 (learning loop & bake-off) is not started. Motivated by a review of real
 continuous-collection logs; all figures here are anonymized aggregates (see
 *Data & anonymization*). Technical constraints surfaced in review are
@@ -319,7 +320,14 @@ ambiguous DoD.
 - **C5 · Replay validation.** Busy vs quiet on the corpus; an outlier day
   excluded once feedback-labeled (M5).
   **DoD:** alerts/day ≤ the target **set in C1**; metrics logged.
-  **Deps:** C4, C1, F5 **Size:** M **Labels:** `epic:detection type:test priority:p1`
+  **Deps:** C4, C1; F5 soft (synthetic gate without waiting) **Size:** M
+  **Labels:** `epic:detection type:test priority:p1`
+  **In PR #192 (#135):** `docs/crowd.md` (Replay validation C5),
+  `blesentry.detection.crowd_eval` +
+  `tests/test_detection_crowd_validation.py` mirror I4 — synthetic
+  `crowd-busy` / `crowd-spike` fixtures and 24 h quiet corpora gate
+  FAR ≤ `CROWD_FAR_PER_DAY` (1) without waiting on F5; F4 rotation-cloud
+  / M5 outlier exclusion remain deferred.
 
 ### M4 — Inside presence detector *(sustained adjacent-to-Pi)*
 

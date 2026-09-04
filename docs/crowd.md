@@ -10,14 +10,15 @@ Unusual site busyness from per-window band counts. Frozen in
 ADR-0008. This document is the implementer-facing copy of those
 numbers so C5 does not fork them.
 
-Three future modules; only C4 is a Detector backend:
+Modules; only C4 is a Detector backend:
 
-| Piece | Module (planned) | Job |
+| Piece | Module | Job |
 |---|---|---|
 | **C1 helpers** | `blesentry.detection.crowd` | Frozen knobs + `crowd_counts`, `floored_mad`, `cusum_positive` |
 | **C2 persistence** | `WindowBandCountRepository` (#132) | Band-count row per cycle inside the txn |
 | **C3 baseline** | `blesentry.detection.crowd_baseline` (#133) | Seasonal + rolling EWMA, episode freeze — see `docs/crowd-baseline.md` |
 | **C4 backend** | `blesentry.detection.crowd_detector.CrowdDetector` | `[detection] backend = "crowd"`; `kind="crowd-busy"` |
+| **C5 eval** | `blesentry.detection.crowd_eval` | Recall + alerts/day on synthetic quiet/busy corpora |
 
 Default `[detection] backend` stays `"none"`. Enabling crowd is a
 config edit (`backend = "crowd"`).
@@ -61,7 +62,7 @@ Cadence reminder: default window is `scan.window + scan.pause` =
 | Cold start | 168 h | Seasonal untrusted until then |
 | `kind` | `crowd-busy` | C4 `DetectionEvent.kind` |
 | `detector` id | `crowd` | `[detection] backend = "crowd"` |
-| FAR (C5) | ≤ 1 false event / 24 h benign corpus | Quiet + rotation-cloud days |
+| FAR (C5) | ≤ 1 false event / 24 h benign corpus | Quiet days now; rotation-cloud once F4 |
 
 ## Features
 
@@ -189,6 +190,40 @@ Programmatic heard windows and synthetic fixtures under
 Golden: `crowd-busy-golden.json`. Counts and event fields only — no
 addresses in the report.
 
+## Replay validation (C5)
+
+Synthetic heard fixtures and programmatic benign corpora exercise the
+frozen CUSUM / MAD knobs against the C1 FAR target before F4/F5 land.
+Outlier-day exclusion (M5 feedback labels) is deferred. Tuning still
+requires a new ADR.
+
+| Corpus | Expect |
+|---|---|
+| `crowd-busy.json` | recall = 1 (one `crowd-busy` at window 63 after warmup) |
+| `crowd-spike.json` | 0 events (single-window blip) |
+| 24 h empty `heard` (5760 windows) | 0 events → alerts/day = 0 |
+| 24 h steady quiet (4 near @ −65) | 0 events → alerts/day = 0 |
+
+**Metrics** (`blesentry.detection.crowd_eval`):
+
+- **Recall** — positive episodes detected / positive episodes run
+  (target **1.0** on shipped positives).
+- **Alerts/day (benign)** — false events × (5760 / benign window count);
+  target **≤ `CROWD_FAR_PER_DAY` (1)** per 24 h equivalent.
+
+**Harness**
+
+```bash
+uv run pytest tests/test_detection_crowd_validation.py -v
+uv run blesentry replay --fixture tests/fixtures/replay/crowd-busy.json --backend crowd
+uv run blesentry replay --fixture tests/fixtures/replay/crowd-spike.json --backend crowd
+```
+
+Frozen knobs pass on fixtures; no ADR retune required. F4 labeled
+corpus + F5 cross-detector eval reuse the same helpers when shipped.
+Rotation-cloud benign days wait on F4.
+
 ## Future work
 
-- **C5 (#135).** FAR validation on fixtures; tune only via new ADR.
+- **F4 / M5.** Labeled rotation-cloud + outlier-day exclusion on the
+  real corpus; C5 synthetic FAR gate stays the CI pin.
