@@ -62,7 +62,7 @@ Cadence reminder: default window is `scan.window + scan.pause` =
 | Cold start | 168 h | Seasonal untrusted until then |
 | `kind` | `crowd-busy` | C4 `DetectionEvent.kind` |
 | `detector` id | `crowd` | `[detection] backend = "crowd"` |
-| FAR (C5) | ≤ 1 false event / 24 h benign corpus | Quiet + rotation-cloud days |
+| FAR (C5) | ≤ 1 false event / 24 h benign corpus | Quiet days now; rotation-cloud once F4 |
 
 ## Features
 

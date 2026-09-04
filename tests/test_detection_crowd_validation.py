@@ -102,6 +102,8 @@ def test_far_spike_zero_events() -> None:
     windows = load_heard_fixture(SPIKE_FIXTURE)
     metrics = evaluate_benign(detector, windows)
     assert metrics.false_events == 0
+    assert metrics.meets_benign_far_target()
+    assert metrics.alerts_per_benign_day == 0.0
 
 
 def test_far_quiet_day_zero_events() -> None:
@@ -111,6 +113,7 @@ def test_far_quiet_day_zero_events() -> None:
     metrics = evaluate_benign(detector, windows)
     assert metrics.false_events == 0
     assert metrics.alerts_per_benign_day == 0.0
+    assert metrics.meets_benign_far_target()
 
 
 def test_far_steady_quiet_day_zero_events() -> None:
@@ -120,13 +123,66 @@ def test_far_steady_quiet_day_zero_events() -> None:
     metrics = evaluate_benign(detector, windows)
     assert metrics.false_events == 0
     assert metrics.alerts_per_benign_day == 0.0
+    assert metrics.meets_benign_far_target()
 
 
 def test_steady_quiet_day_windows_rejects_bad_near_count() -> None:
     with pytest.raises(TypeError, match="near_count"):
-        steady_quiet_day_windows(near_count=True)  # type: ignore[arg-type]
+        steady_quiet_day_windows(near_count=True)
+    with pytest.raises(TypeError, match="near_count"):
+        # Runtime guard: bool is a subtype of int, float is not.
+        steady_quiet_day_windows(near_count=4.5)  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="near_count"):
         steady_quiet_day_windows(near_count=-1)
+
+
+def test_meets_benign_far_target_rejects_empty_slice() -> None:
+    empty = CrowdValidationMetrics(0, 0, 0, 0)
+    assert empty.alerts_per_benign_day == 0.0
+    assert not empty.meets_benign_far_target()
+
+
+def test_meets_benign_far_target_fails_above_c1() -> None:
+    """One false event on a short slice exceeds CROWD_FAR_PER_DAY."""
+    spike_len = 64
+    over = CrowdValidationMetrics(0, 0, spike_len, 1)
+    assert over.alerts_per_benign_day == pytest.approx(
+        CROWD_WINDOWS_PER_DAY / spike_len
+    )
+    assert over.alerts_per_benign_day > CROWD_FAR_PER_DAY
+    assert not over.meets_benign_far_target()
+
+
+def test_meets_c1_targets_fails_when_far_exceeded() -> None:
+    failing = CrowdValidationMetrics(
+        positive_episodes=1,
+        positives_detected=1,
+        benign_window_count=CROWD_WINDOWS_PER_DAY,
+        false_events=CROWD_FAR_PER_DAY + 1,
+    )
+    assert failing.alerts_per_benign_day == float(CROWD_FAR_PER_DAY + 1)
+    assert not failing.meets_c1_targets()
+
+
+def test_per_slice_far_catches_dilution_against_pooled_pass() -> None:
+    """Short-slice FAR failure must not be masked by long quiet days.
+
+    One false event on 64 windows → ~90 alerts/day; pooled with two
+    empty 24 h days the combined FAR drops below 1 and would pass
+    meets_c1_targets without the per-slice check.
+    """
+    busy = CrowdValidationMetrics(1, 1, 0, 0)
+    short_false = CrowdValidationMetrics(0, 0, 64, 1)
+    quiet_a = CrowdValidationMetrics(0, 0, CROWD_WINDOWS_PER_DAY, 0)
+    quiet_b = CrowdValidationMetrics(0, 0, CROWD_WINDOWS_PER_DAY, 0)
+    pooled = merge_metrics(busy, short_false, quiet_a, quiet_b)
+    assert short_false.alerts_per_benign_day > CROWD_FAR_PER_DAY
+    assert not short_false.meets_benign_far_target()
+    assert pooled.meets_c1_targets()  # diluted — why per-slice is required
+    assert not all(
+        part.meets_benign_far_target()
+        for part in (short_false, quiet_a, quiet_b)
+    )
 
 
 def test_c5_metrics_meet_c1_targets() -> None:
