@@ -1,9 +1,8 @@
 # Detection plan — adaptive alerting (approach / crowd / inside)
 
 **Status: accepted / in progress.** Phase 5 adaptive-detection plan;
-milestones M1–M5 are tracked on GitHub. M4 (Inside) is closed; M3
-(Crowd) C1–C4 landed, C5 open in PR #192; remaining open otherwise:
-F4/F5, A4/A5. M5
+milestones M1–M5 are tracked on GitHub. M3 (Crowd) and M4 (Inside)
+are closed; remaining open: F4/F5, A4/A5. M5
 (learning loop & bake-off) is not started. Motivated by a review of real
 continuous-collection logs; all figures here are anonymized aggregates (see
 *Data & anonymization*). Technical constraints surfaced in review are
@@ -322,7 +321,7 @@ ambiguous DoD.
   **DoD:** alerts/day ≤ the target **set in C1**; metrics logged.
   **Deps:** C4, C1; F5 soft (synthetic gate without waiting) **Size:** M
   **Labels:** `epic:detection type:test priority:p1`
-  **In PR #192 (#135):** `docs/crowd.md` (Replay validation C5),
+  **Shipped (#135 / #192):** `docs/crowd.md` (Replay validation C5),
   `blesentry.detection.crowd_eval` +
   `tests/test_detection_crowd_validation.py` mirror I4 — synthetic
   `crowd-busy` / `crowd-spike` fixtures and 24 h quiet corpora gate
