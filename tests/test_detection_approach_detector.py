@@ -66,12 +66,14 @@ def _ad(
     *,
     address: str = ADDR,
     timestamp: float = 1.0,
+    local_name: str | None = None,
 ) -> Advertisement:
     return Advertisement(
         address=address,
         rssi=rssi,
         timestamp=timestamp,
         adapter_id="test",
+        local_name=local_name,
     )
 
 
@@ -229,6 +231,51 @@ def test_alert_text_snapshot() -> None:
     assert " meter" not in text.lower()
 
 
+def test_alert_text_includes_device_name() -> None:
+    event = DetectionEvent(
+        detector=APPROACH_DETECTOR_ID,
+        kind=APPROACH_KIND,
+        window_index=7,
+        rssi=-72,
+        band="far",
+        rising=True,
+        device_name="Cabin sensor",
+    )
+    text = format_approach_alert(event)
+    assert text == (
+        "Approaching BLE device (Cabin sensor, far, RSSI -72 dBm, rising)."
+    )
+    assert ADDR not in text
+
+
+def test_detection_event_dump_omits_internal_approach_identity() -> None:
+    event = DetectionEvent(
+        detector=APPROACH_DETECTOR_ID,
+        kind=APPROACH_KIND,
+        window_index=0,
+        approach_identity=ADDR,
+    )
+    dumped = json.dumps(event.model_dump())
+    assert ADDR not in dumped
+    assert ADDR not in repr(event)
+
+
+def test_alert_text_sanitizes_crafted_device_name() -> None:
+    event = DetectionEvent(
+        detector=APPROACH_DETECTOR_ID,
+        kind=APPROACH_KIND,
+        window_index=7,
+        rssi=-72,
+        band="far",
+        rising=True,
+        device_name="Evil\n/ignore 1",
+    )
+    text = format_approach_alert(event)
+    assert "\n" not in text
+    assert text.count(".") == 1
+    assert "Evil" in text
+
+
 def test_alert_text_rejects_incomplete_event() -> None:
     with pytest.raises(ValueError, match="rssi"):
         format_approach_alert(
@@ -265,6 +312,76 @@ def test_replay_walkby_matches_golden() -> None:
 
 
 # --- run_cycle / outbox (DC-1) ---------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_loop_approach_alert_uses_operator_label(
+    tmp_path: Path,
+) -> None:
+    conn = await connect(tmp_path / "a3.db")
+    try:
+        await apply_migrations(conn)
+        devices = DeviceRepository(conn, "test-site")
+        observations = ObservationRepository(conn, "test-site")
+        outbox = OutboxRepository(conn, "test-site")
+        detector = ApproachDetector()
+        scenarios = [
+            [_ad(rssi, timestamp=1.0 + i)] for i, rssi in enumerate(WALKBY)
+        ]
+        for index in range(len(scenarios)):
+            await run_cycle(
+                MockScanner(scenarios=[scenarios[index]]),
+                devices,
+                observations,
+                0.0,
+                window_index=index,
+                detector=detector,
+                outbox=outbox,
+            )
+            if index == 0:
+                await devices.set_label(1, label="Cabin sensor", actor="test")
+        pending = await outbox.list_pending()
+        text = OutboundMessage.model_validate_json(pending[0]["payload"]).text
+        assert text == (
+            "Approaching BLE device (Cabin sensor, far, RSSI -72 dBm, rising)."
+        )
+        assert ADDR not in text
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_run_loop_approach_alert_falls_back_to_local_name(
+    tmp_path: Path,
+) -> None:
+    conn = await connect(tmp_path / "a3.db")
+    try:
+        await apply_migrations(conn)
+        devices = DeviceRepository(conn, "test-site")
+        observations = ObservationRepository(conn, "test-site")
+        outbox = OutboxRepository(conn, "test-site")
+        scenarios = [
+            [_ad(rssi, timestamp=1.0 + i, local_name="Guest BLE")]
+            for i, rssi in enumerate(WALKBY)
+        ]
+        await run_loop(
+            MockScanner(scenarios=scenarios),
+            devices,
+            observations,
+            duration=0.0,
+            pause=0.0,
+            max_cycles=len(scenarios),
+            detector=ApproachDetector(),
+            outbox=outbox,
+        )
+        pending = await outbox.list_pending()
+        text = OutboundMessage.model_validate_json(pending[0]["payload"]).text
+        assert text == (
+            "Approaching BLE device (Guest BLE, far, RSSI -72 dBm, rising)."
+        )
+        assert ADDR not in text
+    finally:
+        await conn.close()
 
 
 @pytest.mark.asyncio

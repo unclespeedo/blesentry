@@ -232,12 +232,14 @@ async def run_cycle(
     _require_resolver_affinity(r, devices)
     device_ids: set[int] = set()
     heard: dict[int, int] = {}
+    address_to_device_id: dict[str, int] = {}
     persisted = 0
     cycle_at = iso_utc(now())
     try:
         async with transaction(devices.connection):
             for ad in advertisements:
                 device_id = await r.resolve(ad)
+                address_to_device_id[ad.address] = device_id
                 await observations.append(
                     device_id=device_id,
                     rssi=ad.rssi,
@@ -275,7 +277,17 @@ async def run_cycle(
                         heard=heard,
                     )
                 )
+                from blesentry.detection.approach_enrich import (
+                    enrich_approach_event,
+                )
+
                 for event in events:
+                    event = await enrich_approach_event(
+                        event,
+                        advertisements=advertisements,
+                        address_to_device_id=address_to_device_id,
+                        devices=devices,
+                    )
                     await outbox.enqueue(
                         payload=OutboundMessage(
                             text=_detection_alert_text(event)
