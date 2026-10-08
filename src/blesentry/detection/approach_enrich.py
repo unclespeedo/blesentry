@@ -49,8 +49,9 @@ async def enrich_approach_event(
     device_id = address_to_device_id.get(address)
     if device_id is not None:
         row = await devices.get(device_id)
-        if row is not None and row["label"]:
-            device_name = row["label"]
+        label = row["label"] if row is not None else None
+        if label and label.strip():
+            device_name = label
     if device_name is None:
         for ad in advertisements:
             if ad.address == address and ad.local_name:
