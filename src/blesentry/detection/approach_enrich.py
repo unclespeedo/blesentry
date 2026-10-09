@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 
 from blesentry.detection.approach import APPROACH_DETECTOR_ID, APPROACH_KIND
 from blesentry.detection.models import DetectionEvent
+from blesentry.outbound_text import sanitize_operator_name
 from blesentry.scanner.models import Advertisement
 from blesentry.storage.repository import DeviceRepository
 
@@ -50,12 +51,15 @@ async def enrich_approach_event(
     if device_id is not None:
         row = await devices.get(device_id)
         label = row["label"] if row is not None else None
-        if label and label.strip():
-            device_name = label
+        if label:
+            device_name = sanitize_operator_name(label)
     if device_name is None:
         for ad in advertisements:
-            if ad.address == address and ad.local_name:
-                device_name = ad.local_name
+            if ad.address != address or ad.local_name is None:
+                continue
+            candidate = sanitize_operator_name(ad.local_name)
+            if candidate:
+                device_name = candidate
                 break
     return event.model_copy(
         update={"device_name": device_name, "approach_identity": None}

@@ -19,12 +19,7 @@ from blesentry.detection.approach import (
 from blesentry.detection.features import proximity_band
 from blesentry.detection.models import DetectionEvent, DetectionWindow
 from blesentry.detection.trajectory import TrajectoryTracker
-
-
-def _safe_display_name(name: str) -> str:
-    """Collapse untrusted label / ``local_name`` for a one-line alert."""
-    cleaned = "".join(ch if ch.isprintable() else " " for ch in name)
-    return " ".join(cleaned.split())
+from blesentry.outbound_text import sanitize_operator_name
 
 
 def format_approach_alert(event: DetectionEvent) -> str:
@@ -43,7 +38,7 @@ def format_approach_alert(event: DetectionEvent) -> str:
     if event.rssi is None or event.band is None or event.rising is not True:
         raise ValueError("approach alert requires rssi, band, and rising")
     if event.device_name:
-        shown = _safe_display_name(event.device_name)
+        shown = sanitize_operator_name(event.device_name)
         if shown:
             return (
                 f"Approaching BLE device ({shown}, {event.band}, "

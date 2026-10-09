@@ -236,7 +236,10 @@ Approaching BLE device (far, RSSI -72 dBm, rising).
 
 Enrichment runs in ``run_cycle`` after ``observe`` (ADR-0006 I/O-free
 detector). ``DetectionEvent.device_name`` is optional and defaults to
-``None``; replay goldens omit it.
+``None``; replay goldens omit it. Names are cleaned via
+``blesentry.outbound_text.sanitize_operator_name`` (printable,
+one-line, length cap) before selection and formatting so a long or
+blank radio name cannot suppress delivery or hide a usable fallback.
 
 `run_cycle` / `run_loop` take a `Detector` and the scan-connection
 `OutboxRepository`. Default daemon config still uses `NullDetector`

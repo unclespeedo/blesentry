@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from typing import NamedTuple
 
 from blesentry.alerts import UnknownDeviceAlerter
+from blesentry.detection.approach_enrich import enrich_approach_event
 from blesentry.detection.familiar import FamiliarSetRefresher
 from blesentry.detection.features import band_counts
 from blesentry.detection.models import DetectionEvent, DetectionWindow
@@ -277,10 +278,6 @@ async def run_cycle(
                         heard=heard,
                     )
                 )
-                from blesentry.detection.approach_enrich import (
-                    enrich_approach_event,
-                )
-
                 for event in events:
                     event = await enrich_approach_event(
                         event,

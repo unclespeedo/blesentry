@@ -43,6 +43,7 @@ from blesentry.detection.replay import (
 from blesentry.detection.trajectory import TRACKER_FADE_AFTER_WINDOWS
 from blesentry.loop import run_cycle, run_loop
 from blesentry.notifier.models import OutboundMessage
+from blesentry.outbound_text import OPERATOR_NAME_MAX_LEN
 from blesentry.scanner.mock import MockScanner
 from blesentry.scanner.models import Advertisement
 from blesentry.storage.database import apply_migrations, connect
@@ -258,6 +259,23 @@ def test_detection_event_dump_omits_internal_approach_identity() -> None:
     dumped = json.dumps(event.model_dump())
     assert ADDR not in dumped
     assert ADDR not in repr(event)
+
+
+def test_alert_text_truncates_long_device_name() -> None:
+    long_name = "n" * (OPERATOR_NAME_MAX_LEN + 10)
+    event = DetectionEvent(
+        detector=APPROACH_DETECTOR_ID,
+        kind=APPROACH_KIND,
+        window_index=7,
+        rssi=-72,
+        band="far",
+        rising=True,
+        device_name=long_name,
+    )
+    text = format_approach_alert(event)
+    assert len(text) < 200
+    assert "n" * OPERATOR_NAME_MAX_LEN in text
+    assert "n" * (OPERATOR_NAME_MAX_LEN + 1) not in text
 
 
 def test_alert_text_sanitizes_crafted_device_name() -> None:
