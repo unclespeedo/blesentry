@@ -77,7 +77,10 @@
   F6 ``is_familiar`` / ``FamiliarSet`` live in
   ``blesentry.detection.familiar`` (``docs/familiar.md``); I2 wires
   exclusion into detectors. Alert text never uses metres
-  or a raw address. Do not dump feature vectors of a real capture into CI
+  or a raw address. Plain-text outbox lines that embed operator labels
+  or radio ``local_name`` values must use
+  ``blesentry.outbound_text.sanitize_operator_name`` (printable,
+  one-line, length cap — same posture as the daily digest). Do not dump feature vectors of a real capture into CI
   logs (same hygiene as replay).
 
 ## Workflow
