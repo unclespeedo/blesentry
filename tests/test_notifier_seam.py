@@ -233,3 +233,23 @@ def test_build_notifier_ntfy_returns_ntfy() -> None:
         command_topic="c",
     )
     assert isinstance(build_notifier(cfg), NtfyNotifier)
+
+
+def test_ntfy_rejects_equal_alert_and_command_topics() -> None:
+    with pytest.raises(ValidationError):
+        NtfyNotifierConfig(
+            backend="ntfy",
+            alert_topic="same",
+            command_topic="same",
+        )
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("nan")])
+def test_ntfy_poll_timeout_must_be_finite(bad: float) -> None:
+    with pytest.raises(ValidationError):
+        NtfyNotifierConfig(
+            backend="ntfy",
+            alert_topic="a",
+            command_topic="c",
+            poll_timeout=bad,
+        )

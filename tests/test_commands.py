@@ -397,11 +397,13 @@ async def test_ntfy_status_command_end_to_end(
         nonlocal poll_calls
         poll_calls += 1
         if request.method == "GET":
-            line = (
-                '{"id":"n1","event":"message","message":"/status"}'
-                if poll_calls == 1
-                else ""
-            )
+            assert request.url.params.get("poll") == "1"
+            if poll_calls == 1:
+                return httpx.Response(
+                    200,
+                    text='{"id":"o1","event":"open","topic":"cmds"}\n',
+                )
+            line = '{"id":"n1","event":"message","message":"/status"}'
             return httpx.Response(200, text=line)
         return httpx.Response(200, json={"id": "out1", "event": "message"})
 

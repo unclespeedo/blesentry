@@ -1,3 +1,9 @@
+<!--
+  SPDX-License-Identifier: MPL-2.0
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
 # Notifier backends
 
 blesentry delivers alerts and reads operator commands through the
@@ -26,9 +32,10 @@ model as Telegram (daemon initiates all connections).
 **Public topics:** without a Bearer token, anyone who guesses a topic
 name can publish commands. Use authenticated topics in production.
 
-**Topics:** use two names — one for **alerts** (daemon publishes) and
-one for **commands** (daemon subscribes). Splitting topics keeps alert
-traffic out of the command stream and matches typical ACL layouts.
+**Topics:** use two **different** names — one for **alerts** (daemon
+publishes) and one for **commands** (daemon subscribes). Config rejects
+identical names (replies on the alert topic would otherwise be read back
+as commands).
 
 **Auth:** on a private server or paid tier, protect both topics with the
 same Bearer token (`Authorization: Bearer …`). Anyone who can publish to
@@ -37,19 +44,24 @@ holding the Telegram bot token). Configure `operator_user_id` for
 `label_audit` actor strings (`ntfy:<id>` is not used — the numeric id
 feeds the existing `tg:<user_id>` audit field for consistency).
 
-**Commands:** subscribe with `poll=1` and `since=none` (then each
-message `id`) on `{server}/{command_topic}/json`. Only `event=message`
-payloads with a string `message` body become command text. The same
-router as Telegram applies (`/status`, `/label`, `/init`, …) — publish
-the command string to the command topic. Keepalive and other events are
-ignored. The cursor advances only after the daemon finishes handling a
-command (at-least-once redelivery on crash).
+**Commands:** poll `{server}/{command_topic}/json?poll=1&since=…`.
+The first poll uses a Unix `since` timestamp (subscribe anchor); after
+each handled command the cursor becomes that message's `id` (ntfy replay
+semantics). Only `event=message` payloads with a string `message` body
+become command text. The same router as Telegram applies (`/status`,
+`/label`, `/init`, …) — publish the command string to the command topic.
+Keepalive and other events are ignored. The cursor advances only **after**
+the consumer resumes past `yield` (same at-least-once contract as
+Telegram's update offset). The cursor is **in-memory** — after restart
+the anchor resets; commands still in the server cache may be missed if
+they fall outside the new anchor window (republish or wait for ntfy cache
+TTL).
 
 | Key | Required | Default |
 | --- | --- | --- |
 | `backend` | yes | — (`"ntfy"`) |
 | `alert_topic` | yes | — |
-| `command_topic` | yes | — |
+| `command_topic` | yes | — (must differ from `alert_topic`) |
 | `server` | no | `https://ntfy.sh` |
 | `token` | no | — (env: `BLESENTRY_NOTIFIER__TOKEN`) |
 | `operator_user_id` | no | `1` |

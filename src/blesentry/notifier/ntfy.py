@@ -5,7 +5,8 @@
 """NtfyNotifier — HTTP push backend (P4-7).
 
 Publishes alerts with ``POST /{alert_topic}`` and receives operator
-commands by long-polling ``GET /{command_topic}/json?poll=1``. Works
+commands by polling ``GET /{command_topic}/json?poll=1`` with a
+``since`` cursor (Unix time at subscribe, then message ids). Works
 entirely over outbound HTTPS, like Telegram long-poll (ADR-0003
 connectivity model) without a Bot API.
 
@@ -23,6 +24,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Mapping
 
 import httpx
@@ -68,7 +70,7 @@ class NtfyNotifier:
         self._token = token
         self._poll_timeout = poll_timeout
         self._error_backoff = error_backoff
-        self._since = "none"
+        self._since: str | None = None
         read = poll_timeout + _POLL_READ_HEADROOM
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(read, connect=5.0)
@@ -120,6 +122,8 @@ class NtfyNotifier:
 
     async def commands(self) -> AsyncIterator[InboundCommand]:
         """Poll the command topic JSON stream until cancelled."""
+        if self._since is None:
+            self._since = str(int(time.time()))
         url = f"{self._base}/{self._command_topic}/json"
         while True:
             try:
@@ -127,6 +131,10 @@ class NtfyNotifier:
                     url,
                     params={"poll": "1", "since": self._since},
                     headers=self._auth_headers(),
+                    timeout=httpx.Timeout(
+                        self._poll_timeout + _POLL_READ_HEADROOM,
+                        connect=5.0,
+                    ),
                 )
             except httpx.HTTPError as exc:
                 logger.warning(

@@ -24,6 +24,7 @@ path-qualified message. A sentinel that cannot start must say why.
 
 from __future__ import annotations
 
+import math
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
@@ -36,6 +37,7 @@ from pydantic import (
     SecretStr,
     ValidationError,
     field_validator,
+    model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -210,6 +212,19 @@ class NtfyNotifierConfig(_Section):
     @classmethod
     def _strip_server_trailing_slash(cls, value: str) -> str:
         return value.rstrip("/")
+
+    @field_validator("poll_timeout")
+    @classmethod
+    def _finite_poll_timeout(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("poll_timeout must be finite")
+        return value
+
+    @model_validator(mode="after")
+    def _command_topic_differs_from_alerts(self) -> NtfyNotifierConfig:
+        if self.alert_topic == self.command_topic:
+            raise ValueError("alert_topic and command_topic must be different")
+        return self
 
 
 class TelegramNotifierConfig(_Section):

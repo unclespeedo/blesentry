@@ -71,6 +71,17 @@ def _command_line(
     )
 
 
+def _open_line() -> str:
+    return json.dumps(
+        {
+            "id": "open1",
+            "time": 1,
+            "event": "open",
+            "topic": "blesentry-cmd",
+        }
+    )
+
+
 async def test_ntfy_notifier_satisfies_protocol() -> None:
     notifier = _make(lambda req: httpx.Response(200, json={}))
     assert isinstance(notifier, Notifier)
@@ -125,6 +136,8 @@ async def test_commands_yields_message_event_bodies() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal poll_calls
+        assert request.url.params.get("poll") == "1"
+        assert request.url.params.get("since") is not None
         poll_calls += 1
         if poll_calls == 1:
             body = _command_line(body="/status") + "\n"
@@ -142,6 +155,33 @@ async def test_commands_yields_message_event_bodies() -> None:
     assert cmd.text == "/status"
     assert cmd.user_id == OPERATOR
     assert cmd.chat_id == OPERATOR
+
+
+async def test_commands_empty_poll_then_later_message() -> None:
+    """Greptile P1: first poll may return no command; a later poll must."""
+    poll_calls = 0
+    first_since: str | None = None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal poll_calls, first_since
+        assert request.url.params.get("poll") == "1"
+        poll_calls += 1
+        if poll_calls == 1:
+            first_since = request.url.params.get("since")
+            return httpx.Response(200, text=_open_line() + "\n")
+        assert request.url.params.get("since") == first_since
+        return httpx.Response(200, text=_command_line(body="/status") + "\n")
+
+    notifier = _make(handler)
+    cmd = None
+    async for item in notifier.commands():
+        cmd = item
+        break
+    await notifier.aclose()
+
+    assert poll_calls >= 2
+    assert first_since is not None and first_since.isdigit()
+    assert cmd is not None and cmd.text == "/status"
 
 
 async def test_commands_skips_non_message_events() -> None:
@@ -185,7 +225,9 @@ async def test_commands_advances_since_only_after_yield() -> None:
         if len(got) >= 2:
             break
     await notifier.aclose()
-    assert seen_since == ["none", "first"]
+    assert len(seen_since) >= 2
+    assert seen_since[0] is not None and seen_since[0].isdigit()
+    assert seen_since[1] == "first"
     assert got[0].text == "/status"
     assert got[1].text == "/help"
 
