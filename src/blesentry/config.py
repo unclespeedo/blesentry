@@ -57,6 +57,7 @@ __all__ = [
     "NoneDetectionConfig",
     "NoneNotifierConfig",
     "NotifierConfig",
+    "NtfyNotifierConfig",
     "PresenceConfig",
     "ResolverConfig",
     "ScanConfig",
@@ -190,6 +191,27 @@ class NoneNotifierConfig(_Section):
     backend: Literal["none"] = "none"
 
 
+class NtfyNotifierConfig(_Section):
+    """ntfy HTTP backend (P4-7): POST alerts, poll JSON commands.
+
+    ``token`` is optional Bearer auth for private topics (SecretStr).
+    ``operator_user_id`` feeds label-audit actor ids on inbound commands.
+    """
+
+    backend: Literal["ntfy"]
+    server: str = Field(default="https://ntfy.sh", min_length=1)
+    alert_topic: str = Field(min_length=1)
+    command_topic: str = Field(min_length=1)
+    token: SecretStr | None = None
+    operator_user_id: int = Field(default=1, ge=1)
+    poll_timeout: float = Field(default=30.0, gt=0)
+
+    @field_validator("server")
+    @classmethod
+    def _strip_server_trailing_slash(cls, value: str) -> str:
+        return value.rstrip("/")
+
+
 class TelegramNotifierConfig(_Section):
     """Telegram backend (ADR-0003): long-poll ``getUpdates``, no webhook.
 
@@ -214,7 +236,7 @@ class TelegramNotifierConfig(_Section):
 # options model — and thus which keys are legal — is chosen by the
 # ``backend`` string (ADR-0002's "config maps a string key to a class").
 NotifierConfig = Annotated[
-    NoneNotifierConfig | TelegramNotifierConfig,
+    NoneNotifierConfig | TelegramNotifierConfig | NtfyNotifierConfig,
     Field(discriminator="backend"),
 ]
 
@@ -476,6 +498,19 @@ def build_notifier(notifier: NotifierConfig) -> Notifier:
             bot_token=notifier.bot_token.get_secret_value(),
             chat_id=notifier.chat_id,
             user_id=notifier.user_id,
+            poll_timeout=notifier.poll_timeout,
+        )
+
+    if isinstance(notifier, NtfyNotifierConfig):
+        from blesentry.notifier.ntfy import NtfyNotifier
+
+        token = notifier.token.get_secret_value() if notifier.token else None
+        return NtfyNotifier(
+            server=notifier.server,
+            alert_topic=notifier.alert_topic,
+            command_topic=notifier.command_topic,
+            token=token,
+            operator_user_id=notifier.operator_user_id,
             poll_timeout=notifier.poll_timeout,
         )
 
