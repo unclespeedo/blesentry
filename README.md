@@ -46,7 +46,7 @@ remainder in progress alongside remote Phase 3 ops (see
                 │ Outbox ──▶ Drain loop (exp. backoff) ──▶     │
                 │             Notifier (protocol)              │
                 │               ├─ TelegramNotifier (locked)   │
-                │               └─ DiscordNotifier (fut. P4-7) │
+                │               └─ NtfyNotifier (P4-7)           │
                 │                                              │
                 │ Bot command handler ◀── inbound chat msgs    │
                 │  (label, status, list, force-scan, init…)    │
@@ -92,9 +92,10 @@ At a busy site the defaults will alert on every lingering device. Turn it
 down with the `[presence]` section — start by raising `rssi_threshold` to
 alert only on nearby devices. See `docs/tuning.md` for the recipe.
 
-### Operator commands (Telegram)
+### Operator commands (Telegram or ntfy)
 
-Once a Telegram notifier is configured, the daemon's command loop accepts
+With a configured notifier backend (`telegram` or `ntfy`; see
+[`docs/notifier.md`](docs/notifier.md)), the daemon's command loop accepts
 `/status`, `/list`, `/label`, `/unlabel`, `/ignore`, `/describe`, and
 `/init`. `/init` starts a time-boxed bulk-label session of currently
 PRESENT unlabeled devices (reply with a name — no slash — then `/skip` /

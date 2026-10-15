@@ -31,6 +31,7 @@ from blesentry.commands import (
 )
 from blesentry.notifier.mock import MockNotifier
 from blesentry.notifier.models import InboundCommand, OutboundMessage
+from blesentry.notifier.ntfy import NtfyNotifier
 from blesentry.notifier.telegram import TelegramNotifier
 from blesentry.storage import (
     DeviceRepository,
@@ -379,6 +380,54 @@ async def test_wrong_user_id_is_never_dispatched(
     row = await devices.get(device_id)
     assert row is not None and row["label"] is None
     # The one reply is the authorized /status.
+    replies = [
+        OutboundMessage.model_validate_json(row["payload"]).text
+        for row in await outbox.list_pending()
+    ]
+    assert len(replies) == 1
+    assert replies[0].startswith("status:")
+
+
+async def test_ntfy_status_command_end_to_end(
+    devices: DeviceRepository, outbox: OutboxRepository
+) -> None:
+    poll_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal poll_calls
+        poll_calls += 1
+        if request.method == "GET":
+            assert request.url.params.get("poll") == "1"
+            if poll_calls == 1:
+                return httpx.Response(
+                    200,
+                    text='{"id":"o1","event":"open","topic":"cmds"}\n',
+                )
+            line = '{"id":"n1","event":"message","message":"/status"}'
+            return httpx.Response(200, text=line)
+        return httpx.Response(200, json={"id": "out1", "event": "message"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    notifier = NtfyNotifier(
+        server="https://ntfy.example",
+        alert_topic="alerts",
+        command_topic="cmds",
+        operator_user_id=USER,
+        client=client,
+        error_backoff=0.0,
+    )
+    processed = await run_command_loop(
+        notifier,
+        devices,
+        outbox,
+        db_path="x.db",
+        started_at=0.0,
+        clock=lambda: 0.0,
+        max_commands=1,
+    )
+    await notifier.aclose()
+
+    assert processed == 1
     replies = [
         OutboundMessage.model_validate_json(row["payload"]).text
         for row in await outbox.list_pending()

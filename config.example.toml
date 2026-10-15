@@ -85,7 +85,8 @@ cooldown_windows = 0
 
 [notifier]
 # Notifier backend selector (ADR-0002). "none" runs the daemon without
-# alerting; "telegram" is the v1 chat platform (ADR-0003).
+# alerting; "telegram" is the v1 chat platform (ADR-0003); "ntfy" is
+# the OSS HTTP push adapter (P4-7 — docs/notifier.md).
 # Note: `run` always drains the outbox. With "none", any queued alert is
 # DISCARDED (its outbox row is marked delivered) — configure a real
 # backend to actually deliver.
@@ -108,6 +109,21 @@ backend = "none"
 # committed token is burned). Inject it via the environment instead:
 #   export BLESENTRY_NOTIFIER__BOT_TOKEN="123456:abc..."
 # or place it in config.local.toml (gitignored). See SECURITY.md.
+
+# ntfy backend (P4-7): separate topics for alerts vs commands; optional
+# Bearer token for private/self-hosted servers. operator_user_id feeds
+# label_audit (same role as Telegram user_id).
+# [notifier]
+# backend = "ntfy"
+# server = "https://ntfy.sh"
+# alert_topic = "my-site-alerts"
+# command_topic = "my-site-cmd"
+# operator_user_id = 1
+# poll_timeout = 30.0
+#
+# token is a SECRET — inject via environment:
+#   export BLESENTRY_NOTIFIER__TOKEN="tk_..."
+# See docs/notifier.md and SECURITY.md.
 
 [detection]
 # Detector backend selector (ADR-0006). "none" (default) emits
