@@ -25,6 +25,10 @@ from typing import NamedTuple
 
 from blesentry.loop import iso_utc
 from blesentry.notifier.models import OutboundMessage
+from blesentry.outbound_text import (
+    OPERATOR_NAME_MAX_LEN,
+    sanitize_operator_name,
+)
 from blesentry.storage.database import transaction
 from blesentry.storage.repository import (
     DeviceRepository,
@@ -41,7 +45,7 @@ LAST_SENT_KEY = "daily_summary.last_sent"
 DEFAULT_POLL = 60.0
 _DAY = 86400.0
 _LIST_CAP = 20
-_LABEL_CAP = 40
+_LABEL_CAP = OPERATOR_NAME_MAX_LEN
 
 __all__ = [
     "DEFAULT_POLL",
@@ -89,16 +93,11 @@ def _one_line(text: str) -> str:
 
 
 def _safe_label(label: str | None) -> str:
-    """Operator label for digest rows: printable, one line, length-capped.
-
-    Labels are operator-chosen (trusted), not radio-sourced, but still
-    sanitised so a newline or control char cannot forge a second row,
-    and so a long label cannot blow Telegram's 4096-char cap.
-    """
+    """Operator label for digest rows: printable, one line, length-capped."""
     if not label:
         return "(unlabeled)"
-    cleaned = "".join(ch if ch.isprintable() else " " for ch in label)
-    return _one_line(cleaned)[:_LABEL_CAP] or "(unlabeled)"
+    cleaned = sanitize_operator_name(label, max_len=_LABEL_CAP)
+    return cleaned or "(unlabeled)"
 
 
 def _device_line(device: DeviceRow) -> str:

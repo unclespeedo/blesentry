@@ -66,8 +66,10 @@ class DetectionEvent(BaseModel):
 
     ``kind`` is detector-defined; A1 / C1 / I1 freeze their tokens.
     ``window_index`` is the clock-free timestamp (the window's index).
-    Additive A3 fields (``rssi`` / ``band`` / ``rising``) default to
-    ``None`` so ``mock`` events stay three tokens (ADR-0006).
+    Additive A3 fields (``rssi`` / ``band`` / ``rising`` / ``device_name``)
+    default to ``None`` so ``mock`` events stay three tokens (ADR-0006).
+    ``approach_identity`` is set by ``ApproachDetector`` and stripped in
+    ``run_cycle`` enrichment; excluded from dumps (SECURITY.md).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -78,6 +80,10 @@ class DetectionEvent(BaseModel):
     rssi: int | None = None
     band: ProximityBand | None = None
     rising: bool | None = None
+    device_name: str | None = None
+    approach_identity: str | None = Field(
+        default=None, exclude=True, repr=False
+    )
     count: int | None = Field(default=None, ge=1)
     count_all: int | None = Field(default=None, ge=0)
     contributors: tuple[int, ...] | None = None

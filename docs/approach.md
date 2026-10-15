@@ -208,6 +208,7 @@ fired this visit, it returns one `DetectionEvent`:
 | `rssi` | terminal (this-window max) RSSI, dBm |
 | `band` | exclusive F3 label of that RSSI (`proximity_band`) |
 | `rising` | `True` |
+| `device_name` | operator label or ``local_name`` when enriched in ``run_cycle``; else omitted |
 
 No raw address, no metres (DC-6, SECURITY.md). Additive fields on
 `DetectionEvent` default to `None` so `mock` events stay three
@@ -218,11 +219,27 @@ of the same climb; A3 emits on the first match only. Fade-eviction
 (A2, 12 missed indexes) clears the identity so a later visit can
 fire again.
 
-**Alert text** (snapshot-tested), never a distance:
+**Alert text** (snapshot-tested), never a distance. When the cycle
+consumer resolves a display name (operator ``devices.label`` first,
+else the triggering advertisement's ``local_name``), the name is
+inserted after ``device``:
+
+```text
+Approaching BLE device (My sensor, far, RSSI -72 dBm, rising).
+```
+
+With no resolvable name, the text is unchanged:
 
 ```text
 Approaching BLE device (far, RSSI -72 dBm, rising).
 ```
+
+Enrichment runs in ``run_cycle`` after ``observe`` (ADR-0006 I/O-free
+detector). ``DetectionEvent.device_name`` is optional and defaults to
+``None``; replay goldens omit it. Names are cleaned via
+``blesentry.outbound_text.sanitize_operator_name`` (printable,
+one-line, length cap) before selection and formatting so a long or
+blank radio name cannot suppress delivery or hide a usable fallback.
 
 `run_cycle` / `run_loop` take a `Detector` and the scan-connection
 `OutboxRepository`. Default daemon config still uses `NullDetector`
